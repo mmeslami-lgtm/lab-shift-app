@@ -24,6 +24,36 @@ npm run dev
 
 Dann [http://localhost:3000](http://localhost:3000) im Browser öffnen.
 
+## Supabase einrichten (für die Anwesenheits-API)
+
+1. Das vorher erstellte Supabase-Projekt öffnen -> **Project Settings -> API**.
+2. Drei Werte kopieren: **Project URL**, **anon public** Key, **service_role** Key.
+3. `.env.local.example` zu `.env.local` kopieren und die drei Werte eintragen.
+4. Auf Vercel dieselben drei Variablen unter **Project Settings -> Environment Variables**
+   eintragen (sonst funktioniert die API nach dem Deploy nicht).
+
+## Anwesenheits-Endpunkt (für das Chip-Lesegerät)
+
+Nach dem Deploy ist der Endpunkt erreichbar unter:
+
+```
+https://DEIN-PROJEKT.vercel.app/api/attendance
+```
+
+- **GET** → einfacher Health-Check (zeigt, dass der Endpunkt läuft).
+- **POST** → nimmt einen Scan entgegen und speichert ihn in `attendance_events`.
+  Details zum erwarteten Format stehen als Kommentar oben in
+  `app/api/attendance/route.js`. Sobald das genaue Gerät feststeht, ist diese
+  Datei die einzige, die an das tatsächliche Protokoll angepasst werden muss.
+
+Zum Testen z. B. mit curl:
+
+```bash
+curl -X POST https://DEIN-PROJEKT.vercel.app/api/attendance \
+  -H "Content-Type: application/json" \
+  -d '{"badge_code": "TEST123"}'
+```
+
 ## Auf Vercel veröffentlichen
 
 1. **Dieses Projekt auf GitHub hochladen** (neues Repository erstellen, diesen
