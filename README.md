@@ -7,6 +7,7 @@ Next.js-App, bereit für Vercel. Enthält drei Seiten und eine Zeiterfassungs-AP
 | `/` | Dienstplaner **Labor** (Schichten vorbelegt) – für die Leitung |
 | `/allgemein` | Dienstplaner **allgemein** (Früh/Spät vorbelegt, alles frei änderbar) |
 | `/mitarbeiter` | **Meine Schichten** – App für Mitarbeitende (derzeit mit Beispieldaten) |
+| `/konto` | **Anmeldung** und Firmenübersicht mit Sicherheits-Check (zeigt, dass Firmen getrennt sind) |
 | `/api/attendance` | Eingang für das Chip-Lesegerät. Jedes Gerät gehört zu **einer Firma** und meldet sich mit Seriennummer + Geheimnis (Tabelle `devices`). |
 
 ## Excel-Export
