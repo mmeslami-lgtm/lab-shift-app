@@ -1,11 +1,16 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import ProductGate from "../components/ProductGate";
 
-// These screens depend on today's date, so they render in the browser only (no server pre-render,
-// which would freeze the build date into the page and cause a flicker on load).
+// Needs a login, a company with the "Dienstplaner Labor" product, and the role boss/owner.
+// Renders in the browser only (depends on today's date).
 const LabShiftScheduler = dynamic(() => import("../components/LabShiftScheduler"), { ssr: false });
 
 export default function Page() {
-  return <LabShiftScheduler />;
+  return (
+    <ProductGate product="lab_planner" supervisorOnly label="Dienstplaner Labor">
+      <LabShiftScheduler />
+    </ProductGate>
+  );
 }

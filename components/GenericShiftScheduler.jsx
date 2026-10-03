@@ -1,6 +1,9 @@
 "use client";
 
 import React, { useState, useMemo, useRef, useEffect } from "react";
+import { OrgContext } from "../lib/orgContext";
+import OrgBar from "./OrgBar";
+import PublishPanel from "./PublishPanel";
 import { Calendar, Users, AlertTriangle, RefreshCw, Plus, Trash2, Copy, Check, ClipboardList, Info } from "lucide-react";
 import { genericStorage as storage } from "../lib/storage";
 
@@ -1278,6 +1281,24 @@ function LabShiftSchedulerInner() {
   // shift — those get their own column logic) — used to know which columns go blank on holidays.
   const dailyDayShiftKeys = useMemo(() => new Set(dayShiftDefs.filter((d) => d.frequency !== "quota" && !d.requiresRestAfter).map((d) => d.key)), [dayShiftDefs]);
 
+  // ---- connection to the shared database (only active when the page runs behind the login gate) ----
+  const orgCtx = React.useContext(OrgContext);
+  const shiftListForDb = dayOrderedKeys.map((k) => {
+    const def = dayShiftDefs.find((d) => d.key === k);
+    return {
+      key: k, label: shiftMeta[k].label, time: shiftMeta[k].time,
+      frequency: def ? def.frequency : "daily", quotaCount: def ? def.quotaCount : null, preferLead: def ? !!def.preferLead : false,
+      requiresRestAfter: restRequiringKeys.includes(k), runsOnWeekends: !dailyDayShiftKeys.has(k),
+    };
+  });
+  const loadStaffFromDb = (rows) => {
+    setStaffList(rows.map((r) => ({
+      id: r.id, name: r.name, weeklyHours: Number(r.weekly_hours) || 38.5, employmentType: r.employment_type || "full",
+      nightExempt: !!r.night_exempt, weekendExempt: !!r.weekend_exempt, isTeamLead: !!r.is_team_lead, email: r.email || "",
+    })));
+    setLeaveEntries([]); setSickEntries([]); setWishEntries([]); setSchedule(null);
+  };
+
 
   const staffMap = useMemo(() => {
     const m = {};
@@ -1626,6 +1647,8 @@ function LabShiftSchedulerInner() {
           </div>
           <p className="text-sm text-slate-500">Frei definierbare Schichten unter Berücksichtigung der Wochenstunden, der Nachtdienstrotation und der Wochenendquote — nach dem Erstellen manuell bearbeitbar.</p>
         </header>
+
+        {orgCtx && <OrgBar onLoadStaff={loadStaffFromDb} />}
 
         {/* Archive */}
         {archiveList.length > 0 && (
@@ -2207,6 +2230,7 @@ function LabShiftSchedulerInner() {
                   </a>
                 </div>
               </div>
+              {orgCtx && <PublishPanel schedule={schedule} staffList={staffList} year={year} monthIdx={monthIdx} shiftList={shiftListForDb} />}
               {(archiveState === "error" || saveState === "error") && (
                 <div className="mx-4 mt-3 rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs text-rose-800">
                   {archiveState === "error" && (

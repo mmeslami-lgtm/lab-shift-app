@@ -1,6 +1,9 @@
 "use client";
 
 import React, { useState, useMemo, useRef, useEffect } from "react";
+import { OrgContext } from "../lib/orgContext";
+import OrgBar from "./OrgBar";
+import PublishPanel from "./PublishPanel";
 import { Calendar, Users, AlertTriangle, RefreshCw, Plus, Trash2, Copy, Check, ClipboardList, Info } from "lucide-react";
 import { storage } from "../lib/storage";
 
@@ -1207,6 +1210,24 @@ function LabShiftSchedulerInner() {
   // go blank on holidays (the daily ones do; quota ones like Büro were never scheduled there anyway).
   const dailyDayShiftKeys = useMemo(() => new Set(dayShiftDefs.filter((d) => d.frequency !== "quota").map((d) => d.key)), [dayShiftDefs]);
 
+  // ---- connection to the shared database (only active when the page runs behind the login gate) ----
+  const orgCtx = React.useContext(OrgContext);
+  const shiftListForDb = dayOrderedKeys.map((k) => {
+    const def = dayShiftDefs.find((d) => d.key === k);
+    return {
+      key: k, label: shiftMeta[k].label, time: shiftMeta[k].time,
+      frequency: def ? def.frequency : "daily", quotaCount: def ? def.quotaCount : null, preferLead: def ? !!def.preferLead : false,
+      requiresRestAfter: k === "N", runsOnWeekends: !dailyDayShiftKeys.has(k),
+    };
+  });
+  const loadStaffFromDb = (rows) => {
+    setStaffList(rows.map((r) => ({
+      id: r.id, name: r.name, weeklyHours: Number(r.weekly_hours) || 38.5, employmentType: r.employment_type || "full",
+      nightExempt: !!r.night_exempt, weekendExempt: !!r.weekend_exempt, isLeadMTLA: !!r.is_team_lead, email: r.email || "",
+    })));
+    setLeaveEntries([]); setSickEntries([]); setWishEntries([]); setSchedule(null);
+  };
+
   const staffMap = useMemo(() => {
     const m = {};
     staffList.forEach((s) => (m[s.id] = s.name));
@@ -1552,6 +1573,8 @@ function LabShiftSchedulerInner() {
           </div>
           <p className="text-sm text-slate-500">Vier feste Schichten unter Berücksichtigung der Wochenstunden, der Nachtdienstrotation und der Wochenendquote — nach dem Erstellen manuell bearbeitbar.</p>
         </header>
+
+        {orgCtx && <OrgBar onLoadStaff={loadStaffFromDb} />}
 
         {/* Archive */}
         {archiveList.length > 0 && (
@@ -2109,6 +2132,7 @@ function LabShiftSchedulerInner() {
                   </a>
                 </div>
               </div>
+              {orgCtx && <PublishPanel schedule={schedule} staffList={staffList} year={year} monthIdx={monthIdx} shiftList={shiftListForDb} />}
               {(archiveState === "error" || saveState === "error") && (
                 <div className="mx-4 mt-3 rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs text-rose-800">
                   {archiveState === "error" && (

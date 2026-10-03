@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState, useCallback } from "react";
 import { supabase, supabaseConfigured } from "../lib/supabaseClient";
+import LoginForm from "./LoginForm";
 
 const INK = "#1B2433";
 const PRIMARY = "#243B6B";
@@ -17,24 +18,11 @@ const PRODUCT_LABEL = {
 const ROLE_LABEL = { owner: "Inhaber", supervisor: "Leitung", employee: "Mitarbeitende" };
 
 const card = { background: "#fff", borderRadius: 18, padding: 16, marginBottom: 12 };
-const fld = { display: "block", width: "100%", boxSizing: "border-box", marginTop: 4, border: `1px solid ${LINE}`, borderRadius: 12, padding: "12px 12px", fontSize: 16, background: "#fff", color: INK };
 const btn = { border: 0, borderRadius: 14, background: PRIMARY, color: "#fff", fontSize: 16, fontWeight: 650, padding: "13px 16px", cursor: "pointer" };
 const btnGhost = { border: `1px solid ${LINE}`, borderRadius: 12, background: "#fff", color: INK, fontSize: 14, fontWeight: 600, padding: "10px 12px", cursor: "pointer" };
 
-function translateAuthError(msg) {
-  const m = String(msg || "").toLowerCase();
-  if (m.includes("invalid login")) return "E-Mail oder Passwort ist falsch.";
-  if (m.includes("email not confirmed")) return "Die E-Mail-Adresse ist noch nicht bestätigt.";
-  if (m.includes("rate limit") || m.includes("too many")) return "Zu viele Versuche. Bitte kurz warten.";
-  return msg || "Anmeldung fehlgeschlagen.";
-}
-
 export default function AccountPanel() {
   const [session, setSession] = useState(undefined); // undefined = still loading
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [authError, setAuthError] = useState("");
-  const [busy, setBusy] = useState(false);
   const [data, setData] = useState(null);
   const [loadError, setLoadError] = useState("");
   const [checks, setChecks] = useState(null);
@@ -46,27 +34,21 @@ export default function AccountPanel() {
     return () => sub.subscription.unsubscribe();
   }, []);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (uid) => {
     setLoadError(""); setData(null); setChecks(null);
-    const mem = await supabase.from("memberships").select("org_id, role, staff_id, organizations(name)");
+    // A boss may also read the other accounts of the company, so keep MY memberships apart from all visible ones.
+    const mem = await supabase.from("memberships").select("user_id, org_id, role, staff_id, organizations(name)");
     if (mem.error) { setLoadError(mem.error.message); return; }
-    const orgIds = mem.data.map((m) => m.org_id);
+    const mine = mem.data.filter((m) => m.user_id === uid);
+    const orgIds = mine.map((m) => m.org_id);
     const prod = await supabase.from("org_products").select("org_id, product, enabled");
     const staff = await supabase.from("staff").select("id, org_id, name");
     if (prod.error || staff.error) { setLoadError((prod.error || staff.error).message); return; }
-    setData({ memberships: mem.data, orgIds, products: prod.data, staff: staff.data });
+    setData({ memberships: mine, allMemberships: mem.data, orgIds, products: prod.data, staff: staff.data });
   }, []);
 
-  useEffect(() => { if (session) load(); else { setData(null); setChecks(null); } }, [session, load]);
+  useEffect(() => { if (session) load(session.user.id); else { setData(null); setChecks(null); } }, [session, load]);
 
-  async function signIn(e) {
-    e.preventDefault();
-    setAuthError(""); setBusy(true);
-    const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
-    setBusy(false);
-    if (error) setAuthError(translateAuthError(error.message));
-    else setPassword("");
-  }
   async function signOut() { await supabase.auth.signOut(); }
 
   // Two checks that prove the company separation works for THIS login.
@@ -104,20 +86,7 @@ export default function AccountPanel() {
 
         {supabaseConfigured && session === undefined && <div style={{ color: MUTED }}>Lädt …</div>}
 
-        {supabaseConfigured && session === null && (
-          <form onSubmit={signIn} style={card}>
-            <div style={{ fontSize: 16, fontWeight: 650, marginBottom: 10 }}>Anmelden</div>
-            <label style={{ display: "block", fontSize: 12, color: MUTED, marginBottom: 12 }}>E-Mail
-              <input type="email" autoComplete="username" required value={email} onChange={(e) => setEmail(e.target.value)} style={fld} />
-            </label>
-            <label style={{ display: "block", fontSize: 12, color: MUTED, marginBottom: 14 }}>Passwort
-              <input type="password" autoComplete="current-password" required value={password} onChange={(e) => setPassword(e.target.value)} style={fld} />
-            </label>
-            {authError && <div role="alert" style={{ fontSize: 13, color: "#B3263E", background: "#FCE5EA", borderRadius: 12, padding: "9px 12px", marginBottom: 12 }}>{authError}</div>}
-            <button type="submit" disabled={busy} style={{ ...btn, width: "100%", opacity: busy ? 0.6 : 1 }}>{busy ? "Moment …" : "Anmelden"}</button>
-            <div style={{ fontSize: 12, color: MUTED, marginTop: 10 }}>Zugänge werden von der Leitung vergeben. Eine Selbst-Registrierung gibt es nicht.</div>
-          </form>
-        )}
+        {supabaseConfigured && session === null && <LoginForm title="Anmelden" />}
 
         {supabaseConfigured && session && (
           <>
@@ -139,6 +108,8 @@ export default function AccountPanel() {
             {data && data.memberships.map((m) => {
               const prods = data.products.filter((p) => p.org_id === m.org_id && p.enabled);
               const people = data.staff.filter((s) => s.org_id === m.org_id);
+              const accounts = data.allMemberships.filter((x) => x.org_id === m.org_id).length;
+              const isBoss = m.role === "owner" || m.role === "supervisor";
               return (
                 <div key={m.org_id} style={card}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8 }}>
@@ -153,6 +124,7 @@ export default function AccountPanel() {
                   <div style={{ fontSize: 12, color: MUTED, margin: "12px 0 4px" }}>Personen, die du in dieser Firma sehen darfst ({people.length})</div>
                   {people.length === 0 && <div style={{ fontSize: 13, color: MUTED }}>niemand</div>}
                   {people.map((s) => <div key={s.id} style={{ fontSize: 14, padding: "2px 0" }}>{s.name}{s.id === m.staff_id ? " (du)" : ""}</div>)}
+                  {isBoss && <div style={{ fontSize: 12, color: MUTED, marginTop: 10 }}>Zugänge (Logins) in dieser Firma: {accounts}</div>}
                 </div>
               );
             })}
