@@ -2,7 +2,7 @@
 
 import React, { useState, useMemo, useRef, useEffect } from "react";
 import { Calendar, Users, AlertTriangle, RefreshCw, Plus, Trash2, Copy, Check, ClipboardList, Info } from "lucide-react";
-import { storage } from "../lib/storage";
+import { genericStorage as storage } from "../lib/storage";
 
 // Catches any crash anywhere in the render tree (not just inside click handlers) and shows the
 // actual error instead of silently going blank — this is what a plain try/catch inside an event
@@ -66,14 +66,22 @@ function daysInMonth(year, monthIdx) {
   return new Date(year, monthIdx + 1, 0).getDate();
 }
 
+// shiftDefs entries: { key, label, time, frequency: 'daily'|'quota', quotaCount?, preferLead?,
+// requiresRestAfter? }. "requiresRestAfter" is what used to be hardcoded to a single "N" key —
+// now ANY shift (named whatever the supervisor wants) can be flagged this way, there can be
+// zero, one, or several such shifts, and the 2-4 day block + mandatory 2-day rest + cooldown +
+// Sat/Sun continuity logic runs independently for each one that's flagged.
 function generateSchedule(staffList, year, monthIdx, holidaySet, shiftHours, shiftLabels, dayShiftDefs, perShiftCount, leaveMap, carryOver, wishes) {
   carryOver = carryOver || {};
   wishes = wishes || [];
   dayShiftDefs = dayShiftDefs || [];
   const total = daysInMonth(year, monthIdx);
-  const dailyKeys = dayShiftDefs.filter((d) => d.frequency !== "quota").map((d) => d.key);
+
+  const restDefs = dayShiftDefs.filter((d) => d.requiresRestAfter && d.frequency !== "quota");
+  const restKeys = new Set(restDefs.map((d) => d.key));
+  const dailyKeys = dayShiftDefs.filter((d) => d.frequency !== "quota" && !d.requiresRestAfter).map((d) => d.key);
   const quotaDefs = dayShiftDefs.filter((d) => d.frequency === "quota");
-  const allKeys = ["F", ...dayShiftDefs.map((d) => d.key), "S", "N"];
+  const allKeys = ["F", ...dayShiftDefs.map((d) => d.key), "S"];
 
   const days = [];
   for (let d = 1; d <= total; d++) {
@@ -84,11 +92,11 @@ function generateSchedule(staffList, year, monthIdx, holidaySet, shiftHours, shi
   }
 
   const ids = staffList.map((s) => s.id);
-  const hours = {}, satCount = {}, sunCount = {}, forcedRest = {}, consecutiveWorkDays = {}, nightCooldown = {}, shiftCount = {}, nightCountSoFar = {};
+  const hours = {}, satCount = {}, sunCount = {}, forcedRest = {}, consecutiveWorkDays = {}, restCooldown = {}, shiftCount = {}, restShiftCountSoFar = {};
   const targetOf = {};
   const MAX_CONSECUTIVE_WORKDAYS = 6;
-  const NIGHT_COOLDOWN_EXTRA_DAYS = 2;
-  ids.forEach((id) => { hours[id] = 0; satCount[id] = 0; sunCount[id] = 0; forcedRest[id] = new Set(); consecutiveWorkDays[id] = 0; nightCooldown[id] = new Set(); shiftCount[id] = 0; nightCountSoFar[id] = 0; });
+  const REST_COOLDOWN_EXTRA_DAYS = 2;
+  ids.forEach((id) => { hours[id] = 0; satCount[id] = 0; sunCount[id] = 0; forcedRest[id] = new Set(); consecutiveWorkDays[id] = 0; restCooldown[id] = new Set(); shiftCount[id] = 0; restShiftCountSoFar[id] = 0; });
   staffList.forEach((s) => {
     const leaveDays = (leaveMap[s.id] && leaveMap[s.id].size) || 0;
     const availableDays = Math.max(0, total - leaveDays);
@@ -102,6 +110,12 @@ function generateSchedule(staffList, year, monthIdx, holidaySet, shiftHours, shi
 
   if (ids.length === 0) return { days, hours, satCount, sunCount, targetOf, warnings: ["Keine Mitarbeiter eingetragen."], notes };
 
+  const fullTimeSet = new Set(staffList.filter((s) => (s.weeklyHours || 38.5) >= 35).map((s) => s.id));
+  const FULLTIME_OVERTIME_CEILING = 190;
+  function hardCapFor(id) {
+    return fullTimeSet.has(id) ? Math.max(MONTHLY_HOUR_CAP, FULLTIME_OVERTIME_CEILING) : targetOf[id];
+  }
+
   // ---- Wishes ----
   const validWishes = [];
   let droppedWishCount = 0;
@@ -114,8 +128,8 @@ function generateSchedule(staffList, year, monthIdx, holidaySet, shiftHours, shi
   });
   if (droppedWishCount > 0) notes.push(`${droppedWishCount} Schichtwunsch/-wünsche wurden wegen Urlaub/Krankheit oder Feiertagsregel ignoriert`);
 
-  const nonNightWishes = validWishes.filter((w) => w.shiftType !== "N");
-  nonNightWishes.forEach((w) => {
+  const nonRestWishes = validWishes.filter((w) => !restKeys.has(w.shiftType));
+  nonRestWishes.forEach((w) => {
     const day = days[w.day - 1];
     const desired = Math.max(1, perShiftCount[w.shiftType] || 1);
     if (day.shifts[w.shiftType].includes(w.staffId)) return;
@@ -129,160 +143,187 @@ function generateSchedule(staffList, year, monthIdx, holidaySet, shiftHours, shi
     if (day.weekday === 0) sunCount[w.staffId]++;
   });
 
-  const nightWishesByStaff = {};
-  validWishes.filter((w) => w.shiftType === "N").forEach((w) => {
-    if (!nightWishesByStaff[w.staffId]) nightWishesByStaff[w.staffId] = [];
-    if (!nightWishesByStaff[w.staffId].includes(w.day)) nightWishesByStaff[w.staffId].push(w.day);
-  });
+  // ---- Rest-requiring shift(s): block rotation, run independently per flagged shift key ----
+  restDefs.forEach((rDef) => {
+    const RKEY = rDef.key;
+    const RHOURS = shiftHours[RKEY];
+    const restWishesByStaff = {};
+    validWishes.filter((w) => w.shiftType === RKEY).forEach((w) => {
+      if (!restWishesByStaff[w.staffId]) restWishesByStaff[w.staffId] = [];
+      if (!restWishesByStaff[w.staffId].includes(w.day)) restWishesByStaff[w.staffId].push(w.day);
+    });
 
-  const nightNeeded = Math.max(1, perShiftCount.N || 1);
-  const nightOf = Array.from({ length: total }, () => []);
-  const dayNightUsed = Array.from({ length: total }, () => new Set());
-  let nightPool = staffList.filter((s) => !s.nightExempt).map((s) => s.id);
-  const fullTimeSet = new Set(staffList.filter((s) => (s.weeklyHours || 38.5) >= 35).map((s) => s.id));
-  const FULLTIME_OVERTIME_CEILING = 190;
-  function hardCapFor(id) {
-    return fullTimeSet.has(id) ? Math.max(MONTHLY_HOUR_CAP, FULLTIME_OVERTIME_CEILING) : targetOf[id];
-  }
-  if (nightPool.length === 0) { nightPool = [...ids]; if (ids.length > 0) warnings.push("Alle Mitarbeiter waren von Nachtdiensten befreit; diese Einschränkung wurde ignoriert, um den Nachtdienst zu besetzen"); }
+    const needed = Math.max(1, perShiftCount[RKEY] || 1);
+    const of_ = Array.from({ length: total }, () => []);
+    const usedToday = Array.from({ length: total }, () => new Set());
+    let pool = staffList.filter((s) => !s.nightExempt).map((s) => s.id);
+    if (pool.length === 0) { pool = [...ids]; if (ids.length > 0) warnings.push(`Alle Mitarbeiter waren von „${labelOf(RKEY)}“ befreit; diese Einschränkung wurde ignoriert, um die Schicht zu besetzen`); }
 
-  Object.entries(nightWishesByStaff).forEach(([staffId, dayList]) => {
-    const sorted = [...dayList].sort((a, b) => a - b);
-    let i = 0;
-    while (i < sorted.length) {
-      let j = i;
-      while (j + 1 < sorted.length && sorted[j + 1] === sorted[j] + 1) j++;
-      for (let k = i; k <= j; k++) {
-        const dIdx = sorted[k] - 1;
-        if (nightOf[dIdx].includes(staffId)) continue;
-        nightOf[dIdx].push(staffId);
-        dayNightUsed[dIdx].add(staffId);
-        hours[staffId] += shiftHours.N;
-        nightCountSoFar[staffId]++;
-        const wd = days[dIdx].weekday;
-        if (wd === 6) satCount[staffId]++;
-        if (wd === 0) sunCount[staffId]++;
-      }
-      const runLen = j - i + 1;
-      if (runLen < 2 || runLen > 4) notes.push(`${nameOf(staffId)}: Nachtdienst-Wunsch über ${runLen} Tag(e) (Tag ${sorted[i]} bis ${sorted[j]}) weicht von der üblichen 2-4-Tage-Blocklänge ab`);
-      const lastDay = sorted[j];
-      for (let d = lastDay; d <= lastDay + 1 && d < total; d++) forcedRest[staffId].add(d);
-      for (let d = lastDay; d <= lastDay + 1 + NIGHT_COOLDOWN_EXTRA_DAYS && d < total; d++) nightCooldown[staffId].add(d);
-      i = j + 1;
+    function capForDay(dIdx) {
+      const day = days[dIdx];
+      return (day.isWeekend || day.isHoliday) ? 1 : needed;
     }
-  });
 
-  function nightCapForDay(dIdx) {
-    const day = days[dIdx];
-    return (day.isWeekend || day.isHoliday) ? 1 : nightNeeded;
-  }
-
-  for (let track = 0; track < nightNeeded; track++) {
-    let dayIdx = 0;
-    while (dayIdx < total) {
-      if (nightOf[dayIdx].length >= nightCapForDay(dayIdx)) { dayIdx += 1; continue; }
-
-      if (days[dayIdx].weekday === 0 && dayIdx > 0 && days[dayIdx - 1].weekday === 6) {
-        for (const satPerson of [...nightOf[dayIdx - 1]]) {
-          if (nightOf[dayIdx].length >= nightCapForDay(dayIdx)) break;
-          if (nightOf[dayIdx].includes(satPerson) || dayNightUsed[dayIdx].has(satPerson)) continue;
-          if (isOnLeave(satPerson, dayIdx + 1)) continue;
-          if (hours[satPerson] + shiftHours.N > hardCapFor(satPerson)) continue;
-          let priorLen = 0, dd = dayIdx - 1;
-          while (dd >= 0 && nightOf[dd].includes(satPerson)) { priorLen++; dd--; }
-          if (priorLen >= 4) continue;
-          const oldRestDays = [...forcedRest[satPerson]].filter((d) => d >= dayIdx);
-          oldRestDays.forEach((d) => forcedRest[satPerson].delete(d));
-          oldRestDays.forEach((d) => { if (d + 1 < total) forcedRest[satPerson].add(d + 1); });
-          const oldCooldownDays = [...nightCooldown[satPerson]].filter((d) => d >= dayIdx);
-          oldCooldownDays.forEach((d) => nightCooldown[satPerson].delete(d));
-          oldCooldownDays.forEach((d) => { if (d + 1 < total) nightCooldown[satPerson].add(d + 1); });
-          nightOf[dayIdx].push(satPerson);
-          dayNightUsed[dayIdx].add(satPerson);
-          hours[satPerson] += shiftHours.N;
-          shiftCount[satPerson]++;
-          nightCountSoFar[satPerson]++;
-          sunCount[satPerson]++;
+    Object.entries(restWishesByStaff).forEach(([staffId, dayList]) => {
+      const sorted = [...dayList].sort((a, b) => a - b);
+      let i = 0;
+      while (i < sorted.length) {
+        let j = i;
+        while (j + 1 < sorted.length && sorted[j + 1] === sorted[j] + 1) j++;
+        for (let k = i; k <= j; k++) {
+          const dIdx = sorted[k] - 1;
+          if (of_[dIdx].includes(staffId)) continue;
+          of_[dIdx].push(staffId);
+          usedToday[dIdx].add(staffId);
+          hours[staffId] += RHOURS;
+          restShiftCountSoFar[staffId]++;
+          const wd = days[dIdx].weekday;
+          if (wd === 6) satCount[staffId]++;
+          if (wd === 0) sunCount[staffId]++;
         }
-        if (nightOf[dayIdx].length >= nightCapForDay(dayIdx)) { dayIdx += 1; continue; }
+        const runLen = j - i + 1;
+        if (runLen < 2 || runLen > 4) notes.push(`${nameOf(staffId)}: Wunsch für „${labelOf(RKEY)}“ über ${runLen} Tag(e) (Tag ${sorted[i]} bis ${sorted[j]}) weicht von der üblichen 2-4-Tage-Blocklänge ab`);
+        const lastDay = sorted[j];
+        for (let d = lastDay; d <= lastDay + 1 && d < total; d++) forcedRest[staffId].add(d);
+        for (let d = lastDay; d <= lastDay + 1 + REST_COOLDOWN_EXTRA_DAYS && d < total; d++) restCooldown[staffId].add(d);
+        i = j + 1;
       }
+    });
 
-      function searchNightCandidate(hourCapFor, restrictToFullTime) {
-        let best = null, bestFeasibleLen = 0, bestScore = Infinity;
-        let fallback = null, fallbackFeasibleLen = 0, fallbackScore = Infinity;
-        for (const c of nightPool) {
-          if (restrictToFullTime && !fullTimeSet.has(c)) continue;
-          if (forcedRest[c].has(dayIdx) || dayNightUsed[dayIdx].has(c) || isOnLeave(c, dayIdx + 1) || nightCooldown[c].has(dayIdx) || hours[c] + shiftHours.N > hourCapFor(c)) continue;
-          let len = 0;
-          for (let d = dayIdx; d < Math.min(dayIdx + 4, total); d++) {
-            if (forcedRest[c].has(d) || dayNightUsed[d].has(c) || isOnLeave(c, d + 1) || nightOf[d].length >= nightCapForDay(d) || hours[c] + shiftHours.N * (len + 1) > hourCapFor(c)) break;
-            len++;
+    for (let track = 0; track < needed; track++) {
+      let dayIdx = 0;
+      while (dayIdx < total) {
+        if (of_[dayIdx].length >= capForDay(dayIdx)) { dayIdx += 1; continue; }
+
+        if (days[dayIdx].weekday === 0 && dayIdx > 0 && days[dayIdx - 1].weekday === 6) {
+          for (const satPerson of [...of_[dayIdx - 1]]) {
+            if (of_[dayIdx].length >= capForDay(dayIdx)) break;
+            if (of_[dayIdx].includes(satPerson) || usedToday[dayIdx].has(satPerson)) continue;
+            if (isOnLeave(satPerson, dayIdx + 1)) continue;
+            if (hours[satPerson] + RHOURS > hardCapFor(satPerson)) continue;
+            let priorLen = 0, dd = dayIdx - 1;
+            while (dd >= 0 && of_[dd].includes(satPerson)) { priorLen++; dd--; }
+            if (priorLen >= 4) continue;
+            const oldRestDays = [...forcedRest[satPerson]].filter((d) => d >= dayIdx);
+            oldRestDays.forEach((d) => forcedRest[satPerson].delete(d));
+            oldRestDays.forEach((d) => { if (d + 1 < total) forcedRest[satPerson].add(d + 1); });
+            const oldCooldownDays = [...restCooldown[satPerson]].filter((d) => d >= dayIdx);
+            oldCooldownDays.forEach((d) => restCooldown[satPerson].delete(d));
+            oldCooldownDays.forEach((d) => { if (d + 1 < total) restCooldown[satPerson].add(d + 1); });
+            of_[dayIdx].push(satPerson);
+            usedToday[dayIdx].add(satPerson);
+            hours[satPerson] += RHOURS;
+            shiftCount[satPerson]++;
+            restShiftCountSoFar[satPerson]++;
+            sunCount[satPerson]++;
           }
-          if (len === 0) continue;
-          const t = targetOf[c] > 0 ? targetOf[c] : 1;
-          // Same pacing idea as pickBest: score by how far ahead/behind pace they are, not raw
-          // hours/target, so low-target people aren't exhausted early in the month.
-          const expectedByNow = t * ((dayIdx + 1) / total);
-          const score = (hours[c] - expectedByNow) / t + Math.random() * 0.01;
-          if (len >= 2 && score < bestScore) { best = c; bestFeasibleLen = len; bestScore = score; }
-          if (score < fallbackScore) { fallback = c; fallbackFeasibleLen = len; fallbackScore = score; }
+          if (of_[dayIdx].length >= capForDay(dayIdx)) { dayIdx += 1; continue; }
         }
-        return { best, bestFeasibleLen, fallback, fallbackFeasibleLen };
+
+        function searchCandidate(hourCapFor, restrictToFullTime) {
+          let best = null, bestFeasibleLen = 0, bestScore = Infinity;
+          let fallback = null, fallbackFeasibleLen = 0, fallbackScore = Infinity;
+          for (const c of pool) {
+            if (restrictToFullTime && !fullTimeSet.has(c)) continue;
+            if (forcedRest[c].has(dayIdx) || usedToday[dayIdx].has(c) || isOnLeave(c, dayIdx + 1) || restCooldown[c].has(dayIdx) || hours[c] + RHOURS > hourCapFor(c)) continue;
+            let len = 0;
+            for (let d = dayIdx; d < Math.min(dayIdx + 4, total); d++) {
+              if (forcedRest[c].has(d) || usedToday[d].has(c) || isOnLeave(c, d + 1) || of_[d].length >= capForDay(d) || hours[c] + RHOURS * (len + 1) > hourCapFor(c)) break;
+              len++;
+            }
+            if (len === 0) continue;
+            const t = targetOf[c] > 0 ? targetOf[c] : 1;
+            const expectedByNow = t * ((dayIdx + 1) / total);
+            const score = (hours[c] - expectedByNow) / t + Math.random() * 0.01;
+            if (len >= 2 && score < bestScore) { best = c; bestFeasibleLen = len; bestScore = score; }
+            if (score < fallbackScore) { fallback = c; fallbackFeasibleLen = len; fallbackScore = score; }
+          }
+          return { best, bestFeasibleLen, fallback, fallbackFeasibleLen };
+        }
+        let { best, bestFeasibleLen, fallback, fallbackFeasibleLen } = searchCandidate((c) => targetOf[c], false);
+        if (best === null && fallback === null) {
+          let r = searchCandidate((c) => hardCapFor(c), true);
+          if (r.best === null && r.fallback === null) r = searchCandidate((c) => hardCapFor(c), false);
+          ({ best, bestFeasibleLen, fallback, fallbackFeasibleLen } = r);
+          if (best !== null || fallback !== null) warnings.push(`Tag ${dayIdx + 1}: persönliches Stundenziel für „${labelOf(RKEY)}“ überschritten, da niemand anders verfügbar war`);
+        }
+        const candidate = best !== null ? best : fallback;
+        const feasibleLen = best !== null ? bestFeasibleLen : fallbackFeasibleLen;
+        if (candidate === null || feasibleLen === 0) {
+          warnings.push(`Tag ${dayIdx + 1}: Keine verfügbare Person für „${labelOf(RKEY)}“ gefunden`);
+          dayIdx += 1;
+          continue;
+        }
+        const candidateRatio = hours[candidate] / (targetOf[candidate] > 0 ? targetOf[candidate] : 1);
+        let desiredLen;
+        const r2 = Math.random();
+        if (candidateRatio < 0.9) desiredLen = r2 < 0.45 ? 4 : r2 < 0.8 ? 3 : 2;
+        else if (candidateRatio > 1.05) desiredLen = r2 < 0.6 ? 2 : r2 < 0.9 ? 3 : 4;
+        else desiredLen = r2 < 0.33 ? 2 : r2 < 0.66 ? 3 : 4;
+        const blockLen = Math.max(1, Math.min(desiredLen, feasibleLen, total - dayIdx));
+        if (blockLen < 2) notes.push(`Tag ${dayIdx + 1}: Block für „${labelOf(RKEY)}“ wurde auf 1 Tag begrenzt (wegen Urlaub/anstehender Einschränkung)`);
+        for (let d = dayIdx; d < dayIdx + blockLen; d++) {
+          of_[d].push(candidate);
+          usedToday[d].add(candidate);
+          hours[candidate] += RHOURS;
+          shiftCount[candidate]++;
+          restShiftCountSoFar[candidate]++;
+          const wd = days[d].weekday;
+          if (wd === 6) satCount[candidate]++;
+          if (wd === 0) sunCount[candidate]++;
+        }
+        const restStart = dayIdx + blockLen;
+        const restEnd = Math.min(restStart + 1, total - 1);
+        for (let d = restStart; d <= restEnd; d++) forcedRest[candidate].add(d);
+        const cooldownEnd = Math.min(restStart + REST_COOLDOWN_EXTRA_DAYS + 1, total - 1);
+        for (let d = restStart; d <= cooldownEnd; d++) restCooldown[candidate].add(d);
+        dayIdx += blockLen;
       }
-      let { best, bestFeasibleLen, fallback, fallbackFeasibleLen } = searchNightCandidate((c) => targetOf[c], false);
-      if (best === null && fallback === null) {
-        let r = searchNightCandidate((c) => hardCapFor(c), true);
-        if (r.best === null && r.fallback === null) r = searchNightCandidate((c) => hardCapFor(c), false);
-        ({ best, bestFeasibleLen, fallback, fallbackFeasibleLen } = r);
-        if (best !== null || fallback !== null) warnings.push(`Tag ${dayIdx + 1}: persönliches Stundenziel für Nachtdienst überschritten, da niemand anders verfügbar war`);
-      }
-      const candidate = best !== null ? best : fallback;
-      const feasibleLen = best !== null ? bestFeasibleLen : fallbackFeasibleLen;
-      if (candidate === null || feasibleLen === 0) {
-        warnings.push(`Tag ${dayIdx + 1}: Keine verfügbare Person für den Nachtdienst gefunden`);
-        dayIdx += 1;
-        continue;
-      }
-      const candidateRatio = hours[candidate] / (targetOf[candidate] > 0 ? targetOf[candidate] : 1);
-      let desiredLen;
-      const r2 = Math.random();
-      if (candidateRatio < 0.9) desiredLen = r2 < 0.45 ? 4 : r2 < 0.8 ? 3 : 2;
-      else if (candidateRatio > 1.05) desiredLen = r2 < 0.6 ? 2 : r2 < 0.9 ? 3 : 4;
-      else desiredLen = r2 < 0.33 ? 2 : r2 < 0.66 ? 3 : 4;
-      const blockLen = Math.max(1, Math.min(desiredLen, feasibleLen, total - dayIdx));
-      if (blockLen < 2) notes.push(`Tag ${dayIdx + 1}: Nachtdienst-Block wurde auf 1 Tag begrenzt (wegen Urlaub/anstehender Einschränkung)`);
-      for (let d = dayIdx; d < dayIdx + blockLen; d++) {
-        nightOf[d].push(candidate);
-        dayNightUsed[d].add(candidate);
-        hours[candidate] += shiftHours.N;
-        shiftCount[candidate]++;
-        nightCountSoFar[candidate]++;
-        const wd = days[d].weekday;
-        if (wd === 6) satCount[candidate]++;
-        if (wd === 0) sunCount[candidate]++;
-      }
-      const restStart = dayIdx + blockLen;
-      const restEnd = Math.min(restStart + 1, total - 1);
-      for (let d = restStart; d <= restEnd; d++) forcedRest[candidate].add(d);
-      const cooldownEnd = Math.min(restStart + NIGHT_COOLDOWN_EXTRA_DAYS + 1, total - 1);
-      for (let d = restStart; d <= cooldownEnd; d++) nightCooldown[candidate].add(d);
-      dayIdx += blockLen;
     }
+    for (let d = 0; d < total; d++) days[d].shifts[RKEY] = of_[d];
+  });
+
+  // Safety net for the rare case of TWO OR MORE independently-flagged rest-requiring shifts:
+  // each one's rotation above only knows about rest/cooldown windows that existed at the time
+  // IT ran, not ones a later-processed shift will still create. If that leaves a genuine gap —
+  // someone's rest-requiring block immediately followed by another rest-requiring assignment —
+  // remove the later one rather than ever violate the rest rule, even in this edge case.
+  if (restDefs.length > 1) {
+    restDefs.forEach((rDef) => {
+      const RKEY = rDef.key;
+      staffList.forEach((s) => {
+        let i = 0;
+        while (i < total) {
+          if ((days[i].shifts[RKEY] || []).includes(s.id)) {
+            let j = i;
+            while (j < total && (days[j].shifts[RKEY] || []).includes(s.id)) j++;
+            for (let k = j; k < Math.min(j + 2, total); k++) {
+              restDefs.forEach((otherDef) => {
+                const OKEY = otherDef.key;
+                const arr = days[k].shifts[OKEY];
+                const idx = arr.indexOf(s.id);
+                if (idx !== -1) {
+                  arr.splice(idx, 1);
+                  hours[s.id] -= shiftHours[OKEY];
+                  warnings.push(`Tag ${k + 1}: ${nameOf(s.id)} wurde aus „${labelOf(OKEY)}“ entfernt, da die Ruhezeit nach „${labelOf(RKEY)}“ sonst verletzt worden wäre`);
+                }
+              });
+            }
+            i = j;
+          } else i++;
+        }
+      });
+    });
   }
-  for (let d = 0; d < total; d++) days[d].shifts.N = nightOf[d];
 
   const weekendExemptSet = new Set(staffList.filter((s) => s.weekendExempt).map((s) => s.id));
-  const leadMTLASet = new Set(staffList.filter((s) => s.isLeadMTLA).map((s) => s.id));
+  const teamLeadSet = new Set(staffList.filter((s) => s.isTeamLead).map((s) => s.id));
 
   function pickBest(pool, day) {
     if (pool.length === 0) return null;
     const scored = pool.map((id) => {
       const t = targetOf[id] > 0 ? targetOf[id] : 1;
       const carry = carryOver[id] || {};
-      // Score by how far AHEAD OF or BEHIND PACE this person is (not raw hours/target ratio) —
-      // this spreads everyone's work evenly across the whole month instead of exhausting anyone
-      // with a low target (e.g. Minijob) in the first couple of weeks, leaving nothing left to
-      // help with shortages (leave, sick) that land later in the month.
       const expectedByNow = t * (day.day / total);
       const actualSoFar = hours[id] - (carry.hours || 0);
       let score = (actualSoFar - expectedByNow) / t;
@@ -301,9 +342,6 @@ function generateSchedule(staffList, year, monthIdx, holidaySet, shiftHours, shi
     return scored[0].id;
   }
 
-  // ---- Quota shifts (was just "Büro"): each defined quota shift gets its own ~N target days a
-  // month, spread across weekdays, preferring its designated lead staff (or the least-loaded
-  // person as fallback). Generalizes what used to be hardcoded specifically to "B".
   const quotaTargetDaysByKey = {};
   quotaDefs.forEach((qd) => {
     const candidateDays = [];
@@ -322,7 +360,7 @@ function generateSchedule(staffList, year, monthIdx, holidaySet, shiftHours, shi
   function pickQuotaPerson(qd, day, todayAssigned) {
     const eligible = ids.filter((id) => !todayAssigned.has(id) && !forcedRest[id].has(day.day - 1) && !isOnLeave(id, day.day) && hours[id] + shiftHours[qd.key] <= hardCapFor(id));
     if (eligible.length === 0) return null;
-    const preferred = qd.preferLead ? eligible.filter((id) => leadMTLASet.has(id)) : [];
+    const preferred = qd.preferLead ? eligible.filter((id) => teamLeadSet.has(id)) : [];
     const pool = preferred.length > 0 ? preferred : eligible;
     pool.sort((a, b) => (shiftCount[a] - shiftCount[b]) || Math.random() - 0.5);
     return pool[0];
@@ -335,8 +373,6 @@ function generateSchedule(staffList, year, monthIdx, holidaySet, shiftHours, shi
     const todayAssigned = new Set(allKeys.flatMap((k) => day.shifts[k]));
     const prevDay = d > 0 ? days[d - 1] : null;
     const prevDayS = prevDay ? new Set(prevDay.shifts.S || []) : new Set();
-    // Daily "middle" shifts (Mitteldienst and any others) only run on regular workdays — on
-    // holidays AND weekends, only the three core shifts (Frühdienst/Spätdienst/Nachtdienst) run.
     const neededShifts = (day.isHoliday || day.isWeekend) ? ["F", "S"] : ["F", ...dailyKeys, "S"];
     if (day.weekday === 6) weekendPairPick = {};
 
@@ -387,9 +423,6 @@ function generateSchedule(staffList, year, monthIdx, holidaySet, shiftHours, shi
           return true;
         });
         let relaxedNote = null;
-        // The mandatory 2-day rest after a night block is a hard rule — never relaxed, even to
-        // guarantee minimum coverage. A shift running short-staffed is the correct outcome, not
-        // pulling someone out of their post-night rest.
         if (pool.length === 0 && k < minRequired) {
           pool = ids.filter((id) => !todayAssigned.has(id) && !forcedRest[id].has(d) && !isOnLeave(id, day.day) && hours[id] + shiftHours[shiftType] <= targetOf[id]);
           if (pool.length > 0) relaxedNote = "Die Regel „nach Spätdienst kein Frühdienst am nächsten Tag\u201c wurde ignoriert";
@@ -439,8 +472,11 @@ function generateSchedule(staffList, year, monthIdx, holidaySet, shiftHours, shi
   return { days, hours, satCount, sunCount, targetOf, warnings, notes };
 }
 
-function computeStatsAndWarnings(days, staffList, leaveMap, shiftHours, allKeys) {
+function computeStatsAndWarnings(days, staffList, leaveMap, shiftHours, allKeys, restKeysList, shiftLabels) {
   leaveMap = leaveMap || {};
+  shiftLabels = shiftLabels || {};
+  const labelOf = (key) => shiftLabels[key] || key;
+  restKeysList = restKeysList || [];
   const ids = staffList.map((s) => s.id);
   const hours = {}, satCount = {}, sunCount = {};
   ids.forEach((id) => { hours[id] = 0; satCount[id] = 0; sunCount[id] = 0; });
@@ -481,28 +517,30 @@ function computeStatsAndWarnings(days, staffList, leaveMap, shiftHours, allKeys)
       }
     });
   }
-  staffList.forEach((s) => {
-    let i = 0;
-    while (i < days.length) {
-      if ((days[i].shifts.N || []).includes(s.id)) {
-        let j = i;
-        while (j < days.length && (days[j].shifts.N || []).includes(s.id)) j++;
-        const len = j - i;
-        if (len < 2 || len > 4) warnings.push(`${s.name}: Nachtdienst-Block über ${len} Tage (Tag ${days[i].day} bis ${days[j - 1].day}) — sollte 2 bis 4 Tage sein`);
-        let restOk = true;
-        for (let k = j; k < Math.min(j + 2, days.length); k++) {
-          if (allKeys.some((st) => (days[k].shifts[st] || []).includes(s.id))) restOk = false;
-        }
-        if (!restOk) warnings.push(`${s.name}: nach dem Nachtdienst bis Tag ${days[j - 1].day}, wurden nicht mindestens 2 Ruhetage eingehalten`);
-        i = j;
-      } else i++;
-    }
-  });
-  staffList.forEach((s) => {
-    if (s.nightExempt) {
-      const worksNight = days.some((d) => (d.shifts.N || []).includes(s.id));
-      if (worksNight) warnings.push(`${s.name}: ist von Nachtdiensten befreit, hat aber einen Nachtdienst im Plan`);
-    }
+  restKeysList.forEach((RKEY) => {
+    staffList.forEach((s) => {
+      let i = 0;
+      while (i < days.length) {
+        if ((days[i].shifts[RKEY] || []).includes(s.id)) {
+          let j = i;
+          while (j < days.length && (days[j].shifts[RKEY] || []).includes(s.id)) j++;
+          const len = j - i;
+          if (len < 2 || len > 4) warnings.push(`${s.name}: Block für „${labelOf(RKEY)}“ über ${len} Tage (Tag ${days[i].day} bis ${days[j - 1].day}) — sollte 2 bis 4 Tage sein`);
+          let restOk = true;
+          for (let k = j; k < Math.min(j + 2, days.length); k++) {
+            if (allKeys.some((st) => (days[k].shifts[st] || []).includes(s.id))) restOk = false;
+          }
+          if (!restOk) warnings.push(`${s.name}: nach „${labelOf(RKEY)}“ bis Tag ${days[j - 1].day} wurden nicht mindestens 2 Ruhetage eingehalten`);
+          i = j;
+        } else i++;
+      }
+    });
+    staffList.forEach((s) => {
+      if (s.nightExempt) {
+        const works = days.some((d) => (d.shifts[RKEY] || []).includes(s.id));
+        if (works) warnings.push(`${s.name}: ist befreit von „${labelOf(RKEY)}“, hat aber eine Schicht davon im Plan`);
+      }
+    });
   });
   staffList.forEach((s) => {
     let i = 0;
@@ -519,7 +557,6 @@ function computeStatsAndWarnings(days, staffList, leaveMap, shiftHours, allKeys)
   });
   return { hours, satCount, sunCount, targetOf, warnings };
 }
-
 
 function todayMonthValue() {
   const d = new Date();
@@ -555,13 +592,20 @@ function parseDayList(str, maxDay) {
 
 // Turns an editable "HH:MM-HH:MM" time range into paid hours (span minus 30 min unpaid break),
 // handling shifts that cross midnight (like Nachtdienst). Falls back to a safe default on bad input.
+function parseTimeRange(timeRange) {
+  // Accepts "22:00-06:30" as well as shorthand like "22-06:30" or "8-16" (minutes optional).
+  const m = String(timeRange || "").match(/^(\d{1,2})(?::(\d{2}))?\s*-\s*(\d{1,2})(?::(\d{2}))?$/);
+  if (!m) return null;
+  const startMin = parseInt(m[1], 10) * 60 + parseInt(m[2] || "0", 10);
+  const endMin = parseInt(m[3], 10) * 60 + parseInt(m[4] || "0", 10);
+  return { startMin, endMin };
+}
 function computeShiftHours(timeRange) {
-  const m = String(timeRange || "").match(/^(\d{1,2}):(\d{2})\s*-\s*(\d{1,2}):(\d{2})$/);
-  if (!m) return 8;
-  const startMin = parseInt(m[1], 10) * 60 + parseInt(m[2], 10);
-  let endMin = parseInt(m[3], 10) * 60 + parseInt(m[4], 10);
-  if (endMin <= startMin) endMin += 24 * 60; // crosses midnight
-  const hours = (endMin - startMin - 30) / 60;
+  const t = parseTimeRange(timeRange);
+  if (!t) return 8;
+  let endMin = t.endMin;
+  if (endMin <= t.startMin) endMin += 24 * 60; // crosses midnight
+  const hours = (endMin - t.startMin - 30) / 60;
   return Math.max(0.5, Math.round(hours * 100) / 100);
 }
 
@@ -990,26 +1034,25 @@ async function downloadXlsx(bytes, filename) {
 function LabShiftSchedulerInner() {
   const [monthValue, setMonthValue] = useState(todayMonthValue());
   const [staffList, setStaffList] = useState(() =>
-    Array.from({ length: 9 }, (_, i) => ({ id: `s${i + 1}`, name: `Mitarbeiter ${i + 1}`, weeklyHours: 38.5, employmentType: "full", nightExempt: false, weekendExempt: false, isLeadMTLA: false, email: "" }))
+    Array.from({ length: 9 }, (_, i) => ({ id: `s${i + 1}`, name: `Mitarbeiter ${i + 1}`, weeklyHours: 38.5, employmentType: "full", nightExempt: false, weekendExempt: false, isTeamLead: false, email: "" }))
   );
   const nextIdRef = useRef(10);
   const nextEntryIdRef = useRef(1);
-  const [perShiftCount, setPerShiftCount] = useState({ F: 2, M: 1, B: 1, S: 1, N: 1 });
-  // Editable time ranges for the 3 shifts with special built-in rules (F: no-Frühdienst-after-
-  // Spätdienst rule; S: the other half of that rule; N: full night rotation). The key/role stays
-  // fixed so those rules keep working, but label/time/hours are fully editable.
+  const [perShiftCount, setPerShiftCount] = useState({ F: 2, S: 1 });
+  // F/S keep one special built-in rule between them (no Frühdienst the morning right after a
+  // Spätdienst) — label/time fully editable, but the key/role stays fixed so that rule keeps
+  // working. Night rotation is NOT tied to a fixed key anymore — see dayShiftDefs below.
   const [specialShifts, setSpecialShifts] = useState({
     F: { label: "Frühdienst", time: "06:00-14:00" },
     S: { label: "Spätdienst", time: "13:30-22:00" },
-    N: { label: "Nachtdienst", time: "21:45-06:30" },
   });
-  // The "middle" shifts — fully user-defined: add/remove/rename/retime freely, each either
-  // "daily" (needed every non-holiday day) or "quota" (needed only N times a month, optionally
-  // preferring the Leitende MTLA). Starts out matching the original Mitteldienst + Büro.
-  const [dayShiftDefs, setDayShiftDefs] = useState([
-    { key: "M", label: "Mitteldienst", time: "08:00-16:30", frequency: "daily" },
-    { key: "B", label: "Büro", time: "08:00-16:00", frequency: "quota", quotaCount: 9, preferLead: true },
-  ]);
+  // Every other shift is fully user-defined: add/remove/rename/retime freely, each either
+  // "daily" or a monthly "quota", and each optionally flagged requiresRestAfter — that flag is
+  // what used to be hardcoded to a single "Nachtdienst" slot. Now ANY shift (named whatever the
+  // supervisor wants, and there can be none, one, or several) can carry it: once checked, the
+  // full night-style treatment applies — 2-4 day blocks, mandatory 2-day rest after, a cooldown
+  // before the same person cycles back onto it, and weekend Sat/Sun continuity.
+  const [dayShiftDefs, setDayShiftDefs] = useState([]);
   const [holidays, setHolidays] = useState([]); // array of day numbers
   const [leaveEntries, setLeaveEntries] = useState([]); // {id, staffId, days}
   const [sickEntries, setSickEntries] = useState([]); // {id, staffId, days}
@@ -1109,7 +1152,10 @@ function LabShiftSchedulerInner() {
       // benchmark for next month's night-count catch-up.
       const nightEligible = staffList.filter((s) => !s.nightExempt);
       const nightCountOf = {};
-      staffList.forEach((s) => { nightCountOf[s.id] = schedule.days.filter((d) => (d.shifts.N || []).includes(s.id)).length; });
+      // "Night" here means any shift flagged requiresRestAfter (there may be none, one, or several).
+      staffList.forEach((s) => {
+        nightCountOf[s.id] = schedule.days.filter((d) => restRequiringKeys.some((k) => (d.shifts[k] || []).includes(s.id))).length;
+      });
       const avgNightCount = nightEligible.length > 0 ? nightEligible.reduce((sum, s) => sum + nightCountOf[s.id], 0) / nightEligible.length : 0;
 
       const updated = { ...balances };
@@ -1173,19 +1219,20 @@ function LabShiftSchedulerInner() {
   const holidaySet = useMemo(() => new Set(holidays.filter((h) => h <= totalDays)), [holidays, totalDays]);
 
   // Derived from specialShifts + dayShiftDefs: everything the algorithm and UI need in one place.
-  // F/S/N keep the SAME internal keys (so their special rules keep working) but fully editable
-  // label/time; the day-shift-defs (was just Mitteldienst+Büro) are freely add/remove/editable.
+  // F/S keep the SAME internal keys (so their adjacency rule keeps working) but fully editable
+  // label/time; every other shift — including anything flagged requiresRestAfter — is a freely
+  // add/remove/editable entry in dayShiftDefs.
   const shiftMeta = useMemo(() => {
     const meta = {};
-    ["F", "S", "N"].forEach((key, i) => {
+    ["F", "S"].forEach((key, i) => {
       const def = specialShifts[key];
       meta[key] = { label: def.label, time: def.time, hours: computeShiftHours(def.time), ...SHIFT_COLOR_PALETTE[i % SHIFT_COLOR_PALETTE.length] };
     });
     dayShiftDefs.forEach((def, i) => {
       meta[def.key] = {
         label: def.label, time: def.time, hours: computeShiftHours(def.time),
-        frequency: def.frequency, quotaCount: def.quotaCount, preferLead: def.preferLead,
-        ...SHIFT_COLOR_PALETTE[(i + 3) % SHIFT_COLOR_PALETTE.length],
+        frequency: def.frequency, quotaCount: def.quotaCount, preferLead: def.preferLead, requiresRestAfter: def.requiresRestAfter,
+        ...SHIFT_COLOR_PALETTE[(i + 2) % SHIFT_COLOR_PALETTE.length],
       };
     });
     return meta;
@@ -1200,12 +1247,37 @@ function LabShiftSchedulerInner() {
     Object.keys(shiftMeta).forEach((k) => { l[k] = shiftMeta[k].label; });
     return l;
   }, [shiftMeta]);
-  // Display/column order: Frühdienst, then the user-defined day shifts in their own order, then
-  // Spätdienst, then Nachtdienst — matches the original Frühdienst/Mitteldienst/Büro/Spätdienst/Nachtdienst layout.
-  const dayOrderedKeys = useMemo(() => ["F", ...dayShiftDefs.map((d) => d.key), "S", "N"], [dayShiftDefs]);
-  // Which day-shift-def keys are "quota" (not needed every day) — used to know which columns
-  // go blank on holidays (the daily ones do; quota ones like Büro were never scheduled there anyway).
-  const dailyDayShiftKeys = useMemo(() => new Set(dayShiftDefs.filter((d) => d.frequency !== "quota").map((d) => d.key)), [dayShiftDefs]);
+  // Display/column order: Frühdienst, then every user-defined shift (including rest-requiring
+  // ones) in their own order, then Spätdienst.
+  // Shifts flagged requiresRestAfter (night-style) go AFTER Spätdienst, like a night shift would
+  // on a printed roster; every other custom shift sits between Früh and Spät.
+  const restRequiringKeys = useMemo(() => dayShiftDefs.filter((d) => d.requiresRestAfter && d.frequency !== "quota").map((d) => d.key), [dayShiftDefs]);
+  const dayOrderedKeys = useMemo(
+    () => ["F", ...dayShiftDefs.filter((d) => !restRequiringKeys.includes(d.key)).map((d) => d.key), "S", ...restRequiringKeys],
+    [dayShiftDefs, restRequiringKeys]
+  );
+  // Short, unique display code per shift for the compact "nach Mitarbeiter" grid (F and S keep
+  // their letters; custom shifts get a code derived from their name instead of their internal key).
+  const shiftCodes = useMemo(() => {
+    const codes = { F: "F", S: "S" };
+    const used = new Set(["F", "S", "U", "K"]);
+    dayShiftDefs.forEach((d) => {
+      const letters = String(d.label || "").replace(/[^A-Za-zÄÖÜäöüß]/g, "").toUpperCase();
+      let code = letters.slice(0, 1) || "X";
+      let len = 1;
+      while (used.has(code) && len < letters.length) { len++; code = letters.slice(0, len); }
+      let n = 2;
+      const base = code;
+      while (used.has(code)) { code = base + n; n++; }
+      used.add(code);
+      codes[d.key] = code;
+    });
+    return codes;
+  }, [dayShiftDefs]);
+  // Which day-shift-def keys run every regular workday (not a monthly quota, not a rest-requiring
+  // shift — those get their own column logic) — used to know which columns go blank on holidays.
+  const dailyDayShiftKeys = useMemo(() => new Set(dayShiftDefs.filter((d) => d.frequency !== "quota" && !d.requiresRestAfter).map((d) => d.key)), [dayShiftDefs]);
+
 
   const staffMap = useMemo(() => {
     const m = {};
@@ -1249,7 +1321,7 @@ function LabShiftSchedulerInner() {
     staffList.forEach((s) => { matrix[s.id] = {}; });
     schedule.days.forEach((d) => {
       dayOrderedKeys.forEach((st) => {
-        (d.shifts[st] || []).forEach((id) => { if (matrix[id]) matrix[id][d.day] = st; });
+        (d.shifts[st] || []).forEach((id) => { if (matrix[id]) matrix[id][d.day] = shiftCodes[st] || st; });
       });
     });
     leaveEntries.forEach((e) => {
@@ -1263,11 +1335,11 @@ function LabShiftSchedulerInner() {
       });
     });
     return matrix;
-  }, [schedule, staffList, leaveEntries, sickEntries, totalDays, dayOrderedKeys]);
+  }, [schedule, staffList, leaveEntries, sickEntries, totalDays, dayOrderedKeys, shiftCodes]);
 
   function addStaff() {
     const id = `s${nextIdRef.current++}`;
-    setStaffList((prev) => [...prev, { id, name: `Mitarbeiter ${prev.length + 1}`, weeklyHours: 38.5, employmentType: "full", nightExempt: false, weekendExempt: false, isLeadMTLA: false, email: "" }]);
+    setStaffList((prev) => [...prev, { id, name: `Mitarbeiter ${prev.length + 1}`, weeklyHours: 38.5, employmentType: "full", nightExempt: false, weekendExempt: false, isTeamLead: false, email: "" }]);
   }
   function removeStaff(id) {
     setStaffList((prev) => prev.filter((s) => s.id !== id));
@@ -1354,7 +1426,7 @@ function LabShiftSchedulerInner() {
       // Recompute + validate from the final `days` (same pass used after manual edits) so any
       // rule the generator couldn't fully guarantee up front (e.g. a rare consecutive-workday
       // overrun caused by an already-fixed night block) still surfaces as a warning immediately.
-      const stats = computeStatsAndWarnings(result.days, staffList, leaveMap, shiftHours, dayOrderedKeys);
+      const stats = computeStatsAndWarnings(result.days, staffList, leaveMap, shiftHours, dayOrderedKeys, restRequiringKeys, shiftLabels);
       setSchedule({
         days: result.days,
         hours: stats.hours,
@@ -1379,7 +1451,7 @@ function LabShiftSchedulerInner() {
         arr[slotIndex] = newId; // keep position stable — columns are now fixed, so never splice/shift
         return { ...d, shifts: { ...d.shifts, [shiftType]: arr } };
       });
-      const stats = computeStatsAndWarnings(days, staffList, buildLeaveMap(), shiftHours, dayOrderedKeys);
+      const stats = computeStatsAndWarnings(days, staffList, buildLeaveMap(), shiftHours, dayOrderedKeys, restRequiringKeys, shiftLabels);
       return { days, ...stats };
     });
   }
@@ -1389,12 +1461,14 @@ function LabShiftSchedulerInner() {
     let totalDemandHours = 0;
     schedule.days.forEach((d) => {
       const reduced = d.isWeekend || d.isHoliday;
-      totalDemandHours += shiftHours.F * (reduced ? 1 : perShiftCount.F) + shiftHours.S * (reduced ? 1 : perShiftCount.S) + shiftHours.N * (reduced ? 1 : perShiftCount.N);
-      if (!d.isHoliday && !d.isWeekend) {
-        dayShiftDefs.forEach((def) => {
-          if (def.frequency !== "quota") totalDemandHours += (shiftHours[def.key] || 0) * (perShiftCount[def.key] || 1);
-        });
-      }
+      totalDemandHours += shiftHours.F * (reduced ? 1 : perShiftCount.F || 1) + shiftHours.S * (reduced ? 1 : perShiftCount.S || 1);
+      dayShiftDefs.forEach((def) => {
+        if (def.frequency === "quota") return;
+        // Rest-requiring (night-style) shifts run every day, including weekends/holidays (1 person
+        // then); other daily shifts only run on regular workdays.
+        if (def.requiresRestAfter) totalDemandHours += (shiftHours[def.key] || 0) * (reduced ? 1 : (perShiftCount[def.key] || 1));
+        else if (!reduced) totalDemandHours += (shiftHours[def.key] || 0) * (perShiftCount[def.key] || 1);
+      });
     });
     dayShiftDefs.forEach((def) => {
       if (def.frequency === "quota") totalDemandHours += (shiftHours[def.key] || 0) * (def.quotaCount || 9);
@@ -1548,9 +1622,9 @@ function LabShiftSchedulerInner() {
         <header className="space-y-1">
           <div className="flex items-center gap-2 text-teal-700">
             <ClipboardList size={22} />
-            <h1 className="text-xl font-bold">Dienstplaner für das medizinisch-diagnostische Labor</h1>
+            <h1 className="text-xl font-bold">Dienstplaner</h1>
           </div>
-          <p className="text-sm text-slate-500">Vier feste Schichten unter Berücksichtigung der Wochenstunden, der Nachtdienstrotation und der Wochenendquote — nach dem Erstellen manuell bearbeitbar.</p>
+          <p className="text-sm text-slate-500">Frei definierbare Schichten unter Berücksichtigung der Wochenstunden, der Nachtdienstrotation und der Wochenendquote — nach dem Erstellen manuell bearbeitbar.</p>
         </header>
 
         {/* Archive */}
@@ -1631,7 +1705,7 @@ function LabShiftSchedulerInner() {
             <div>
               <label className="text-sm font-medium text-slate-700 mb-1.5 block">Benötigte Personen je Schicht (gleichzeitig)</label>
               <div className="grid grid-cols-4 gap-2">
-                {["F", ...dayShiftDefs.filter((d) => d.frequency !== "quota").map((d) => d.key), "S", "N"].map((st) => (
+                {["F", ...dayShiftDefs.filter((d) => d.frequency !== "quota").map((d) => d.key), "S"].map((st) => (
                   <div key={st} className="text-center">
                     <div className={`text-[11px] mb-1 ${shiftMeta[st].text}`}>{shiftMeta[st].label}</div>
                     <input
@@ -1647,18 +1721,20 @@ function LabShiftSchedulerInner() {
               </div>
               {dayShiftDefs.some((d) => d.frequency === "quota") && (
                 <p className="text-[11px] text-slate-400 mt-1.5">
-                  {dayShiftDefs.filter((d) => d.frequency === "quota").map((d) => `${d.label} (${d.quotaCount || 9}x/Monat)`).join(", ")} laufen separat, meist die Leitende MTLA, sonst wer am wenigsten Schichten hat.
+                  {dayShiftDefs.filter((d) => d.frequency === "quota").map((d) => `${d.label} (${d.quotaCount || 9}x/Monat)`).join(", ")} laufen separat, bevorzugt die Teamleitung, sonst wer am wenigsten Schichten hat.
                 </p>
               )}
             </div>
           </div>
 
-          {/* Shift definitions: F/S/N keep their special rules but are fully renameable/retimeable;
-              the "middle" shifts are freely add/remove/editable. */}
+          {/* Shift definitions: F/S keep their one special rule (adjacency) but are fully
+              renameable/retimeable; every other shift is freely add/remove/editable, and the
+              system always ASKS (via the checkbox below) whether a given shift needs the 2-day
+              mandatory rest afterward — that's no longer tied to any fixed "night" slot. */}
           <div>
             <label className="text-sm font-medium text-slate-700 mb-2 block">Schichtzeiten</label>
             <div className="space-y-2">
-              {["F", "S", "N"].map((key) => (
+              {["F", "S"].map((key) => (
                 <div key={key} className="grid grid-cols-[auto,1fr,1fr,auto] gap-1.5 items-center bg-slate-50/60 rounded-lg p-2">
                   <span className={`text-[11px] font-medium px-1.5 ${shiftMeta[key].text}`}>{key}</span>
                   <input
@@ -1675,54 +1751,76 @@ function LabShiftSchedulerInner() {
                   <span className="text-[11px] text-slate-400 font-mono whitespace-nowrap">{shiftMeta[key].hours.toFixed(1)} Std.</span>
                 </div>
               ))}
-              {dayShiftDefs.map((def, idx) => (
-                <div key={def.key} className="grid grid-cols-1 sm:grid-cols-[1fr,1fr,auto,auto,auto] gap-1.5 items-center bg-slate-50/60 rounded-lg p-2">
-                  <input
-                    value={def.label}
-                    onChange={(e) => setDayShiftDefs((prev) => prev.map((d, i) => (i === idx ? { ...d, label: e.target.value } : d)))}
-                    className="border border-slate-300 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
-                    placeholder="Name"
-                  />
-                  <input
-                    value={def.time}
-                    onChange={(e) => setDayShiftDefs((prev) => prev.map((d, i) => (i === idx ? { ...d, time: e.target.value } : d)))}
-                    placeholder="08:00-16:00"
-                    className="border border-slate-300 rounded-lg px-2.5 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-teal-500"
-                  />
-                  <select
-                    value={def.frequency}
-                    onChange={(e) => setDayShiftDefs((prev) => prev.map((d, i) => (i === idx ? { ...d, frequency: e.target.value } : d)))}
-                    className="border border-slate-300 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-teal-500"
-                  >
-                    <option value="daily">Täglich</option>
-                    <option value="quota">Kontingent/Monat</option>
-                  </select>
-                  {def.frequency === "quota" ? (
-                    <div className="flex items-center gap-1.5">
+              {dayShiftDefs.map((def, idx) => {
+                const guessedNight = /nacht|night|graveyard/i.test(def.label || "") || (() => {
+                  const t = parseTimeRange(def.time);
+                  return !!t && t.endMin <= t.startMin;
+                })();
+                return (
+                <div key={def.key} className="bg-slate-50/60 rounded-lg p-2 space-y-1.5">
+                  <div className="grid grid-cols-1 sm:grid-cols-[1fr,1fr,auto,auto,auto] gap-1.5 items-center">
+                    <input
+                      value={def.label}
+                      onChange={(e) => setDayShiftDefs((prev) => prev.map((d, i) => (i === idx ? { ...d, label: e.target.value } : d)))}
+                      className="border border-slate-300 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
+                      placeholder="Name"
+                    />
+                    <input
+                      value={def.time}
+                      onChange={(e) => setDayShiftDefs((prev) => prev.map((d, i) => (i === idx ? { ...d, time: e.target.value } : d)))}
+                      placeholder="08:00-16:00"
+                      className="border border-slate-300 rounded-lg px-2.5 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-teal-500"
+                    />
+                    <select
+                      value={def.frequency}
+                      onChange={(e) => setDayShiftDefs((prev) => prev.map((d, i) => (i === idx ? { ...d, frequency: e.target.value } : d)))}
+                      className="border border-slate-300 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-teal-500"
+                    >
+                      <option value="daily">Täglich</option>
+                      <option value="quota">Kontingent/Monat</option>
+                    </select>
+                    {def.frequency === "quota" ? (
+                      <div className="flex items-center gap-1.5">
+                        <input
+                          type="number"
+                          min={1}
+                          value={def.quotaCount || 9}
+                          onChange={(e) => setDayShiftDefs((prev) => prev.map((d, i) => (i === idx ? { ...d, quotaCount: Math.max(1, parseInt(e.target.value) || 1) } : d)))}
+                          className="w-16 border border-slate-300 rounded-lg px-2 py-1.5 text-xs text-center focus:outline-none focus:ring-2 focus:ring-teal-500"
+                          title="Wie oft pro Monat"
+                        />
+                        <label className="flex items-center gap-1 text-[10px] text-fuchsia-700 whitespace-nowrap" title="Bevorzugt die als „Teamleitung“ markierte Person">
+                          <input type="checkbox" checked={!!def.preferLead} onChange={(e) => setDayShiftDefs((prev) => prev.map((d, i) => (i === idx ? { ...d, preferLead: e.target.checked } : d)))} />
+                          Leitung
+                        </label>
+                      </div>
+                    ) : (
+                      <span className="text-[11px] text-slate-400 font-mono">{computeShiftHours(def.time).toFixed(1)} Std.</span>
+                    )}
+                    <button onClick={() => setDayShiftDefs((prev) => prev.filter((_, i) => i !== idx))} className="justify-self-end text-slate-400 hover:text-rose-600 p-1.5 rounded-lg hover:bg-rose-50" aria-label="Entfernen">
+                      <Trash2 size={15} />
+                    </button>
+                  </div>
+                  {def.frequency !== "quota" && (
+                    <label className="flex items-start gap-1.5 text-[11px] text-indigo-700 bg-indigo-50 border border-indigo-100 rounded-lg px-2 py-1.5">
                       <input
-                        type="number"
-                        min={1}
-                        value={def.quotaCount || 9}
-                        onChange={(e) => setDayShiftDefs((prev) => prev.map((d, i) => (i === idx ? { ...d, quotaCount: Math.max(1, parseInt(e.target.value) || 1) } : d)))}
-                        className="w-16 border border-slate-300 rounded-lg px-2 py-1.5 text-xs text-center focus:outline-none focus:ring-2 focus:ring-teal-500"
-                        title="Wie oft pro Monat"
+                        type="checkbox"
+                        className="mt-0.5"
+                        checked={!!def.requiresRestAfter}
+                        onChange={(e) => setDayShiftDefs((prev) => prev.map((d, i) => (i === idx ? { ...d, requiresRestAfter: e.target.checked } : d)))}
                       />
-                      <label className="flex items-center gap-1 text-[10px] text-fuchsia-700 whitespace-nowrap" title="Bevorzugt die als „Leitende MTLA“ markierte Person">
-                        <input type="checkbox" checked={!!def.preferLead} onChange={(e) => setDayShiftDefs((prev) => prev.map((d, i) => (i === idx ? { ...d, preferLead: e.target.checked } : d)))} />
-                        Leitung
-                      </label>
-                    </div>
-                  ) : (
-                    <span className="text-[11px] text-slate-400 font-mono">{computeShiftHours(def.time).toFixed(1)} Std.</span>
+                      <span>
+                        Braucht diese Schicht danach mindestens 2 Tage Pause? (z. B. bei Nachtschichten)
+                        {guessedNight && !def.requiresRestAfter && <span className="text-indigo-500"> — sieht nach einer Nachtschicht aus, evtl. ankreuzen?</span>}
+                      </span>
+                    </label>
                   )}
-                  <button onClick={() => setDayShiftDefs((prev) => prev.filter((_, i) => i !== idx))} className="justify-self-end text-slate-400 hover:text-rose-600 p-1.5 rounded-lg hover:bg-rose-50" aria-label="Entfernen">
-                    <Trash2 size={15} />
-                  </button>
                 </div>
-              ))}
+                );
+              })}
             </div>
             <button
-              onClick={() => setDayShiftDefs((prev) => [...prev, { key: `custom${Date.now()}`, label: "Neue Schicht", time: "08:00-16:00", frequency: "daily" }])}
+              onClick={() => setDayShiftDefs((prev) => [...prev, { key: `custom${Date.now()}`, label: "Neue Schicht", time: "08:00-16:00", frequency: "daily", requiresRestAfter: false }])}
               className="mt-2 inline-flex items-center gap-1 text-sm text-teal-700 hover:text-teal-800 font-medium"
             >
               <Plus size={15} /> Schicht hinzufügen
@@ -1793,15 +1891,15 @@ function LabShiftSchedulerInner() {
                     </div>
                     <label className="flex items-center gap-1 text-slate-500">
                       <input type="checkbox" checked={!!s.nightExempt} onChange={(e) => updateStaffField(s.id, "nightExempt", e.target.checked)} />
-                      Befreit von Nachtdienst
+                      Befreit von Nachtschichten (Schichten mit Ruhepflicht)
                     </label>
                     <label className="flex items-center gap-1 text-slate-500">
                       <input type="checkbox" checked={!!s.weekendExempt} onChange={(e) => updateStaffField(s.id, "weekendExempt", e.target.checked)} />
                       Befreit von Wochenendquote
                     </label>
                     <label className="flex items-center gap-1 text-fuchsia-700">
-                      <input type="checkbox" checked={!!s.isLeadMTLA} onChange={(e) => updateStaffField(s.id, "isLeadMTLA", e.target.checked)} />
-                      Leitende MTLA (übernimmt meist Büro)
+                      <input type="checkbox" checked={!!s.isTeamLead} onChange={(e) => updateStaffField(s.id, "isTeamLead", e.target.checked)} />
+                      Teamleitung (bevorzugt für Kontingent-Schichten)
                     </label>
                   </div>
                   <button onClick={() => removeStaff(s.id)} className="justify-self-end sm:justify-self-auto text-slate-400 hover:text-rose-600 p-1.5 rounded-lg hover:bg-rose-50" aria-label="Entfernen">
@@ -2153,6 +2251,9 @@ function LabShiftSchedulerInner() {
                     ))}
                   </tbody>
                 </table>
+                <p className="text-[11px] text-slate-400 mt-2 px-2">
+                  {dayOrderedKeys.map((k) => `${shiftCodes[k]} = ${shiftMeta[k].label}`).join(" · ")} · U = Urlaub · K = Krank
+                </p>
               </div>
               ) : (
               <div className="overflow-x-auto">
@@ -2289,7 +2390,7 @@ function LabShiftSchedulerInner() {
   );
 }
 
-export default function LabShiftScheduler() {
+export default function GenericShiftScheduler() {
   return (
     <ErrorBoundary>
       <LabShiftSchedulerInner />

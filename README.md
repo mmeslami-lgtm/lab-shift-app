@@ -1,72 +1,37 @@
-# Dienstplaner – Labor
+# Dienstplaner
 
-Next.js-App für den Laborschichtplaner, bereit für Vercel.
+Next.js-App, bereit für Vercel. Enthält drei Seiten und eine Zeiterfassungs-API.
 
-## Was sich geändert hat (gegenüber der Claude-Artefakt-Version)
+| Adresse | Was |
+|---|---|
+| `/` | Dienstplaner **Labor** (Schichten vorbelegt) – für die Leitung |
+| `/allgemein` | Dienstplaner **allgemein** (Früh/Spät vorbelegt, alles frei änderbar) |
+| `/mitarbeiter` | **Meine Schichten** – App für Mitarbeitende (derzeit mit Beispieldaten) |
+| `/api/attendance` | Eingang für das Chip-Lesegerät. Jedes Gerät gehört zu **einer Firma** und meldet sich mit Seriennummer + Geheimnis (Tabelle `devices`). |
 
-Die Claude-Artefakt-Version nutzte `window.storage`, eine API, die es nur innerhalb
-der Claude.ai-Vorschau gibt. Für eine echte, eigenständige App wurde das durch
-`lib/storage.js` ersetzt — dieselbe Funktionsweise, aber auf echtem `localStorage`
-basierend, das in jedem Browser funktioniert.
+## Excel-Export
+Im Dienstplaner nach dem Erstellen auf **„Als Excel herunterladen (.xlsx)“** tippen. Die Datei hat die
+Blätter *Dienstplan*, *Nach Mitarbeiter*, *Zusammenfassung* (und *Hinweise*) mit Farben und lebenden
+Formeln. Auf dem Handy öffnet sich das Teilen-Menü („In Dateien sichern“, Numbers, Mail …).
 
-**Wichtig:** `localStorage` speichert nur lokal in diesem einen Browser. Für
-Daten, die über mehrere Geräte/Nutzer hinweg sichtbar sein sollen (z. B. wenn
-mehrere Personen im Team den Plan bearbeiten), muss `lib/storage.js` später durch
-echte Supabase-Aufrufe ersetzt werden — die Funktionssignaturen (`get`, `set`,
-`list`, `delete`) sind absichtlich so gehalten, dass dieser Umbau einfach bleibt.
+## Auf dem Handy installieren (PWA)
+- **iPhone (Safari):** Seite öffnen → Teilen-Symbol → **„Zum Home-Bildschirm“**.
+- **Android (Chrome):** Menü ⋮ → **„App installieren“**.
+
+Für Mitarbeitende den Link `…vercel.app/mitarbeiter` verteilen, für die Leitung `…vercel.app/`.
+
+## Wichtig
+- Archiv/Saldo werden pro Browser in `localStorage` gespeichert (`lib/storage.js`). Für geräteübergreifende
+  Daten später durch Supabase ersetzen.
+- Die Mitarbeiter-App zeigt Beispieldaten, bis sie mit der Datenbank verbunden ist.
 
 ## Lokal starten
-
 ```bash
 npm install
 npm run dev
 ```
 
-Dann [http://localhost:3000](http://localhost:3000) im Browser öffnen.
-
-## Supabase einrichten (für die Anwesenheits-API)
-
-1. Das vorher erstellte Supabase-Projekt öffnen -> **Project Settings -> API**.
-2. Drei Werte kopieren: **Project URL**, **anon public** Key, **service_role** Key.
-3. `.env.local.example` zu `.env.local` kopieren und die drei Werte eintragen.
-4. Auf Vercel dieselben drei Variablen unter **Project Settings -> Environment Variables**
-   eintragen (sonst funktioniert die API nach dem Deploy nicht).
-
-## Anwesenheits-Endpunkt (für das Chip-Lesegerät)
-
-Nach dem Deploy ist der Endpunkt erreichbar unter:
-
-```
-https://DEIN-PROJEKT.vercel.app/api/attendance
-```
-
-- **GET** → einfacher Health-Check (zeigt, dass der Endpunkt läuft).
-- **POST** → nimmt einen Scan entgegen und speichert ihn in `attendance_events`.
-  Details zum erwarteten Format stehen als Kommentar oben in
-  `app/api/attendance/route.js`. Sobald das genaue Gerät feststeht, ist diese
-  Datei die einzige, die an das tatsächliche Protokoll angepasst werden muss.
-
-Zum Testen z. B. mit curl:
-
-```bash
-curl -X POST https://DEIN-PROJEKT.vercel.app/api/attendance \
-  -H "Content-Type: application/json" \
-  -d '{"badge_code": "TEST123"}'
-```
-
-## Auf Vercel veröffentlichen
-
-1. **Dieses Projekt auf GitHub hochladen** (neues Repository erstellen, diesen
-   Ordner hochladen oder per `git push` übertragen).
-2. Auf [vercel.com](https://vercel.com) einloggen (Anmeldung mit dem
-   GitHub-Konto ist am einfachsten).
-3. **„Add New…“ → „Project“** klicken.
-4. Das gerade hochgeladene GitHub-Repository auswählen → **„Import“**.
-5. Vercel erkennt automatisch, dass es sich um ein Next.js-Projekt handelt —
-   die Standardeinstellungen müssen nicht geändert werden.
-6. **„Deploy“** klicken und ein paar Minuten warten.
-7. Fertig — Vercel gibt eine Live-URL aus (z. B. `dein-projekt.vercel.app`),
-   über die die App von überall erreichbar ist.
-
-Jede weitere Änderung, die später auf GitHub gepusht wird, wird von Vercel
-automatisch neu veröffentlicht.
+## Supabase
+Kopiere `.env.local.example` zu `.env.local` und trage die drei Werte ein (auf Vercel unter
+*Settings → Environment Variables*). SQL-Skripte (in dieser Reihenfolge): `attendance-schema.sql`, danach `multi-tenant-schema.sql`
+(Firmen, Produkte, Datenschutz zwischen Firmen). Das Zeiterfassungsgerät muss danach in `devices` registriert sein.
