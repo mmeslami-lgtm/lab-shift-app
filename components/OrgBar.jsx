@@ -2,6 +2,7 @@
 
 import React, { useContext, useEffect, useState } from "react";
 import { OrgContext } from "../lib/orgContext";
+import { fetchAll } from "../lib/fetchAll";
 
 const ROLE_LABEL = { owner: "Inhaber", supervisor: "Leitung", employee: "Mitarbeitende" };
 const PRODUCT_LABEL = { lab_planner: "Dienstplaner Labor", generic_planner: "Dienstplaner allgemein", employee_app: "Mitarbeiter-App" };
@@ -14,12 +15,17 @@ const MONTHS = ["Januar", "Februar", "März", "April", "Mai", "Juni", "Juli", "A
 //   onLoadStaff(rows)   replace the planner list with the rows from the database
 //   staffList, toDb(s)  the planner's current people and how one becomes a database row
 //   onIdsChanged(map)   tell the planner that local ids were replaced by database ids
-export default function OrgBar({ onLoadStaff, staffList, toDb, onIdsChanged, year, monthIdx }) {
+export default function OrgBar({ onLoadStaff, staffList, toDb, onIdsChanged, year, monthIdx, onLoadPlan, hasPlan }) {
   const org = useContext(OrgContext);
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState("");
   const [row, setRow] = useState(null);
   const [bump, setBump] = useState(0);
+  const [editOpen, setEditOpen] = useState(false);
+  const [editMonth, setEditMonth] = useState(1);
+  const [editYear, setEditYear] = useState(2026);
+  const [saved, setSaved] = useState([]); // months that already have a saved plan
+  const [openJumps, setOpenJumps] = useState(0); // Einspringer entries the Leitung has not looked at yet
 
   // status of the month shown in the planner (and the reason, if the Inhaber rejected it)
   useEffect(() => {
@@ -32,13 +38,81 @@ export default function OrgBar({ onLoadStaff, staffList, toDb, onIdsChanged, yea
     return () => { alive = false; };
   }, [org, year, monthIdx, bump]);
   useEffect(() => {
+    if (!org) return;
+    let alive = true;
+    (async () => {
+      const r = await org.supabase.from("shift_changes").select("id, kind, manager_status").eq("org_id", org.orgId).eq("manager_status", "open");
+      if (alive && !r.error) setOpenJumps(r.data.filter((x) => x.kind !== "cancelled").length);
+    })();
+    return () => { alive = false; };
+  }, [org, bump]);
+  useEffect(() => {
     const h = () => setBump((n) => n + 1);
     window.addEventListener("schedule-status-changed", h);
     return () => window.removeEventListener("schedule-status-changed", h);
   }, []);
 
+  useEffect(() => {
+    if (!org || !editOpen) return;
+    let alive = true;
+    (async () => {
+      const r = await org.supabase.from("schedule_months").select("year, month, status").eq("org_id", org.orgId);
+      if (alive && !r.error) setSaved([...r.data].sort((a, b) => b.year - a.year || b.month - a.month));
+    })();
+    return () => { alive = false; };
+  }, [org, editOpen, bump]);
+
   if (!org) return null;
   const sb = org.supabase;
+
+  function openEdit() {
+    setEditMonth((year !== undefined ? monthIdx : new Date().getMonth()) + 1);
+    setEditYear(year !== undefined ? year : new Date().getFullYear());
+    setEditOpen((o) => !o);
+  }
+  const STATUS_TXT = { draft: "Entwurf", pending: "wartet auf Freigabe", published: "veröffentlicht" };
+  const yearOptions = [...new Set([...saved.map((x) => x.year), new Date().getFullYear() - 1, new Date().getFullYear(), new Date().getFullYear() + 1])].sort();
+
+  // Reopen a saved month (the newest draft, otherwise the published version) in the editor
+  async function loadPlan() {
+    const y = Number(editYear), m = Number(editMonth);
+    if (hasPlan && !window.confirm("Der Plan im Editor wird durch den gespeicherten Plan ersetzt. Nicht gespeicherte Änderungen gehen verloren. Fortfahren?")) return;
+    setBusy("plan"); setMsg("");
+    try {
+      const from = `${y}-${String(m).padStart(2, "0")}-01`;
+      const nx = new Date(y, m, 1); const to = `${nx.getFullYear()}-${String(nx.getMonth() + 1).padStart(2, "0")}-01`;
+      const mrow = await sb.from("schedule_months").select("status, holidays, has_newer_draft").eq("org_id", org.orgId).eq("year", y).eq("month", m);
+      if (mrow.error) throw mrow.error;
+      const q = (status) => fetchAll(() => sb.from("scheduled_shifts").select("staff_id, shift_date, shift_key").eq("org_id", org.orgId).eq("status", status).gte("shift_date", from).lt("shift_date", to));
+      // a published month with no newer draft is loaded from the published rows; otherwise the newest draft wins
+      const info = mrow.data[0] || {};
+      const first = info.status === "published" && !info.has_newer_draft ? "published" : "draft";
+      let source = first; let rows = await q(first);
+      if (!rows.length) { source = first === "draft" ? "published" : "draft"; rows = await q(source); }
+      if (!rows.length) { setMsg(`Für ${MONTHS[m - 1]} ${y} ist kein gespeicherter Plan vorhanden.`); setBusy(""); return; }
+      const d = await sb.from("shift_definitions").select("key, label, start_time, end_time, frequency, quota_per_month, prefer_team_lead, requires_rest_after, sort_order").eq("org_id", org.orgId).eq("active", true);
+      if (d.error) throw d.error;
+      const st = await sb.from("staff").select("id, name, email, weekly_hours, employment_type, night_exempt, weekend_exempt, is_team_lead, active").eq("org_id", org.orgId).order("name");
+      if (st.error) throw st.error;
+      // what the employees currently see, to mark every manual change in the editor
+      const baselineRows = source === "published" ? rows : (info.status === "published" ? await q("published") : []);
+      const used = new Set([...rows, ...baselineRows].map((r) => r.staff_id));
+      const staffRows = st.data.filter((s) => s.active !== false || used.has(s.id));
+      const res = onLoadPlan({
+        year: y, month: m, rows, baselineRows, holidays: (mrow.data[0] && mrow.data[0].holidays) || [],
+        defs: [...d.data].sort((a, b) => a.sort_order - b.sort_order), staffRows,
+      });
+      if (res && res.ok) {
+        const what = source === "published" ? "veröffentlichte Fassung" : info.status === "pending" ? "Entwurf, der auf Freigabe wartet" : info.status === "published" ? "neuerer, noch nicht veröffentlichter Entwurf" : "gespeicherter Entwurf";
+        setMsg(`${MONTHS[m - 1]} ${y} geladen (${what}). Schichten in der Tabelle ändern, dann „Entwurf speichern“ oder „Zur Freigabe einreichen“. Mitarbeitende sehen Änderungen erst nach Veröffentlichung.`);
+        setEditOpen(false);
+      } else setMsg((res && res.message) || "Der Plan konnte nicht geladen werden.");
+    } catch (e) {
+      const t = e && e.message ? e.message : String(e);
+      setMsg("Fehler: " + (/column .*holidays|does not exist/i.test(t) ? "Die Datenbank ist noch nicht umgestellt. Bitte edit-month-schema.sql im SQL Editor ausführen." : t));
+    }
+    setBusy("");
+  }
 
   async function load() {
     // do not silently throw away people the boss typed in by hand
@@ -111,11 +185,33 @@ export default function OrgBar({ onLoadStaff, staffList, toDb, onIdsChanged, yea
           <button onClick={save} disabled={!!busy} className="rounded-lg border border-indigo-200 bg-indigo-50 px-2.5 py-1.5 text-xs text-indigo-800 hover:bg-indigo-100 disabled:opacity-60">
             {busy === "save" ? "Speichert …" : "Personen in Datenbank speichern"}
           </button>
-          <a href="/freigaben" className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs text-slate-700 hover:bg-slate-50">Freigaben &amp; Archiv</a>
+          <a href="/freigaben" className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs text-slate-700 hover:bg-slate-50">Freigaben &amp; Archiv{openJumps > 0 ? ` · ${openJumps} Einspringen offen` : ""}</a>
+          <button onClick={openEdit} disabled={!!busy} aria-expanded={editOpen} className="rounded-lg border border-amber-300 bg-amber-50 px-2.5 py-1.5 text-xs font-medium text-amber-900 hover:bg-amber-100 disabled:opacity-60">Plan bearbeiten</button>
           <button onClick={() => sb.auth.signOut()} className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs text-slate-600 hover:bg-slate-50">Abmelden</button>
         </div>
       </div>
       <div className="mt-2 text-[11px] text-slate-500">Neue oder geänderte Personen sind erst nach „Personen in Datenbank speichern“ in der Datenbank. Nur Personen aus der Datenbank können Pläne veröffentlicht bekommen.</div>
+      {editOpen && (
+        <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
+          <div className="mb-2 font-semibold">Gespeicherten Plan zum Bearbeiten öffnen</div>
+          <div className="flex flex-wrap items-end gap-2">
+            <label>Monat
+              <select value={editMonth} onChange={(e) => setEditMonth(e.target.value)} className="ml-1 rounded-md border border-amber-300 bg-white px-2 py-1">
+                {MONTHS.map((n, i) => <option key={n} value={i + 1}>{n}</option>)}
+              </select>
+            </label>
+            <label>Jahr
+              <select value={editYear} onChange={(e) => setEditYear(e.target.value)} className="ml-1 rounded-md border border-amber-300 bg-white px-2 py-1">
+                {yearOptions.map((y) => <option key={y} value={y}>{y}</option>)}
+              </select>
+            </label>
+            <button onClick={loadPlan} disabled={!!busy} className="rounded-md bg-amber-600 px-3 py-1.5 font-semibold text-white hover:bg-amber-700 disabled:opacity-60">{busy === "plan" ? "Lädt …" : "Plan laden"}</button>
+          </div>
+          {saved.length > 0 && (
+            <div className="mt-2 text-amber-800">Gespeichert: {saved.map((x) => `${MONTHS[x.month - 1].slice(0, 3)} ${x.year} (${STATUS_TXT[x.status] || x.status})`).join(" · ")}</div>
+          )}
+        </div>
+      )}
       {msg && <div className="mt-1.5 text-xs text-slate-700">{msg}</div>}
       {row && row.status === "pending" && <div className="mt-2 rounded-lg bg-amber-50 p-2 text-xs text-amber-800">{MONTHS[monthIdx]} {year} wartet auf Freigabe durch die Inhaber.</div>}
       {row && row.status === "draft" && row.review_note && <div className="mt-2 rounded-lg bg-rose-50 p-2 text-xs font-medium text-rose-700">{MONTHS[monthIdx]} {year} wurde zurückgewiesen: {row.review_note}</div>}

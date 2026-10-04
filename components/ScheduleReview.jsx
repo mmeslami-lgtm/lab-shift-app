@@ -3,6 +3,8 @@
 import React, { useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { OrgContext } from "../lib/orgContext";
 import { PALETTE, makeCodes, netHours, hhmm } from "../lib/shiftStyle";
+import { fetchAll } from "../lib/fetchAll";
+import { computeChanges } from "../lib/planDiff";
 
 const INK = "#1B2433";
 const PRIMARY = "#243B6B";
@@ -11,6 +13,8 @@ const MUTED = "#6B7588";
 const LINE = "#D9DEE7";
 const MONTHS = ["Januar", "Februar", "März", "April", "Mai", "Juni", "Juli", "August", "September", "Oktober", "November", "Dezember"];
 const WD = ["So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"];
+const KIND_LABEL = { cover: "Einspringen", extra: "Zusatzschicht", cancelled: "Entfällt" };
+const WD_LONG = ["So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"];
 const EVENT_LABEL = { submitted: "Zur Freigabe eingereicht", rejected: "Zurückgewiesen", published: "Veröffentlicht" };
 const STATUS = {
   draft: { t: "Entwurf", bg: "#EEF0F4", fg: "#4A5368" },
@@ -34,20 +38,8 @@ function friendly(e) {
   return msg;
 }
 
-// Reads every row even when there are more than the server's page limit
-async function fetchAll(makeQuery) {
-  const out = [];
-  for (let from = 0; ; from += 1000) {
-    const { data, error } = await makeQuery().range(from, from + 999);
-    if (error) throw error;
-    out.push(...data);
-    if (data.length < 1000) break;
-  }
-  return out;
-}
-
 // Read-only table: one row per person, one column per day, plus paid hours
-function PlanGrid({ defs, shifts, year, month }) {
+function PlanGrid({ defs, shifts, year, month, marks = {}, extraNames = {} }) {
   const total = new Date(year, month, 0).getDate();
   const codes = useMemo(() => makeCodes(defs), [defs]);
   const defByKey = useMemo(() => { const m = {}; defs.forEach((d) => { m[d.key] = d; }); return m; }, [defs]);
@@ -55,13 +47,15 @@ function PlanGrid({ defs, shifts, year, month }) {
   const people = useMemo(() => {
     const m = new Map();
     shifts.forEach((s) => { if (!m.has(s.staff_id)) m.set(s.staff_id, { id: s.staff_id, name: s.name || "Unbekannt", cells: {}, hours: 0 }); });
+    // people whose shift was removed still get a row, so the removal is visible
+    Object.keys(marks).forEach((mk) => { const id = mk.split("|")[0]; if (!m.has(id)) m.set(id, { id, name: extraNames[id] || "Unbekannt", cells: {}, hours: 0 }); });
     shifts.forEach((s) => {
       const p = m.get(s.staff_id); const day = Number(String(s.date).slice(8, 10));
       (p.cells[day] = p.cells[day] || []).push(s.key);
       if (defByKey[s.key]) p.hours += netHours(defByKey[s.key]);
     });
     return [...m.values()].sort((a, b) => a.name.localeCompare(b.name, "de"));
-  }, [shifts, defByKey]);
+  }, [shifts, defByKey, marks, extraNames]);
   const days = Array.from({ length: total }, (_, i) => i + 1);
 
   if (!people.length) return <div style={{ fontSize: 14, color: MUTED }}>In dieser Fassung gibt es keine Schichten.</div>;
@@ -85,10 +79,12 @@ function PlanGrid({ defs, shifts, year, month }) {
               {days.map((d) => {
                 const ks = p.cells[d] || [];
                 const st = ks.length ? styleOf(ks[0]) : null;
+                const mk = marks[`${p.id}|${d}`];
                 return (
-                  <td key={d} title={ks.map((k) => (defByKey[k] ? defByKey[k].label : k)).join(", ")}
+                  <td key={d} title={mk === "removed" ? "Schicht entfällt" : mk === "added" ? "Geändert" : ks.map((k) => (defByKey[k] ? defByKey[k].label : k)).join(", ")}
                     style={{ padding: 2, borderBottom: `1px solid #EEF0F4`, textAlign: "center" }}>
-                    {st && <div style={{ background: st.soft, color: st.ink, borderRadius: 6, fontWeight: 700, padding: "3px 0" }}>{ks.map((k) => codes[k] || "?").join("+")}</div>}
+                    {st && <div style={{ background: st.soft, color: st.ink, borderRadius: 6, fontWeight: 700, padding: "3px 0", outline: mk === "added" ? "2px solid #F59E0B" : "none" }}>{ks.map((k) => codes[k] || "?").join("+")}</div>}
+                    {!st && mk === "removed" && <div style={{ border: "2px dashed #F59E0B", color: "#B45309", borderRadius: 6, fontWeight: 700, padding: "1px 0" }}>✕</div>}
                   </td>
                 );
               })}
@@ -123,10 +119,13 @@ export default function ScheduleReview() {
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
   const [version, setVersion] = useState(0);
+  const [changesAll, setChangesAll] = useState([]);
+  const [period, setPeriod] = useState("year");
+  const [onlyOpen, setOnlyOpen] = useState(false);
 
   const loadBase = useCallback(async () => {
     try {
-      const m = await sb.from("schedule_months").select("year, month, status, has_newer_draft, submitted_at, published_at, review_note").eq("org_id", org.orgId);
+      const m = await sb.from("schedule_months").select("year, month, status, has_newer_draft, submitted_at, published_at, review_note, change_note").eq("org_id", org.orgId);
       if (m.error) throw m.error;
       const sorted = [...m.data].sort((a, b) => b.year - a.year || b.month - a.month);
       setMonths(sorted);
@@ -137,6 +136,9 @@ export default function ScheduleReview() {
       const st = await sb.from("staff").select("id, name").eq("org_id", org.orgId);
       if (st.error) throw st.error;
       const names = {}; st.data.forEach((x) => { names[x.id] = x.name; }); setStaffNames(names);
+      try {
+        setChangesAll(await fetchAll(() => sb.from("shift_changes").select("id, change_date, shift_key, kind, staff_id, replaced_staff_id, note, published_at, manager_status, manager_note").eq("org_id", org.orgId)));
+      } catch (e) { setChangesAll([]); } // table is created by changes-schema.sql
       const v = await sb.from("schedule_versions").select("id, keep_until").eq("org_id", org.orgId);
       if (!v.error) { const today = new Date().toISOString().slice(0, 10); setExpired(v.data.filter((x) => x.keep_until < today).length); }
     } catch (e) { setErr(friendly(e)); setMonths([]); }
@@ -178,6 +180,55 @@ export default function ScheduleReview() {
     const rows = rowsByStatus[effective] || [];
     return { defs: defs.filter((d) => d.active !== false), shifts: rows.map((r) => ({ staff_id: r.staff_id, name: staffNames[r.staff_id], date: r.shift_date, key: r.shift_key })) };
   }, [effective, versions, rowsByStatus, defs, staffNames]);
+
+  // what differs between the version being reviewed and what the employees currently see
+  const preview = useMemo(() => {
+    const pub = rowsByStatus.published || [], dr = rowsByStatus.draft || [];
+    if (!monthRow || !pub.length || !dr.length) return [];
+    if (monthRow.status === "published" && !monthRow.has_newer_draft) return [];
+    return computeChanges(pub, dr);
+  }, [rowsByStatus, monthRow]);
+  const marks = useMemo(() => {
+    const m = {};
+    preview.forEach((c) => {
+      const day = Number(c.date.slice(8, 10));
+      if (c.kind === "cover") { m[`${c.staffId}|${day}`] = "added"; m[`${c.replacedId}|${day}`] = m[`${c.replacedId}|${day}`] || "removed"; }
+      else if (c.kind === "extra") m[`${c.staffId}|${day}`] = "added";
+      else m[`${c.staffId}|${day}`] = m[`${c.staffId}|${day}`] || "removed";
+    });
+    return m;
+  }, [preview]);
+  const labelOfKey = (k) => { const d = defs.find((x) => x.key === k); return d ? d.label : k; };
+  const nameOf = (id) => staffNames[id] || "Unbekannt";
+  const dayText = (iso) => { const [y, m, d] = iso.split("-").map(Number); return `${WD_LONG[new Date(y, m - 1, d).getDay()]} ${String(d).padStart(2, "0")}.${String(m).padStart(2, "0")}.`; };
+  const changeText = (c) => {
+    const who = nameOf(c.staffId || c.staff_id); const other = nameOf(c.replacedId || c.replaced_staff_id);
+    return c.kind === "cover" ? `${who} übernimmt für ${other}` : c.kind === "extra" ? `${who}: zusätzliche Schicht` : `${who}: Schicht entfällt`;
+  };
+
+  // Einspringen overview for the Leitung
+  const jumpsInPeriod = useMemo(() => {
+    const now = new Date(); const y0 = now.getFullYear(); const cut12 = new Date(now.getFullYear() - 1, now.getMonth(), now.getDate()).toISOString().slice(0, 10);
+    return changesAll.filter((c) => period === "all" || (period === "year" ? c.change_date.slice(0, 4) === String(y0) : c.change_date >= cut12));
+  }, [changesAll, period]);
+  const ranking = useMemo(() => {
+    const m = new Map();
+    jumpsInPeriod.filter((c) => c.kind !== "cancelled").forEach((c) => {
+      const r = m.get(c.staff_id) || { id: c.staff_id, count: 0, open: 0, last: "" };
+      r.count++; if (c.manager_status === "open") r.open++; if (c.change_date > r.last) r.last = c.change_date; m.set(c.staff_id, r);
+    });
+    return [...m.values()].sort((a, b) => b.count - a.count || b.open - a.open);
+  }, [jumpsInPeriod]);
+  const shownChanges = useMemo(() => [...jumpsInPeriod].filter((c) => !onlyOpen || (c.manager_status === "open" && c.kind !== "cancelled")).sort((a, b) => b.change_date.localeCompare(a.change_date)), [jumpsInPeriod, onlyOpen]);
+  async function setStatus(c, status) {
+    const note = status === "done" ? window.prompt("Notiz zur Entscheidung (optional), z. B. „Prämie zugesagt“", c.manager_note || "") : null;
+    if (status === "done" && note === null) return;
+    setBusy(true); setErr("");
+    const r = await sb.rpc("set_change_status", { p_id: c.id, p_status: status, p_note: note });
+    setBusy(false);
+    if (r.error) { setErr(friendly(r.error)); return; }
+    setVersion((v) => v + 1);
+  }
 
   async function call(name, args, okText) {
     setBusy(true); setMsg(""); setErr("");
@@ -247,13 +298,21 @@ export default function ScheduleReview() {
               </div>
             </div>
             {String(effective).startsWith("v:") && <div style={{ fontSize: 12, color: "#7A4E00", background: "#FFF1D2", borderRadius: 10, padding: "6px 10px", marginBottom: 8 }}>Archivierte Fassung (nur Ansicht). Zurück mit „Aktuell“.</div>}
-            <PlanGrid defs={view.defs} shifts={view.shifts} year={sel.year} month={sel.month} />
+            <PlanGrid defs={view.defs} shifts={view.shifts} year={sel.year} month={sel.month} marks={effective === "draft" || effective === "auto" ? marks : {}} extraNames={staffNames} />
+            {preview.length > 0 && (effective === "draft") && (
+              <div style={{ marginTop: 10, background: "#FFF8E6", border: "1px solid #F5D78A", borderRadius: 12, padding: "10px 12px" }}>
+                <div style={{ fontSize: 14, fontWeight: 650, color: "#7A4E00", marginBottom: 4 }}>Änderungen gegenüber der veröffentlichten Fassung ({preview.length})</div>
+                {preview.map((c, i) => <div key={i} style={{ fontSize: 13 }}>{dayText(c.date)} · {labelOfKey(c.key)}: {changeText(c)}</div>)}
+                <div style={{ fontSize: 11, color: MUTED, marginTop: 6 }}>Im Plan oben sind die geänderten Felder markiert. Nach der Freigabe werden diese Änderungen in der Übersicht „Einspringen & Änderungen“ festgehalten.</div>
+              </div>
+            )}
 
             <div style={{ marginTop: 14 }}>
               {monthRow.review_note && status === "draft" && <div style={{ fontSize: 13, color: "#B3263E", background: "#FCE5EA", borderRadius: 10, padding: "8px 10px", marginBottom: 10 }}>Zuletzt zurückgewiesen: {monthRow.review_note}</div>}
               {status === "pending" && isOwner && (
                 <div>
                   <div style={{ fontSize: 14, marginBottom: 8 }}>Dieser Plan wartet auf deine Freigabe{monthRow.submitted_at ? ` (eingereicht ${fmtDateTime(monthRow.submitted_at)})` : ""}. Die Mitarbeitenden sehen ihn erst nach „Freigeben“.</div>
+                  {monthRow.change_note && <div style={{ fontSize: 14, background: "#FFF1D2", color: "#7A4E00", borderRadius: 10, padding: "8px 10px", marginBottom: 8 }}><b>Änderungsgrund:</b> {monthRow.change_note}</div>}
                   <textarea value={note} onChange={(e) => setNote(e.target.value)} placeholder="Grund für eine Zurückweisung (optional)" rows={2}
                     style={{ width: "100%", boxSizing: "border-box", border: `1px solid ${LINE}`, borderRadius: 12, padding: 10, fontSize: 14, marginBottom: 8 }} />
                   <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -290,6 +349,43 @@ export default function ScheduleReview() {
             </div>
           </div>
         )}
+
+        <div id="einspringer" style={card}>
+          <div style={{ fontSize: 15, fontWeight: 650, marginBottom: 4 }}>Einspringen &amp; Änderungen</div>
+          <div style={{ fontSize: 13, color: MUTED, marginBottom: 10 }}>Wer bei einer Änderung eine Schicht übernimmt oder zusätzlich bekommt, wird hier festgehalten, damit es der Leitung auffällt. Das ist nur eine Übersicht für deine Entscheidung (z. B. Anerkennung). Es wird nichts automatisch ausgezahlt oder geändert.</div>
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", marginBottom: 10 }}>
+            <select value={period} onChange={(e) => setPeriod(e.target.value)} style={{ border: `1px solid ${LINE}`, borderRadius: 10, padding: "6px 8px", fontSize: 13 }}>
+              <option value="year">Dieses Jahr</option><option value="12m">Letzte 12 Monate</option><option value="all">Alles</option>
+            </select>
+            <label style={{ fontSize: 13, display: "flex", gap: 6, alignItems: "center" }}><input type="checkbox" checked={onlyOpen} onChange={(e) => setOnlyOpen(e.target.checked)} />nur offene</label>
+          </div>
+          {ranking.length === 0 && <div style={{ fontSize: 13, color: MUTED }}>Noch kein Einspringen im gewählten Zeitraum.</div>}
+          {ranking.length > 0 && (
+            <table style={{ borderCollapse: "collapse", fontSize: 13, width: "100%", marginBottom: 12 }}>
+              <thead><tr style={{ textAlign: "left", color: MUTED }}><th style={{ padding: "4px 6px" }}>Person</th><th style={{ padding: "4px 6px" }}>Einspringen</th><th style={{ padding: "4px 6px" }}>offen</th><th style={{ padding: "4px 6px" }}>zuletzt</th></tr></thead>
+              <tbody>{ranking.map((r) => (
+                <tr key={r.id} style={{ borderTop: "1px solid #EEF0F4" }}>
+                  <td style={{ padding: "6px", fontWeight: 650 }}>{nameOf(r.id)}</td>
+                  <td style={{ padding: "6px" }}>{r.count}×</td>
+                  <td style={{ padding: "6px" }}>{r.open > 0 ? <span style={{ background: "#FFF1D2", color: "#7A4E00", borderRadius: 999, padding: "2px 8px", fontSize: 12, fontWeight: 650 }}>{r.open} offen</span> : <span style={{ color: "#1F6347" }}>erledigt</span>}</td>
+                  <td style={{ padding: "6px", color: MUTED }}>{fmtDate(r.last)}</td>
+                </tr>))}</tbody>
+            </table>
+          )}
+          {shownChanges.map((c) => (
+            <div key={c.id} style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", padding: "8px 0", borderTop: "1px solid #EEF0F4", flexWrap: "wrap", opacity: c.kind === "cancelled" ? 0.75 : 1 }}>
+              <div style={{ fontSize: 13 }}>
+                <b>{dayText(c.change_date)}</b> · {labelOfKey(c.shift_key)} · <span style={{ color: c.kind === "cancelled" ? MUTED : "#7A4E00", fontWeight: 650 }}>{KIND_LABEL[c.kind]}</span>
+                <div>{changeText(c)}</div>
+                {c.note && <div style={{ color: MUTED }}>Grund: {c.note}</div>}
+                {c.manager_note && <div style={{ color: "#1F6347" }}>Vermerk: {c.manager_note}</div>}
+              </div>
+              {c.kind !== "cancelled" && (c.manager_status === "open"
+                ? <button disabled={busy} style={{ ...btnGhost, padding: "6px 10px", fontSize: 12 }} onClick={() => setStatus(c, "done")}>Berücksichtigt</button>
+                : <button disabled={busy} style={{ ...btnGhost, padding: "6px 10px", fontSize: 12, color: "#1F6347" }} onClick={() => setStatus(c, "open")}>✓ berücksichtigt · wieder öffnen</button>)}
+            </div>
+          ))}
+        </div>
 
         {isOwner && (
           <div style={card}>

@@ -29,6 +29,8 @@
 1. `1-attendance-schema.sql` — staff، badges، attendance_*، scheduled_shifts
 2. `2-multi-tenant-schema.sql` — شرکت‌ها، محصولات، عضویت‌ها، RLS، دستگاه‌ها، `create_organization(...)`
 3. `3-approval-archive-schema.sql` — تأیید، بایگانی، مدت نگه‌داری
+4. `4-edit-month-schema.sql` — روزهای تعطیل ماه + دلیل تغییر (برای باز کردن دوباره‌ی یک ماه ذخیره‌شده)
+5. `5-changes-schema.sql` — ثبت تغییرات بعد از انتشار (`shift_changes`: cover/extra/cancelled)، ویوی امن برای کارمند (`my_shift_changes`)، وضعیت مدیر (`set_change_status`)
 - `test-setup.sql` — دو شرکت آزمایشی + ۳ کاربر تست (فقط برای تست).
 
 مفاهیم کلیدی:
@@ -36,6 +38,9 @@
 - نقش‌ها: `owner` (Inhaber)، `supervisor` (Leitung)، `employee`. هر کاربر با `memberships` به شرکت وصل است؛ کارمند با `staff_id` به یک ردیف `staff`.
 - پلن: `scheduled_shifts` با `status` = `draft` / `published`؛ کارمند فقط `published` می‌بیند.
 - جریان تأیید (`schedule_months.status`): draft → pending → published. توابع: `save_draft`، `submit_month`، `reject_month`، `publish_month`، `set_org_settings`، `purge_expired_versions`.
+- ویرایش ماه ذخیره‌شده: دکمهٔ «Plan bearbeiten» در Dienstplaner (کنار «Freigaben & Archiv») ← انتخاب ماه و سال ← پلن (آخرین پیش‌نویس، وگرنه نسخهٔ منتشرشده) با تنظیمات شیفت‌ها و تعطیلی‌ها دقیقاً بازسازی می‌شود ← تغییر در جدول (مثلاً جایگزینی فرد بیمار) ← «Zur Freigabe einreichen» (+ «Änderungsgrund») ← Inhaber در `/freigaben` تأیید می‌کند ← کارمندان نسخهٔ جدید را می‌بینند.
+- **نشان تغییر:** پلن بازشده با نسخهٔ منتشرشده مقایسه می‌شود؛ خونه‌های دستی‌تغییرکرده «Geändert» و «entfällt: نام» می‌گیرند. تغییری خودکار انجام نمی‌شود. صفحهٔ `/freigaben` فهرست تغییرات و خونه‌های نشان‌دار را به Inhaber نشان می‌دهد.
+- **Einspringen:** هنگام انتشار مجدد، تفاوت با نسخهٔ قبلی در `shift_changes` ثبت می‌شود (cover = جایگزینی، extra = شیفت اضافه، cancelled = حذف). در `/freigaben` بخش «Einspringen & Änderungen»: رتبه‌بندی افراد، فهرست، و علامت «Berücksichtigt» توسط Leitung/Inhaber (فقط یادداشت برای تصمیم مدیر؛ هیچ پرداختی خودکار نیست). کارمند فقط تغییر شیفت‌های خودش را می‌بیند، بدون نام دیگران و بدون دلیل.
 - بایگانی: `schedule_versions` (تغییرناپذیر؛ عکس لحظه‌ای هر ارسال/رد/انتشار + `keep_until`).
 - تنظیمات شرکت: `organizations.require_approval` (پیش‌فرض true) و `retention_years` (پیش‌فرض ۶، بین ۲ تا ۱۰).
 - ساختن شرکت جدید: `select create_organization('نام', '<UID مالک>', array['lab_planner','employee_app']);` (SQL Editor).
@@ -46,7 +51,8 @@
 - `components/ProductGate.jsx` — قفل ورود/محصول/نقش؛ `lib/orgContext.js` اطلاعات شرکت را به پایین می‌دهد
 - `components/LabShiftScheduler.jsx` / `GenericShiftScheduler.jsx` — دو Dienstplaner (منطق تولید پلن + UI)
 - `components/OrgBar.jsx` — نوار شرکت، «Personen aus Datenbank laden / in Datenbank speichern»، وضعیت ماه
-- `components/PublishPanel.jsx` — ذخیرهٔ پیش‌نویس، ارسال برای تأیید، انتشار
+- `components/PublishPanel.jsx` — ذخیرهٔ پیش‌نویس، ارسال برای تأیید، انتشار، دلیل تغییر
+- `applyLoadedPlan` (داخل هر دو Dienstplaner) — بازسازی پلن ذخیره‌شده در ویرایشگر؛ `lib/fetchAll.js` — خواندن بیش از ۱۰۰۰ ردیف
 - `components/ScheduleReview.jsx` — صفحهٔ Freigaben & Archiv
 - `components/EmployeeLive.jsx` — اپ کارمند با داده واقعی (Plan، Team)؛ `EmployeeShiftView.jsx` فقط نسخهٔ دمو
 - `components/AccountPanel.jsx`، `LoginForm.jsx` — ورود و /konto
@@ -63,6 +69,7 @@
 - خروجی Excel (.xlsx) با ۳–۴ برگ؛ روی گوشی منوی Teilen باز می‌شود.
 
 ## ۶. کارهای باز (به ترتیب پیشنهادی)
+0. اعلان فعال (push/ایمیل) به کارمند هنگام تغییر؛ ثبت بیماری (sickEntries) در دیتابیس؛ قفل‌کردن روزهای گذشته هنگام ویرایش.
 1. ساختن ورود برای هر کارمند از خود Dienstplaner (بخش سرور با `service_role`؛ رمز اولیه یا ایمیل دعوت).
 2. اپ کارمند: Anträge، Zeiten، Wünsche به دیتابیس وصل شوند (جدول‌ها آماده‌اند).
 3. ورود/خروج: تبلت با QR متحرک + PIN (طراحی شده، ساخته نشده).

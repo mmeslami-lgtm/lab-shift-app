@@ -1014,6 +1014,7 @@ function LabShiftSchedulerInner() {
     { key: "B", label: "Büro", time: "08:00-16:00", frequency: "quota", quotaCount: 9, preferLead: true },
   ]);
   const [holidays, setHolidays] = useState([]); // array of day numbers
+  const [baseline, setBaseline] = useState(null); // published version of the opened month: "day|shiftKey" -> [staffIds]
   const [leaveEntries, setLeaveEntries] = useState([]); // {id, staffId, days}
   const [sickEntries, setSickEntries] = useState([]); // {id, staffId, days}
   const [leaveDraft, setLeaveDraft] = useState({ staffId: "", days: "" });
@@ -1225,7 +1226,7 @@ function LabShiftSchedulerInner() {
       id: r.id, name: r.name, weeklyHours: Number(r.weekly_hours) || 38.5, employmentType: r.employment_type || "full",
       nightExempt: !!r.night_exempt, weekendExempt: !!r.weekend_exempt, isLeadMTLA: !!r.is_team_lead, email: r.email || "",
     })));
-    setLeaveEntries([]); setSickEntries([]); setWishEntries([]); setSchedule(null);
+    setLeaveEntries([]); setSickEntries([]); setWishEntries([]); setSchedule(null); setBaseline(null);
   };
   const staffToDb = (s) => ({
     email: s.email ? String(s.email).trim() : null, weekly_hours: Number(s.weeklyHours) || 0, employment_type: s.employmentType || "full",
@@ -1235,7 +1236,59 @@ function LabShiftSchedulerInner() {
   const applyStaffIds = (idMap) => {
     setStaffList((prev) => prev.map((s) => (idMap[s.id] ? { ...s, id: idMap[s.id] } : s)));
     const remap = (prev) => prev.map((e) => (idMap[e.staffId] ? { ...e, staffId: idMap[e.staffId] } : e));
-    setLeaveEntries(remap); setSickEntries(remap); setWishEntries(remap); setSchedule(null);
+    setLeaveEntries(remap); setSickEntries(remap); setWishEntries(remap); setSchedule(null); setBaseline(null);
+  };
+  // Reopen a saved month (draft or published) exactly as stored, so it can be edited (e.g. sick leave)
+  const applyLoadedPlan = ({ year: y, month: m, rows, holidays: hol, defs, staffRows, baselineRows }) => {
+    const hh = (t) => String(t).slice(0, 5);
+    const hasKeys = (...ks) => ks.every((k) => defs.some((d) => d.key === k));
+    const restore = defs.length > 0 && hasKeys("F", "S", "N");
+    const keysOrdered = restore ? defs.map((d) => d.key) : dayOrderedKeys;
+    const unknown = rows.filter((r) => !keysOrdered.includes(r.shift_key));
+    if (unknown.length) {
+      return { ok: false, message: `Der gespeicherte Plan enthält Schichtarten (${[...new Set(unknown.map((r) => r.shift_key))].join(", ")}), die zu den aktuellen Einstellungen dieses Dienstplaners nicht passen. Bitte im passenden Dienstplaner öffnen.` };
+    }
+    // paid hours per shift kind: time span minus the 30 minute break (same rule as the planner)
+    const toMin = (t) => { const [a, b] = String(t).split(":"); return (+a || 0) * 60 + (+b || 0); };
+    const hoursByKey = {};
+    if (restore) defs.forEach((d) => { const s = toMin(d.start_time); let e = toMin(d.end_time); if (e <= s) e += 1440; hoursByKey[d.key] = Math.max(0, (e - s - 30) / 60); });
+    const useHours = restore ? hoursByKey : shiftHours;
+    if (restore) {
+      const specialOf = (k, prev) => { const d = defs.find((x) => x.key === k); return d ? { ...prev, label: d.label, time: `${hh(d.start_time)}-${hh(d.end_time)}` } : prev; };
+      setSpecialShifts((prev) => ({ ...prev, F: specialOf("F", prev.F), S: specialOf("S", prev.S), N: specialOf("N", prev.N) }));
+      setDayShiftDefs(defs.filter((d) => !["F", "S", "N"].includes(d.key)).map((d) => ({
+        key: d.key, label: d.label, time: `${hh(d.start_time)}-${hh(d.end_time)}`, frequency: d.frequency === "quota" ? "quota" : "daily",
+        ...(d.frequency === "quota" ? { quotaCount: d.quota_per_month || 9 } : {}), preferLead: !!d.prefer_team_lead,
+      })));
+    }
+    const people = staffRows.map((r) => ({
+      id: r.id, name: r.name, weeklyHours: Number(r.weekly_hours) || 38.5, employmentType: r.employment_type || "full",
+      nightExempt: !!r.night_exempt, weekendExempt: !!r.weekend_exempt, isLeadMTLA: !!r.is_team_lead, email: r.email || "",
+    }));
+    setStaffList(people);
+    setLeaveEntries([]); setSickEntries([]); setWishEntries([]); setFreiWishByStaff({});
+    setMonthValue(`${y}-${String(m).padStart(2, "0")}`);
+    setHolidays(hol || []);
+    const total = new Date(y, m, 0).getDate(); const holSet = new Set(hol || []);
+    const days = Array.from({ length: total }, (_, i) => {
+      const d = i + 1; const weekday = new Date(y, m - 1, d).getDay(); const shifts = {};
+      keysOrdered.forEach((k) => { shifts[k] = []; });
+      return { day: d, weekday, isWeekend: weekday === 0 || weekday === 6, isHoliday: holSet.has(d), shifts };
+    });
+    rows.forEach((r) => { const day = days[Number(String(r.shift_date).slice(8, 10)) - 1]; if (day && day.shifts[r.shift_key]) day.shifts[r.shift_key].push(r.staff_id); });
+    const counts = {};
+    keysOrdered.forEach((k) => { counts[k] = 1; days.forEach((dd) => { if (!dd.isWeekend && !dd.isHoliday) counts[k] = Math.max(counts[k], dd.shifts[k].length); }); });
+    setPerShiftCount((prev) => ({ ...prev, ...counts }));
+    const leaveMap = {}; people.forEach((p) => { leaveMap[p.id] = new Set(); });
+    const stats = computeStatsAndWarnings(days, people, leaveMap, useHours, keysOrdered);
+    setSchedule({ days, hours: stats.hours, satCount: stats.satCount, sunCount: stats.sunCount, targetOf: stats.targetOf, warnings: stats.warnings, notes: [] });
+    // what the employees currently see (published version) — used to mark every manual change
+    if (baselineRows && baselineRows.length) {
+      const base = {};
+      baselineRows.forEach((r) => { const key = `${Number(String(r.shift_date).slice(8, 10))}|${r.shift_key}`; (base[key] = base[key] || []).push(r.staff_id); });
+      setBaseline(base);
+    } else setBaseline(null);
+    return { ok: true };
   };
 
   const staffMap = useMemo(() => {
@@ -1391,6 +1444,7 @@ function LabShiftSchedulerInner() {
       // rule the generator couldn't fully guarantee up front (e.g. a rare consecutive-workday
       // overrun caused by an already-fixed night block) still surfaces as a warning immediately.
       const stats = computeStatsAndWarnings(result.days, staffList, leaveMap, shiftHours, dayOrderedKeys);
+      setBaseline(null);
       setSchedule({
         days: result.days,
         hours: stats.hours,
@@ -1589,7 +1643,7 @@ function LabShiftSchedulerInner() {
           <p className="text-sm text-slate-500">Vier feste Schichten unter Berücksichtigung der Wochenstunden, der Nachtdienstrotation und der Wochenendquote — nach dem Erstellen manuell bearbeitbar.</p>
         </header>
 
-        {orgCtx && <OrgBar onLoadStaff={loadStaffFromDb} staffList={staffList} toDb={staffToDb} onIdsChanged={applyStaffIds} year={year} monthIdx={monthIdx} />}
+        {orgCtx && <OrgBar onLoadStaff={loadStaffFromDb} staffList={staffList} toDb={staffToDb} onIdsChanged={applyStaffIds} year={year} monthIdx={monthIdx} onLoadPlan={applyLoadedPlan} hasPlan={!!schedule} />}
 
         {/* Archive */}
         {archiveList.length > 0 && (
@@ -1660,7 +1714,7 @@ function LabShiftSchedulerInner() {
               <input
                 type="month"
                 value={monthValue}
-                onChange={(e) => { setMonthValue(e.target.value); setSchedule(null); }}
+                onChange={(e) => { setMonthValue(e.target.value); setSchedule(null); setBaseline(null); }}
                 className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
               />
               <p className="text-xs text-slate-400 mt-1">{MONTH_DE[monthIdx]} {year} — {totalDays} Tage</p>
@@ -2147,7 +2201,7 @@ function LabShiftSchedulerInner() {
                   </a>
                 </div>
               </div>
-              {orgCtx && <PublishPanel schedule={schedule} staffList={staffList} year={year} monthIdx={monthIdx} shiftList={shiftListForDb} />}
+              {orgCtx && <PublishPanel schedule={schedule} staffList={staffList} year={year} monthIdx={monthIdx} shiftList={shiftListForDb} holidays={holidays} />}
               {(archiveState === "error" || saveState === "error") && (
                 <div className="mx-4 mt-3 rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs text-rose-800">
                   {archiveState === "error" && (
@@ -2224,15 +2278,20 @@ function LabShiftSchedulerInner() {
                           const { shiftType: st, slotIndex } = col;
                           const isSkippedOnHoliday = dailyDayShiftKeys.has(st) && (d.isHoliday || d.isWeekend);
                           const val = (d.shifts[st] || [])[slotIndex];
+                          // marks versus the published version (only when a saved month was opened for editing)
+                          const baseIds = baseline ? (baseline[`${d.day}|${st}`] || []) : null;
+                          const isNewHere = !!(baseIds && val && !baseIds.includes(val));
+                          const goneHere = baseIds && slotIndex === 0 ? baseIds.filter((id) => !(d.shifts[st] || []).includes(id)) : [];
+                          const nameById = (id) => (staffList.find((x) => x.id === id) || {}).name || "?";
                           return (
-                            <td key={ci} className="px-2 py-1.5 align-top">
+                            <td key={ci} className={`px-2 py-1.5 align-top ${isNewHere || goneHere.length ? "bg-amber-50" : ""}`}>
                               {isSkippedOnHoliday ? (
                                 <span className="text-slate-300">—</span>
                               ) : (
                                 <select
                                   value={val || ""}
                                   onChange={(e) => updateSlot(di, st, slotIndex, e.target.value)}
-                                  className={`w-full text-[11px] rounded-md border px-1.5 py-1 ${val ? shiftMeta[st].chip : "bg-slate-50 border-slate-200 text-slate-400"}`}
+                                  className={`w-full text-[11px] rounded-md border px-1.5 py-1 ${val ? shiftMeta[st].chip : "bg-slate-50 border-slate-200 text-slate-400"} ${isNewHere ? "ring-2 ring-amber-400" : ""}`}
                                 >
                                   <option value="">— leer —</option>
                                   {staffList.map((s) => (
@@ -2240,6 +2299,8 @@ function LabShiftSchedulerInner() {
                                   ))}
                                 </select>
                               )}
+                              {isNewHere && <div className="mt-0.5 text-[10px] font-semibold text-amber-700">Geändert</div>}
+                              {goneHere.length > 0 && <div className="mt-0.5 text-[10px] text-amber-700">entfällt: {goneHere.map(nameById).join(", ")}</div>}
                             </td>
                           );
                         })}

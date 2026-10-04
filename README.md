@@ -18,6 +18,12 @@ Im Dienstplaner oben Personen eintragen und **„Personen in Datenbank speichern
 ## Freigabe und Archiv
 Leitung: **Entwurf speichern** und **Zur Freigabe einreichen**. Inhaber: unter `/freigaben` prüfen und **Freigeben** oder **Zurückweisen** (oder direkt veröffentlichen). Jede Einreichung, Zurückweisung und Veröffentlichung wird als unveränderliche Kopie archiviert (Aufbewahrung standardmäßig 6 Jahre, einstellbar 2–10; nichts wird automatisch gelöscht). Einmalig `approval-archive-schema.sql` in Supabase ausführen.
 
+## Plan nachträglich ändern (z. B. Krankheit)
+Im Dienstplaner **„Plan bearbeiten“** → Monat und Jahr wählen → **„Plan laden“**. Der gespeicherte Plan erscheint mit denselben Schichtarten und Feiertagen. Schicht in der Tabelle ändern, **Änderungsgrund** eintragen und **„Zur Freigabe einreichen“** (Inhaber: „Veröffentlichen“). Mitarbeitende sehen die Änderung erst nach der Freigabe. Einmalig `edit-month-schema.sql` ausführen.
+
+## Änderungen markieren und Einspringen
+Geänderte Felder werden im Plan markiert („Geändert“, „entfällt: Name“); nichts ändert sich automatisch. Nach der Freigabe werden die Änderungen gegenüber der veröffentlichten Fassung gespeichert. Unter `/freigaben` → „Einspringen & Änderungen“ sieht die Leitung, wer eingesprungen ist, und kann Einträge als „Berücksichtigt“ vermerken. Mitarbeitende sehen nur Änderungen ihrer eigenen Schichten. Einmalig `changes-schema.sql` ausführen.
+
 ## Excel-Export
 Im Dienstplaner nach dem Erstellen auf **„Als Excel herunterladen (.xlsx)“** tippen. Die Datei hat die
 Blätter *Dienstplan*, *Nach Mitarbeiter*, *Zusammenfassung* (und *Hinweise*) mit Farben und lebenden

@@ -16,7 +16,7 @@ function parseTimes(t) {
 function friendly(e) {
   const msg = e && e.message ? e.message : String(e);
   if (/Could not find the function|schema cache|does not exist/i.test(msg)) {
-    return "Die Datenbank ist noch nicht auf Freigabe und Archiv umgestellt. Bitte zuerst approval-archive-schema.sql im SQL Editor ausführen.";
+    return "Die Datenbank ist noch nicht vollständig umgestellt. Bitte approval-archive-schema.sql und danach edit-month-schema.sql im SQL Editor ausführen.";
   }
   return msg;
 }
@@ -24,12 +24,13 @@ function friendly(e) {
 // Saves the generated month to the shared database and moves it through the approval steps:
 //   Entwurf speichern  ->  (Leitung) zur Freigabe einreichen  ->  (Inhaber) Freigeben / Zurückweisen  ->  veröffentlicht
 // An Inhaber, or any boss in a company that does not require approval, can publish directly.
-export default function PublishPanel({ schedule, staffList, year, monthIdx, shiftList }) {
+export default function PublishPanel({ schedule, staffList, year, monthIdx, shiftList, holidays }) {
   const org = useContext(OrgContext);
   const [phase, setPhase] = useState("idle"); // idle | working | done | error
   const [info, setInfo] = useState("");
   const [row, setRow] = useState(null);       // status row of this month
   const [tick, setTick] = useState(0);
+  const [reason, setReason] = useState("");
 
   const month = monthIdx + 1;
   useEffect(() => {
@@ -72,7 +73,7 @@ export default function PublishPanel({ schedule, staffList, year, monthIdx, shif
     for (const day of schedule.days) {
       for (const s of shiftList) {
         const t = times[s.key];
-        for (const id of [...new Set(day.shifts[s.key] || [])]) {
+        for (const id of [...new Set(day.shifts[s.key] || [])].filter(Boolean)) { // empty slots ("— leer —") are not people
           const start = new Date(year, monthIdx, day.day, t.sh, t.sm);
           const end = new Date(year, monthIdx, day.day, t.eh, t.em);
           if (end <= start) end.setDate(end.getDate() + 1);
@@ -81,7 +82,7 @@ export default function PublishPanel({ schedule, staffList, year, monthIdx, shif
       }
     }
     if (!rows.length) throw new Error("Der Plan enthält keine Schichten.");
-    r = await sb.rpc("save_draft", { p_org: org.orgId, p_year: year, p_month: month, p_shifts: rows });
+    r = await sb.rpc("save_draft", { p_org: org.orgId, p_year: year, p_month: month, p_shifts: rows, p_holidays: holidays || [] });
     if (r.error) throw r.error;
     return rows.length;
   }
@@ -94,16 +95,16 @@ export default function PublishPanel({ schedule, staffList, year, monthIdx, shif
       let done = `Entwurf gespeichert (${n} Schichten für ${MONTHS[monthIdx]} ${year}).`;
       if (kind === "submit") {
         setInfo("Einreichen …");
-        const r = await org.supabase.rpc("submit_month", { p_org: org.orgId, p_year: year, p_month: month });
+        const r = await org.supabase.rpc("submit_month", { p_org: org.orgId, p_year: year, p_month: month, p_note: reason.trim() || null });
         if (r.error) throw r.error;
         done = `Zur Freigabe eingereicht (${n} Schichten). Die Inhaber können den Plan unter „Freigaben & Archiv“ prüfen.`;
       } else if (kind === "publish") {
         setInfo("Veröffentlichen …");
-        const r = await org.supabase.rpc("publish_month", { p_org: org.orgId, p_year: year, p_month: month });
+        const r = await org.supabase.rpc("publish_month", { p_org: org.orgId, p_year: year, p_month: month, p_note: reason.trim() || null });
         if (r.error) throw r.error;
         done = `${n} Schichten für ${MONTHS[monthIdx]} ${year} veröffentlicht.`;
       }
-      setPhase("done"); setInfo(done); setTick((t) => t + 1); window.dispatchEvent(new Event("schedule-status-changed"));
+      setPhase("done"); setInfo(done); setReason(""); setTick((t) => t + 1); window.dispatchEvent(new Event("schedule-status-changed"));
     } catch (e) {
       setPhase("error"); setInfo(friendly(e));
     }
@@ -135,6 +136,9 @@ export default function PublishPanel({ schedule, staffList, year, monthIdx, shif
           )}
         </div>
       </div>
+      <label className="mt-2 block text-indigo-800">Änderungsgrund (optional, z. B. „Krankheit Anna 12.–15.“)
+        <input value={reason} onChange={(e) => setReason(e.target.value)} maxLength={200} className="mt-1 w-full rounded-lg border border-indigo-200 bg-white px-2 py-1.5 text-xs text-slate-800" />
+      </label>
       <div className="mt-2 text-indigo-700">
         {direct
           ? (hasEmployeeApp ? `Beim Veröffentlichen sehen die Mitarbeitenden von „${org.orgName}“ den Plan in ihrer App.` : "Die Mitarbeiter-App ist für diese Firma nicht gebucht. Der Plan wird gespeichert, ist aber erst sichtbar, wenn die App aktiviert wird.")

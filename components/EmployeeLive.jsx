@@ -79,6 +79,7 @@ export default function EmployeeLive() {
   const [myMonth, setMyMonth] = useState({});   // iso -> shift key, for the viewed month
   const [nextShift, setNextShift] = useState(undefined);
   const [dayShifts, setDayShifts] = useState([]); // all published shifts on the selected day
+  const [myChanges, setMyChanges] = useState({});   // iso -> [{ key, kind }] changes of MY shifts that have not happened yet
   const [error, setError] = useState("");
 
   const sb = org.supabase;
@@ -115,6 +116,18 @@ export default function EmployeeLive() {
       const r = await sb.from("scheduled_shifts").select("shift_date, shift_key").eq("org_id", org.orgId).eq("staff_id", my).eq("status", "published").gte("shift_date", todayIso).order("shift_date").limit(3);
       if (r.error) { setError(r.error.message); return; }
       setNextShift(r.data[0] || null);
+    })();
+  }, [sb, org.orgId, my, todayIso]);
+
+  // changes of my own shifts (new / extra / cancelled) from today on. Only date + shift + kind: never who was
+  // replaced and never the reason.
+  useEffect(() => {
+    if (!my) return;
+    (async () => {
+      const r = await sb.from("my_shift_changes").select("change_date, shift_key, kind").eq("org_id", org.orgId).gte("change_date", todayIso);
+      if (r.error) return; // view is created by changes-schema.sql; the app works without it
+      const m = {}; r.data.forEach((c) => { (m[c.change_date] = m[c.change_date] || []).push({ key: c.shift_key, kind: c.kind }); });
+      setMyChanges(m);
     })();
   }, [sb, org.orgId, my, todayIso]);
 
@@ -196,7 +209,9 @@ export default function EmployeeLive() {
                     <>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
                         <div>
-                          <div style={{ fontSize: 13, opacity: 0.75 }}>Deine nächste Schicht · {relDay(nextShift.shift_date)}</div>
+                          <div style={{ fontSize: 13, opacity: 0.75 }}>Deine nächste Schicht · {relDay(nextShift.shift_date)}
+                            {(myChanges[nextShift.shift_date] || []).some((c) => c.key === nextShift.shift_key && c.kind !== "cancelled") && <span style={{ marginLeft: 8, background: "#F59E0B", color: "#1B2433", borderRadius: 999, padding: "2px 8px", fontSize: 11, fontWeight: 700 }}>Geändert</span>}
+                          </div>
                           <div style={{ fontSize: 26, fontWeight: 700, marginTop: 4, letterSpacing: -0.4 }}>{def.label}</div>
                         </div>
                         <div style={{ width: 40, height: 40, borderRadius: 14, background: styleOf(def.key).solid, display: "grid", placeItems: "center", color: INK }}><Icon size={22} /></div>
@@ -224,10 +239,12 @@ export default function EmployeeLive() {
                   const iso = isoOf(view.y, view.m, d); const key = myMonth[iso]; const st = key ? styleOf(key) : null;
                   const today = iso === todayIso;
                   return (
-                    <button key={d} onClick={() => setSelIso(iso)} aria-label={`${d}. ${MONTH_DE[view.m]}${key && defByKey[key] ? ", " + defByKey[key].label : ", frei"}`}
-                      style={{ height: 54, borderRadius: 12, border: iso === selIso ? `2px solid ${PRIMARY}` : "2px solid transparent", background: st ? st.soft : PAPER, padding: "5px 0", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "space-between", cursor: "pointer" }}>
+                    <button key={d} onClick={() => setSelIso(iso)} aria-label={`${d}. ${MONTH_DE[view.m]}${key && defByKey[key] ? ", " + defByKey[key].label : ", frei"}${(myChanges[iso] || []).length ? " (geändert)" : ""}`}
+                      style={{ position: "relative", height: 54, borderRadius: 12, border: iso === selIso ? `2px solid ${PRIMARY}` : "2px solid transparent", background: st ? st.soft : PAPER, padding: "5px 0", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "space-between", cursor: "pointer" }}>
                       <span className="tn" style={{ fontSize: 13, fontWeight: today ? 800 : 500, color: today ? "#fff" : INK, background: today ? PRIMARY : "transparent", borderRadius: 10, minWidth: 22, lineHeight: "22px", textAlign: "center" }}>{d}</span>
-                      {st ? <span style={{ fontSize: 11, fontWeight: 700, color: st.ink }}>{codes[key] || "?"}</span> : <span style={{ height: 14 }} />}
+                      {st ? <span style={{ fontSize: 11, fontWeight: 700, color: st.ink }}>{codes[key] || "?"}</span>
+                        : (myChanges[iso] || []).some((c) => c.kind === "cancelled") ? <span style={{ fontSize: 11, fontWeight: 700, color: "#B45309" }}>✕</span> : <span style={{ height: 14 }} />}
+                      {(myChanges[iso] || []).length > 0 && <i aria-hidden="true" style={{ position: "absolute", top: 4, right: 5, width: 7, height: 7, borderRadius: 7, background: "#F59E0B" }} />}
                     </button>
                   );
                 })}
@@ -235,6 +252,7 @@ export default function EmployeeLive() {
               <div style={{ display: "flex", flexWrap: "wrap", gap: "6px 14px", marginTop: 12, paddingLeft: 4, fontSize: 11, color: MUTED }}>
                 {shownDefs.map((d) => <span key={d.key} style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><i style={{ width: 9, height: 9, borderRadius: 3, background: styleOf(d.key).solid, display: "inline-block" }} />{codes[d.key]} {d.label}</span>)}
               </div>
+              {Object.keys(myChanges).length > 0 && <div style={{ fontSize: 11, color: "#B45309", marginTop: 8, paddingLeft: 4 }}>● geändert · ✕ entfällt</div>}
               <div className="tn" style={{ fontSize: 12, color: MUTED, marginTop: 10, paddingLeft: 4 }}>Geplant in diesem Monat: {fmtH(monthHours)} Std.</div>
             </Card>
 
@@ -259,6 +277,13 @@ export default function EmployeeLive() {
                   </div>
                 );
               })() : <div style={{ fontSize: 14, color: MUTED }}>Kein Dienst. Der Tag ist frei.</div>}
+              {(myChanges[selIso] || []).map((c, i) => (
+                <div key={i} style={{ marginTop: 10, background: "#FFF1D2", color: "#7A4E00", borderRadius: 12, padding: "9px 12px", fontSize: 13, fontWeight: 600 }}>
+                  {c.kind === "cancelled"
+                    ? `Deine Schicht „${(defByKey[c.key] || {}).label || c.key}“ an diesem Tag entfällt.`
+                    : `Geändert: Du bist neu für „${(defByKey[c.key] || {}).label || c.key}“ eingeteilt.`}
+                </div>
+              ))}
             </Card>
           </>
         )}
