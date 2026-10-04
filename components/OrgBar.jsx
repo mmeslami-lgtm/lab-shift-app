@@ -25,6 +25,8 @@ export default function OrgBar({ onLoadStaff, staffList, toDb, onIdsChanged, yea
   const [editMonth, setEditMonth] = useState(1);
   const [editYear, setEditYear] = useState(2026);
   const [saved, setSaved] = useState([]); // months that already have a saved plan
+  const [versionId, setVersionId] = useState("current"); // "current" = newest state, otherwise an archived published version
+  const [versions, setVersions] = useState([]);
   const [openJumps, setOpenJumps] = useState(0); // Einspringer entries the Leitung has not looked at yet
 
   // status of the month shown in the planner (and the reason, if the Inhaber rejected it)
@@ -62,6 +64,17 @@ export default function OrgBar({ onLoadStaff, staffList, toDb, onIdsChanged, yea
     return () => { alive = false; };
   }, [org, editOpen, bump]);
 
+  // earlier published versions of the chosen month (for going back after a mistake)
+  useEffect(() => {
+    if (!org || !editOpen) return;
+    let alive = true;
+    (async () => {
+      const r = await org.supabase.from("schedule_versions").select("id, event, actor_email, note, created_at").eq("org_id", org.orgId).eq("year", Number(editYear)).eq("month", Number(editMonth)).eq("event", "published");
+      if (alive) { setVersions(!r.error ? [...r.data].sort((a, b) => String(b.created_at).localeCompare(String(a.created_at))) : []); setVersionId("current"); }
+    })();
+    return () => { alive = false; };
+  }, [org, editOpen, editYear, editMonth, bump]);
+
   if (!org) return null;
   const sb = org.supabase;
 
@@ -86,15 +99,26 @@ export default function OrgBar({ onLoadStaff, staffList, toDb, onIdsChanged, yea
       const q = (status) => fetchAll(() => sb.from("scheduled_shifts").select("staff_id, shift_date, shift_key").eq("org_id", org.orgId).eq("status", status).gte("shift_date", from).lt("shift_date", to));
       // a published month with no newer draft is loaded from the published rows; otherwise the newest draft wins
       const info = mrow.data[0] || {};
-      const first = info.status === "published" && !info.has_newer_draft ? "published" : "draft";
-      let source = first; let rows = await q(first);
-      if (!rows.length) { source = first === "draft" ? "published" : "draft"; rows = await q(source); }
+      let source, rows;
+      if (versionId !== "current") {
+        // an archived published version, e.g. the one from before a mistake
+        const v = await sb.from("schedule_versions").select("snapshot, created_at").eq("id", versionId);
+        if (v.error) throw v.error;
+        if (!v.data[0]) { setMsg("Diese Fassung wurde nicht gefunden."); setBusy(""); return; }
+        source = "version";
+        rows = (v.data[0].snapshot.shifts || []).map((x) => ({ staff_id: x.staff_id, shift_date: x.date, shift_key: x.key }));
+      } else {
+        const first = info.status === "published" && !info.has_newer_draft ? "published" : "draft";
+        source = first; rows = await q(first);
+        if (!rows.length) { source = first === "draft" ? "published" : "draft"; rows = await q(source); }
+      }
       if (!rows.length) { setMsg(`Für ${MONTHS[m - 1]} ${y} ist kein gespeicherter Plan vorhanden.`); setBusy(""); return; }
-      const d = await sb.from("shift_definitions").select("key, label, start_time, end_time, frequency, quota_per_month, prefer_team_lead, requires_rest_after, sort_order").eq("org_id", org.orgId).eq("active", true);
+      const d = source === "version" ? { data: [], error: null } : await sb.from("shift_definitions").select("key, label, start_time, end_time, frequency, quota_per_month, prefer_team_lead, requires_rest_after, sort_order").eq("org_id", org.orgId).eq("active", true);
       if (d.error) throw d.error;
       const st = await sb.from("staff").select("id, name, email, weekly_hours, employment_type, night_exempt, weekend_exempt, is_team_lead, active").eq("org_id", org.orgId).order("name");
       if (st.error) throw st.error;
       // what the employees currently see, to mark every manual change in the editor
+      // (an archived version is compared with what is published right now, so going back shows every difference)
       const baselineRows = source === "published" ? rows : (info.status === "published" ? await q("published") : []);
       const used = new Set([...rows, ...baselineRows].map((r) => r.staff_id));
       const staffRows = st.data.filter((s) => s.active !== false || used.has(s.id));
@@ -103,7 +127,7 @@ export default function OrgBar({ onLoadStaff, staffList, toDb, onIdsChanged, yea
         defs: [...d.data].sort((a, b) => a.sort_order - b.sort_order), staffRows,
       });
       if (res && res.ok) {
-        const what = source === "published" ? "veröffentlichte Fassung" : info.status === "pending" ? "Entwurf, der auf Freigabe wartet" : info.status === "published" ? "neuerer, noch nicht veröffentlichter Entwurf" : "gespeicherter Entwurf";
+        const what = source === "version" ? "frühere veröffentlichte Fassung; Unterschiede zur jetzt gültigen sind markiert" : source === "published" ? "veröffentlichte Fassung" : info.status === "pending" ? "Entwurf, der auf Freigabe wartet" : info.status === "published" ? "neuerer, noch nicht veröffentlichter Entwurf" : "gespeicherter Entwurf";
         setMsg(`${MONTHS[m - 1]} ${y} geladen (${what}). Schichten in der Tabelle ändern, dann „Entwurf speichern“ oder „Zur Freigabe einreichen“. Mitarbeitende sehen Änderungen erst nach Veröffentlichung.`);
         setEditOpen(false);
       } else setMsg((res && res.message) || "Der Plan konnte nicht geladen werden.");
@@ -205,8 +229,17 @@ export default function OrgBar({ onLoadStaff, staffList, toDb, onIdsChanged, yea
                 {yearOptions.map((y) => <option key={y} value={y}>{y}</option>)}
               </select>
             </label>
+            {versions.length > 0 && (
+              <label>Fassung
+                <select value={versionId} onChange={(e) => setVersionId(e.target.value)} className="ml-1 max-w-[16rem] rounded-md border border-amber-300 bg-white px-2 py-1">
+                  <option value="current">Aktueller Stand</option>
+                  {versions.map((v) => <option key={v.id} value={v.id}>{new Date(v.created_at).toLocaleString("de-DE", { dateStyle: "short", timeStyle: "short" })} · {v.actor_email || "?"}{v.note ? ` · ${v.note}` : ""}</option>)}
+                </select>
+              </label>
+            )}
             <button onClick={loadPlan} disabled={!!busy} className="rounded-md bg-amber-600 px-3 py-1.5 font-semibold text-white hover:bg-amber-700 disabled:opacity-60">{busy === "plan" ? "Lädt …" : "Plan laden"}</button>
           </div>
+          {versions.length > 0 && <div className="mt-2 text-amber-800">Einen Fehler rückgängig machen: unter „Fassung“ den Stand vor dem Fehler wählen, „Plan laden“, dann „Zur Freigabe einreichen“ (Grund z. B. „Korrektur“). Die falsche Änderung wird dabei automatisch storniert, wenn die Schicht noch nicht stattgefunden hat.</div>}
           {saved.length > 0 && (
             <div className="mt-2 text-amber-800">Gespeichert: {saved.map((x) => `${MONTHS[x.month - 1].slice(0, 3)} ${x.year} (${STATUS_TXT[x.status] || x.status})`).join(" · ")}</div>
           )}

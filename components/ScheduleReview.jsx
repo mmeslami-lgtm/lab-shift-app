@@ -122,10 +122,12 @@ export default function ScheduleReview() {
   const [changesAll, setChangesAll] = useState([]);
   const [period, setPeriod] = useState("year");
   const [onlyOpen, setOnlyOpen] = useState(false);
+  const [showAll, setShowAll] = useState(false); // also show normal and voided entries
+  const [shortDays, setShortDays] = useState(org.shortNoticeDays ?? 7);
 
   const loadBase = useCallback(async () => {
     try {
-      const m = await sb.from("schedule_months").select("year, month, status, has_newer_draft, submitted_at, published_at, review_note, change_note").eq("org_id", org.orgId);
+      const m = await sb.from("schedule_months").select("year, month, status, has_newer_draft, submitted_at, published_at, review_note, change_note, change_normal").eq("org_id", org.orgId);
       if (m.error) throw m.error;
       const sorted = [...m.data].sort((a, b) => b.year - a.year || b.month - a.month);
       setMonths(sorted);
@@ -137,7 +139,7 @@ export default function ScheduleReview() {
       if (st.error) throw st.error;
       const names = {}; st.data.forEach((x) => { names[x.id] = x.name; }); setStaffNames(names);
       try {
-        setChangesAll(await fetchAll(() => sb.from("shift_changes").select("id, change_date, shift_key, kind, staff_id, replaced_staff_id, note, published_at, manager_status, manager_note").eq("org_id", org.orgId)));
+        setChangesAll(await fetchAll(() => sb.from("shift_changes").select("id, change_date, shift_key, kind, staff_id, replaced_staff_id, note, published_at, manager_status, manager_note, void_auto, normal_auto, lead_days").eq("org_id", org.orgId)));
       } catch (e) { setChangesAll([]); } // table is created by changes-schema.sql
       const v = await sb.from("schedule_versions").select("id, keep_until").eq("org_id", org.orgId);
       if (!v.error) { const today = new Date().toISOString().slice(0, 10); setExpired(v.data.filter((x) => x.keep_until < today).length); }
@@ -198,6 +200,21 @@ export default function ScheduleReview() {
     });
     return m;
   }, [preview]);
+  // does this change exactly undo an earlier, still valid change of a shift that has not happened yet?
+  const undoesEarlier = (c) => {
+    const today = new Date().toISOString().slice(0, 10);
+    if (c.date < today) return false;
+    const live = changesAll.filter((x) => x.manager_status !== "void" && x.change_date === c.date && x.shift_key === c.key);
+    if (c.kind === "cover") return live.some((x) => x.kind === "cover" && x.staff_id === c.replacedId && x.replaced_staff_id === c.staffId);
+    if (c.kind === "extra") return live.some((x) => x.kind === "cancelled" && x.staff_id === c.staffId);
+    return live.some((x) => x.kind === "extra" && x.staff_id === c.staffId);
+  };
+  // how the database will classify a change of the version being reviewed
+  const classOf = (c) => {
+    if (monthRow && monthRow.change_normal) return "normale Änderung (so markiert)";
+    const lead = Math.round((new Date(c.date) - new Date(new Date().toISOString().slice(0, 10))) / 86400000);
+    return lead > shortDays ? `normale Änderung (${lead} Tage vorher)` : (c.kind === "cancelled" ? "Entfall" : "kurzfristig, zählt als Einspringen");
+  };
   const labelOfKey = (k) => { const d = defs.find((x) => x.key === k); return d ? d.label : k; };
   const nameOf = (id) => staffNames[id] || "Unbekannt";
   const dayText = (iso) => { const [y, m, d] = iso.split("-").map(Number); return `${WD_LONG[new Date(y, m - 1, d).getDay()]} ${String(d).padStart(2, "0")}.${String(m).padStart(2, "0")}.`; };
@@ -213,16 +230,27 @@ export default function ScheduleReview() {
   }, [changesAll, period]);
   const ranking = useMemo(() => {
     const m = new Map();
-    jumpsInPeriod.filter((c) => c.kind !== "cancelled").forEach((c) => {
+    jumpsInPeriod.filter((c) => c.kind !== "cancelled" && (c.manager_status === "open" || c.manager_status === "done")).forEach((c) => {
       const r = m.get(c.staff_id) || { id: c.staff_id, count: 0, open: 0, last: "" };
       r.count++; if (c.manager_status === "open") r.open++; if (c.change_date > r.last) r.last = c.change_date; m.set(c.staff_id, r);
     });
     return [...m.values()].sort((a, b) => b.count - a.count || b.open - a.open);
   }, [jumpsInPeriod]);
-  const shownChanges = useMemo(() => [...jumpsInPeriod].filter((c) => !onlyOpen || (c.manager_status === "open" && c.kind !== "cancelled")).sort((a, b) => b.change_date.localeCompare(a.change_date)), [jumpsInPeriod, onlyOpen]);
+  const shownChanges = useMemo(() => [...jumpsInPeriod]
+    .filter((c) => showAll || c.manager_status !== "normal")   // normal plan changes only on request; storno stays visible
+    .filter((c) => !onlyOpen || (c.manager_status === "open" && c.kind !== "cancelled"))
+    .sort((a, b) => b.change_date.localeCompare(a.change_date)), [jumpsInPeriod, onlyOpen, showAll]);
+  const hiddenCount = jumpsInPeriod.length - shownChanges.length;
   async function setStatus(c, status) {
-    const note = status === "done" ? window.prompt("Notiz zur Entscheidung (optional), z. B. „Prämie zugesagt“", c.manager_note || "") : null;
-    if (status === "done" && note === null) return;
+    let note = null;
+    if (status === "done") {
+      note = window.prompt("Notiz zur Entscheidung (optional), z. B. „Prämie zugesagt“", c.manager_note || "");
+      if (note === null) return;
+    } else if (status === "void") {
+      note = window.prompt("Grund für das Stornieren (Pflicht), z. B. „Irrtum bei der Planung“", "");
+      if (note === null) return;
+      if (!note.trim()) { setErr("Bitte einen Grund für das Stornieren angeben."); return; }
+    }
     setBusy(true); setErr("");
     const r = await sb.rpc("set_change_status", { p_id: c.id, p_status: status, p_note: note });
     setBusy(false);
@@ -240,7 +268,7 @@ export default function ScheduleReview() {
   const rpcArgs = { p_org: org.orgId, p_year: sel && sel.year, p_month: sel && sel.month };
 
   async function saveSettings() {
-    const ok = await call("set_org_settings", { p_org: org.orgId, p_require_approval: requireApproval, p_retention_years: Number(retention) }, "Einstellungen gespeichert. Sie gelten ab sofort (in den Dienstplanern nach dem nächsten Laden der Seite).");
+    const ok = await call("set_org_settings", { p_org: org.orgId, p_require_approval: requireApproval, p_retention_years: Number(retention), p_short_notice_days: Number(shortDays) }, "Einstellungen gespeichert. Sie gelten ab sofort (in den Dienstplanern nach dem nächsten Laden der Seite).");
     return ok;
   }
   async function purge() {
@@ -302,8 +330,8 @@ export default function ScheduleReview() {
             {preview.length > 0 && (effective === "draft") && (
               <div style={{ marginTop: 10, background: "#FFF8E6", border: "1px solid #F5D78A", borderRadius: 12, padding: "10px 12px" }}>
                 <div style={{ fontSize: 14, fontWeight: 650, color: "#7A4E00", marginBottom: 4 }}>Änderungen gegenüber der veröffentlichten Fassung ({preview.length})</div>
-                {preview.map((c, i) => <div key={i} style={{ fontSize: 13 }}>{dayText(c.date)} · {labelOfKey(c.key)}: {changeText(c)}</div>)}
-                <div style={{ fontSize: 11, color: MUTED, marginTop: 6 }}>Im Plan oben sind die geänderten Felder markiert. Nach der Freigabe werden diese Änderungen in der Übersicht „Einspringen & Änderungen“ festgehalten.</div>
+                {preview.map((c, i) => <div key={i} style={{ fontSize: 13 }}>{dayText(c.date)} · {labelOfKey(c.key)}: {changeText(c)}{undoesEarlier(c) ? <span style={{ marginLeft: 6, color: "#1F6347", fontWeight: 650 }}>· macht eine frühere Änderung rückgängig</span> : <span style={{ marginLeft: 6, color: MUTED }}>· {classOf(c)}</span>}</div>)}
+                <div style={{ fontSize: 11, color: MUTED, marginTop: 6 }}>Im Plan oben sind die geänderten Felder markiert. Nach der Freigabe werden diese Änderungen in der Übersicht „Einspringen & Änderungen“ festgehalten. Macht eine Änderung eine frühere rückgängig, wird die frühere automatisch storniert.</div>
               </div>
             )}
 
@@ -358,6 +386,7 @@ export default function ScheduleReview() {
               <option value="year">Dieses Jahr</option><option value="12m">Letzte 12 Monate</option><option value="all">Alles</option>
             </select>
             <label style={{ fontSize: 13, display: "flex", gap: 6, alignItems: "center" }}><input type="checkbox" checked={onlyOpen} onChange={(e) => setOnlyOpen(e.target.checked)} />nur offene</label>
+            <label style={{ fontSize: 13, display: "flex", gap: 6, alignItems: "center" }}><input type="checkbox" checked={showAll} onChange={(e) => setShowAll(e.target.checked)} />auch normale Planänderungen anzeigen{hiddenCount > 0 && !showAll ? ` (${hiddenCount})` : ""}</label>
           </div>
           {ranking.length === 0 && <div style={{ fontSize: 13, color: MUTED }}>Noch kein Einspringen im gewählten Zeitraum.</div>}
           {ranking.length > 0 && (
@@ -372,19 +401,33 @@ export default function ScheduleReview() {
                 </tr>))}</tbody>
             </table>
           )}
-          {shownChanges.map((c) => (
-            <div key={c.id} style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", padding: "8px 0", borderTop: "1px solid #EEF0F4", flexWrap: "wrap", opacity: c.kind === "cancelled" ? 0.75 : 1 }}>
-              <div style={{ fontSize: 13 }}>
-                <b>{dayText(c.change_date)}</b> · {labelOfKey(c.shift_key)} · <span style={{ color: c.kind === "cancelled" ? MUTED : "#7A4E00", fontWeight: 650 }}>{KIND_LABEL[c.kind]}</span>
-                <div>{changeText(c)}</div>
-                {c.note && <div style={{ color: MUTED }}>Grund: {c.note}</div>}
-                {c.manager_note && <div style={{ color: "#1F6347" }}>Vermerk: {c.manager_note}</div>}
+          {shownChanges.map((c) => {
+            const isVoid = c.manager_status === "void";
+            const lightBtn = { ...btnGhost, padding: "6px 10px", fontSize: 12 };
+            return (
+              <div key={c.id} style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", padding: "8px 0", borderTop: "1px solid #EEF0F4", flexWrap: "wrap", opacity: isVoid || c.kind === "cancelled" ? 0.7 : 1 }}>
+                <div style={{ fontSize: 13 }}>
+                  <div style={{ textDecoration: isVoid ? "line-through" : "none" }}>
+                    <b>{dayText(c.change_date)}</b> · {labelOfKey(c.shift_key)} · <span style={{ color: c.kind === "cancelled" ? MUTED : "#7A4E00", fontWeight: 650 }}>{KIND_LABEL[c.kind]}</span>
+                    <div>{changeText(c)}</div>
+                  </div>
+                  {c.note && <div style={{ color: MUTED }}>Grund: {c.note}</div>}
+                  {c.manager_status === "normal" && <div style={{ color: "#4A5368", fontWeight: 650 }}>Normale Planänderung, kein Einspringen{c.normal_auto && c.lead_days !== null && c.lead_days !== undefined ? ` (${c.lead_days} Tage vor der Schicht veröffentlicht)` : c.normal_auto ? "" : " (so markiert)"}</div>}
+                  {isVoid && <div style={{ color: "#B3263E", fontWeight: 650 }}>{c.void_auto ? "Automatisch storniert (rückgängig gemacht)" : "Storniert (Irrtum)"}{c.manager_note ? ` · ${c.manager_note}` : ""}</div>}
+                  {!isVoid && c.manager_note && <div style={{ color: "#1F6347" }}>Vermerk: {c.manager_note}</div>}
+                </div>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                  {isVoid && <button disabled={busy} style={lightBtn} onClick={() => setStatus(c, "open")}>Wieder gültig</button>}
+                  {c.manager_status === "normal" && c.kind !== "cancelled" && <button disabled={busy} style={lightBtn} onClick={() => setStatus(c, "open")}>Als Einspringen zählen</button>}
+                  {c.manager_status === "open" && c.kind !== "cancelled" && <button disabled={busy} style={lightBtn} onClick={() => setStatus(c, "normal")}>Normale Änderung</button>}
+                  {!isVoid && c.kind !== "cancelled" && (c.manager_status === "open"
+                    ? <button disabled={busy} style={lightBtn} onClick={() => setStatus(c, "done")}>Berücksichtigt</button>
+                    : <button disabled={busy} style={{ ...lightBtn, color: "#1F6347" }} onClick={() => setStatus(c, "open")}>✓ berücksichtigt · wieder öffnen</button>)}
+                  {!isVoid && <button disabled={busy} style={{ ...lightBtn, color: "#B3263E", borderColor: "#F0C4CD" }} onClick={() => setStatus(c, "void")}>Irrtum / Storno</button>}
+                </div>
               </div>
-              {c.kind !== "cancelled" && (c.manager_status === "open"
-                ? <button disabled={busy} style={{ ...btnGhost, padding: "6px 10px", fontSize: 12 }} onClick={() => setStatus(c, "done")}>Berücksichtigt</button>
-                : <button disabled={busy} style={{ ...btnGhost, padding: "6px 10px", fontSize: 12, color: "#1F6347" }} onClick={() => setStatus(c, "open")}>✓ berücksichtigt · wieder öffnen</button>)}
-            </div>
-          ))}
+            );
+          })}
         </div>
 
         {isOwner && (
@@ -394,6 +437,12 @@ export default function ScheduleReview() {
               <input type="checkbox" checked={requireApproval} onChange={(e) => setRequireApproval(e.target.checked)} style={{ marginTop: 3 }} />
               <span>Die Leitung muss Pläne zur Freigabe einreichen, nur die Inhaber veröffentlichen<br /><span style={{ fontSize: 12, color: MUTED }}>Ausgeschaltet können alle in der Leitung selbst veröffentlichen.</span></span>
             </label>
+            <label style={{ display: "block", fontSize: 14, marginBottom: 6 }}>Als „kurzfristig“ (Einspringen) gilt eine Änderung höchstens
+              <select value={shortDays} onChange={(e) => setShortDays(Number(e.target.value))} style={{ margin: "0 8px", border: `1px solid ${LINE}`, borderRadius: 10, padding: "6px 8px", fontSize: 14 }}>
+                {[0, 1, 2, 3, 4, 5, 7, 10, 14, 21, 30].map((n) => <option key={n} value={n}>{n} Tage</option>)}
+              </select>vor der Schicht
+            </label>
+            <div style={{ fontSize: 12, color: MUTED, marginBottom: 12 }}>Spätere Änderungen sind normale Planänderungen (z. B. November im Oktober nachbessern) und zählen nicht als Einspringen. Was „kurzfristig“ ist, legt deine Firma fest (z. B. Betriebsvereinbarung).</div>
             <label style={{ display: "block", fontSize: 14, marginBottom: 6 }}>Pläne archivieren für
               <select value={retention} onChange={(e) => setRetention(e.target.value)} style={{ marginLeft: 8, border: `1px solid ${LINE}`, borderRadius: 10, padding: "6px 8px", fontSize: 14 }}>
                 {[2, 3, 4, 5, 6, 7, 8, 9, 10].map((y) => <option key={y} value={y}>{y} Jahre</option>)}

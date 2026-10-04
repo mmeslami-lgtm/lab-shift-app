@@ -24,6 +24,12 @@ Im Dienstplaner **„Plan bearbeiten“** → Monat und Jahr wählen → **„Pl
 ## Änderungen markieren und Einspringen
 Geänderte Felder werden im Plan markiert („Geändert“, „entfällt: Name“); nichts ändert sich automatisch. Nach der Freigabe werden die Änderungen gegenüber der veröffentlichten Fassung gespeichert. Unter `/freigaben` → „Einspringen & Änderungen“ sieht die Leitung, wer eingesprungen ist, und kann Einträge als „Berücksichtigt“ vermerken. Mitarbeitende sehen nur Änderungen ihrer eigenen Schichten. Einmalig `changes-schema.sql` ausführen.
 
+## Fehler korrigieren
+„Plan bearbeiten“ → **Fassung** wählen (Stand vor dem Fehler) → „Plan laden“ → einreichen. Macht die neue Veröffentlichung eine frühere Änderung rückgängig (Schicht noch nicht vorbei), wird der falsche Eintrag automatisch storniert. Außerdem pro Eintrag **„Irrtum / Storno“** (mit Grund) und **„Wieder gültig“**. Nichts wird gelöscht. Einmalig `corrections-schema.sql` ausführen.
+
+## Normale Planänderung
+Änderungen, die mehr als N Tage (Standard 7, Einstellung der Inhaber) vor der Schicht veröffentlicht werden, zählen nicht als Einspringen. Beim Ändern eines schon veröffentlichten Monats fragt ein Fenster: „Einspringen / kurzfristig“ (mit Grund) oder „Normale Planänderung“. Einmalig `normal-changes-schema.sql` ausführen.
+
 ## Excel-Export
 Im Dienstplaner nach dem Erstellen auf **„Als Excel herunterladen (.xlsx)“** tippen. Die Datei hat die
 Blätter *Dienstplan*, *Nach Mitarbeiter*, *Zusammenfassung* (und *Hinweise*) mit Farben und lebenden

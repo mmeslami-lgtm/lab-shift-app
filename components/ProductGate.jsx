@@ -47,16 +47,18 @@ export default function ProductGate({ product, supervisorOnly = false, label, ch
       const ok = own.find((m) => enabled(m.org_id).some((p) => wanted.includes(p)) && (!supervisorOnly || m.role !== "employee"));
       if (!ok) { setState({ status: "denied", own: own.map((m) => ({ name: m.organizations ? m.organizations.name : "Firma", role: m.role, products: enabled(m.org_id) })) }); return; }
       // company settings added by the approval/archive script; fall back to the defaults if it has not been run yet
-      let requireApproval = true, retentionYears = 6;
-      const settings = await supabase.from("organizations").select("id, require_approval, retention_years").eq("id", ok.org_id);
+      let requireApproval = true, retentionYears = 6, shortNoticeDays = 7;
+      let settings = await supabase.from("organizations").select("id, require_approval, retention_years, short_notice_days").eq("id", ok.org_id);
+      if (settings.error) settings = await supabase.from("organizations").select("id, require_approval, retention_years").eq("id", ok.org_id);
       if (!settings.error && settings.data && settings.data[0]) {
         requireApproval = settings.data[0].require_approval !== false;
         retentionYears = settings.data[0].retention_years || 6;
+        if (settings.data[0].short_notice_days !== undefined && settings.data[0].short_notice_days !== null) shortNoticeDays = settings.data[0].short_notice_days;
       }
       if (cancelled) return;
       setState({
         status: "ok",
-        ctx: { supabase, session, orgId: ok.org_id, orgName: ok.organizations ? ok.organizations.name : "Firma", role: ok.role, staffId: ok.staff_id, products: enabled(ok.org_id), requireApproval, retentionYears },
+        ctx: { supabase, session, orgId: ok.org_id, orgName: ok.organizations ? ok.organizations.name : "Firma", role: ok.role, staffId: ok.staff_id, products: enabled(ok.org_id), requireApproval, retentionYears, shortNoticeDays },
       });
     })();
     return () => { cancelled = true; };

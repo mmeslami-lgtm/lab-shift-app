@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useContext, useEffect, useState } from "react";
+import React, { useContext, useEffect, useRef, useState } from "react";
 import { OrgContext } from "../lib/orgContext";
 
 const MONTHS = ["Januar", "Februar", "März", "April", "Mai", "Juni", "Juli", "August", "September", "Oktober", "November", "Dezember"];
@@ -16,20 +16,42 @@ function parseTimes(t) {
 function friendly(e) {
   const msg = e && e.message ? e.message : String(e);
   if (/Could not find the function|schema cache|does not exist/i.test(msg)) {
-    return "Die Datenbank ist noch nicht vollständig umgestellt. Bitte approval-archive-schema.sql und danach edit-month-schema.sql im SQL Editor ausführen.";
+    return "Die Datenbank ist noch nicht vollständig umgestellt. Bitte die SQL-Dateien (approval-archive, edit-month, changes, corrections, normal-changes) der Reihe nach im SQL Editor ausführen.";
   }
   return msg;
 }
 
-// Saves the generated month to the shared database and moves it through the approval steps:
-//   Entwurf speichern  ->  (Leitung) zur Freigabe einreichen  ->  (Inhaber) Freigeben / Zurückweisen  ->  veröffentlicht
+// Small modal window (opens only when a question has to be answered, so the page stays calm)
+function Dialog({ title, children, actions, onClose }) {
+  const ref = useRef(null);
+  useEffect(() => { if (ref.current) ref.current.focus(); }, []);
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4" onClick={onClose}>
+      <div role="dialog" aria-modal="true" aria-label={title} tabIndex={-1} ref={ref}
+        onKeyDown={(e) => { if (e.key === "Escape") onClose(); }} onClick={(e) => e.stopPropagation()}
+        className="w-full max-w-md rounded-2xl bg-white p-5 text-sm text-slate-800 shadow-xl outline-none">
+        <div className="text-base font-semibold">{title}</div>
+        <div className="mt-2 text-slate-600">{children}</div>
+        <div className="mt-4 flex flex-col gap-2">{actions}</div>
+      </div>
+    </div>
+  );
+}
+const primary = "rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-50";
+const secondary = "rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium text-slate-800 hover:bg-slate-50";
+const ghost = "rounded-xl px-4 py-2 text-sm text-slate-500 hover:bg-slate-50";
+
+// Saves the generated month and moves it through the approval steps:
+//   Zwischenspeichern  ->  (Leitung) zur Freigabe einreichen  ->  (Inhaber) Freigeben / Zurückweisen  ->  veröffentlicht
 // An Inhaber, or any boss in a company that does not require approval, can publish directly.
+// A question is only asked when it matters: when a month that employees already see is changed.
 export default function PublishPanel({ schedule, staffList, year, monthIdx, shiftList, holidays }) {
   const org = useContext(OrgContext);
   const [phase, setPhase] = useState("idle"); // idle | working | done | error
   const [info, setInfo] = useState("");
-  const [row, setRow] = useState(null);       // status row of this month
+  const [row, setRow] = useState(null);
   const [tick, setTick] = useState(0);
+  const [dialog, setDialog] = useState(null); // { step: "confirm" | "choose" | "reason", action: "publish" | "submit" }
   const [reason, setReason] = useState("");
 
   const month = monthIdx + 1;
@@ -37,7 +59,7 @@ export default function PublishPanel({ schedule, staffList, year, monthIdx, shif
     if (!org) return;
     let alive = true;
     (async () => {
-      const r = await org.supabase.from("schedule_months").select("status, has_newer_draft, review_note").eq("org_id", org.orgId).eq("year", year).eq("month", month);
+      const r = await org.supabase.from("schedule_months").select("status, has_newer_draft, review_note, published_at").eq("org_id", org.orgId).eq("year", year).eq("month", month);
       if (alive) setRow(!r.error && r.data && r.data[0] ? r.data[0] : null);
     })();
     return () => { alive = false; };
@@ -46,8 +68,11 @@ export default function PublishPanel({ schedule, staffList, year, monthIdx, shif
   if (!org || !schedule) return null;
 
   const notFromDb = staffList.filter((s) => !UUID.test(String(s.id)));
-  const hasEmployeeApp = org.products.includes("employee_app");
   const direct = org.role === "owner" || org.requireApproval === false;
+  const mainAction = direct ? "publish" : "submit";
+  const mainLabel = direct ? "Veröffentlichen" : "Zur Freigabe einreichen";
+  const hasPublished = !!(row && row.published_at); // employees already see a version of this month
+  const days = org.shortNoticeDays ?? 7;
 
   // 1) shift kinds + 2) the whole draft month in one database call
   async function persistDraft() {
@@ -87,20 +112,22 @@ export default function PublishPanel({ schedule, staffList, year, monthIdx, shif
     return rows.length;
   }
 
-  async function run(kind) {
-    setPhase("working"); setInfo("");
+  // kind: "draft" | "submit" | "publish";  opts: { normal, reason }
+  async function run(kind, opts = {}) {
+    setDialog(null); setPhase("working"); setInfo("");
     try {
       setInfo("Speichern …");
       const n = await persistDraft();
-      let done = `Entwurf gespeichert (${n} Schichten für ${MONTHS[monthIdx]} ${year}).`;
+      let done = `Zwischengespeichert (${n} Schichten für ${MONTHS[monthIdx]} ${year}). Mitarbeitende sehen noch nichts davon.`;
+      const note = (opts.reason || "").trim() || null;
       if (kind === "submit") {
         setInfo("Einreichen …");
-        const r = await org.supabase.rpc("submit_month", { p_org: org.orgId, p_year: year, p_month: month, p_note: reason.trim() || null });
+        const r = await org.supabase.rpc("submit_month", { p_org: org.orgId, p_year: year, p_month: month, p_note: note, p_normal: !!opts.normal });
         if (r.error) throw r.error;
         done = `Zur Freigabe eingereicht (${n} Schichten). Die Inhaber können den Plan unter „Freigaben & Archiv“ prüfen.`;
       } else if (kind === "publish") {
         setInfo("Veröffentlichen …");
-        const r = await org.supabase.rpc("publish_month", { p_org: org.orgId, p_year: year, p_month: month, p_note: reason.trim() || null });
+        const r = await org.supabase.rpc("publish_month", { p_org: org.orgId, p_year: year, p_month: month, p_note: note, p_normal: !!opts.normal });
         if (r.error) throw r.error;
         done = `${n} Schichten für ${MONTHS[monthIdx]} ${year} veröffentlicht.`;
       }
@@ -110,44 +137,67 @@ export default function PublishPanel({ schedule, staffList, year, monthIdx, shif
     }
   }
 
+  // the main button: ask only what is needed
+  function startMain() { setReason(""); setDialog({ step: hasPublished ? "choose" : "confirm", action: mainAction }); }
   const status = row ? row.status : null;
   const chip = !status ? { t: "Noch nicht gespeichert", c: "bg-slate-100 text-slate-600" }
     : status === "pending" ? { t: "Wartet auf Freigabe durch die Inhaber", c: "bg-amber-100 text-amber-800" }
     : status === "published" ? { t: row.has_newer_draft ? "Veröffentlicht · neuerer Entwurf noch nicht veröffentlicht" : "Veröffentlicht", c: "bg-emerald-100 text-emerald-800" }
     : { t: "Entwurf", c: "bg-slate-100 text-slate-700" };
   const busy = phase === "working";
+  const confirmWord = dialog && dialog.action === "submit" ? "Einreichen" : "Veröffentlichen";
 
   return (
     <div className="mx-4 mt-3 rounded-xl border border-indigo-200 bg-indigo-50 p-3 text-xs text-indigo-900">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <div className="text-sm font-semibold">Speichern, Freigabe, Veröffentlichen</div>
-          <div className="mt-1 flex flex-wrap items-center gap-2">
-            <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${chip.c}`}>{MONTHS[monthIdx]} {year}: {chip.t}</span>
-            <a href="/freigaben" className="text-indigo-700 underline">Freigaben &amp; Archiv</a>
-          </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${chip.c}`}>{MONTHS[monthIdx]} {year}: {chip.t}</span>
+          <a href="/freigaben" className="text-indigo-700 underline">Freigaben &amp; Archiv</a>
         </div>
         <div className="flex flex-wrap gap-2">
-          <button onClick={() => run("draft")} disabled={busy} className="rounded-lg border border-indigo-300 bg-white px-3 py-1.5 text-xs font-semibold text-indigo-700 hover:bg-indigo-100 disabled:opacity-60">Entwurf speichern</button>
-          {direct ? (
-            <button onClick={() => run("publish")} disabled={busy} className="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700 disabled:opacity-60">Veröffentlichen</button>
-          ) : (
-            <button onClick={() => run("submit")} disabled={busy} className="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700 disabled:opacity-60">Zur Freigabe einreichen</button>
-          )}
+          <button onClick={() => run("draft")} disabled={busy} title="Sichert den Plan nur für dich. Mitarbeitende sehen ihn erst nach „Veröffentlichen“." className="rounded-lg border border-indigo-300 bg-white px-3 py-1.5 text-xs font-semibold text-indigo-700 hover:bg-indigo-100 disabled:opacity-60">Zwischenspeichern</button>
+          <button onClick={startMain} disabled={busy} className="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700 disabled:opacity-60">{mainLabel}</button>
         </div>
       </div>
-      <label className="mt-2 block text-indigo-800">Änderungsgrund (optional, z. B. „Krankheit Anna 12.–15.“)
-        <input value={reason} onChange={(e) => setReason(e.target.value)} maxLength={200} className="mt-1 w-full rounded-lg border border-indigo-200 bg-white px-2 py-1.5 text-xs text-slate-800" />
-      </label>
-      <div className="mt-2 text-indigo-700">
-        {direct
-          ? (hasEmployeeApp ? `Beim Veröffentlichen sehen die Mitarbeitenden von „${org.orgName}“ den Plan in ihrer App.` : "Die Mitarbeiter-App ist für diese Firma nicht gebucht. Der Plan wird gespeichert, ist aber erst sichtbar, wenn die App aktiviert wird.")
-          : "In dieser Firma geben die Inhaber Pläne frei. Erst danach sehen die Mitarbeitenden den Plan."}
-      </div>
+      <div className="mt-1.5 text-[11px] text-indigo-600">Zwischenspeichern sichert den Plan nur für dich. Mitarbeitende sehen ihn erst nach „{mainLabel}“{direct ? "" : " und der Freigabe"}.</div>
       {notFromDb.length > 0 && phase === "idle" && (
         <div className="mt-2 text-amber-800">Hinweis: {notFromDb.length} Person(en) sind noch nicht in der Datenbank. Zuerst „Personen in Datenbank speichern“.</div>
       )}
       {info && <div className={`mt-2 ${phase === "error" ? "font-medium text-rose-700" : phase === "done" ? "font-medium text-emerald-700" : "text-indigo-700"}`}>{info}</div>}
+
+      {dialog && dialog.step === "confirm" && (
+        <Dialog title={dialog.action === "submit" ? "Plan zur Freigabe einreichen?" : "Plan veröffentlichen?"} onClose={() => setDialog(null)}
+          actions={<>
+            <button className={primary} onClick={() => run(dialog.action)}>{confirmWord}</button>
+            <button className={ghost} onClick={() => setDialog(null)}>Abbrechen</button>
+          </>}>
+          {dialog.action === "submit"
+            ? `Die Inhaber prüfen den Plan für ${MONTHS[monthIdx]} ${year}. Mitarbeitende sehen ihn erst nach der Freigabe.`
+            : `Mitarbeitende von „${org.orgName}“ sehen den Plan für ${MONTHS[monthIdx]} ${year} danach in ihrer App.`}
+        </Dialog>
+      )}
+      {dialog && dialog.step === "choose" && (
+        <Dialog title="Was für eine Änderung ist das?" onClose={() => setDialog(null)}
+          actions={<>
+            <button className={primary} onClick={() => setDialog({ ...dialog, step: "reason" })}>Einspringen / kurzfristig (z. B. Krankheit)</button>
+            <button className={secondary} onClick={() => run(dialog.action, { normal: true })}>Normale Planänderung (kein Einspringen)</button>
+            <button className={ghost} onClick={() => setDialog(null)}>Abbrechen</button>
+          </>}>
+          Die Mitarbeitenden sehen diesen Monat schon. Wer eine Schicht kurzfristig übernimmt, wird der Leitung als „Einspringen“ angezeigt. Änderungen, die mehr als {days} Tage vor der Schicht liegen, zählen automatisch als normale Planänderung.
+        </Dialog>
+      )}
+      {dialog && dialog.step === "reason" && (
+        <Dialog title="Grund für das Einspringen" onClose={() => setDialog(null)}
+          actions={<>
+            <button className={primary} disabled={!reason.trim()} onClick={() => run(dialog.action, { reason })}>{confirmWord}</button>
+            <button className={ghost} onClick={() => setDialog({ ...dialog, step: "choose" })}>Zurück</button>
+          </>}>
+          <input autoFocus value={reason} onChange={(e) => setReason(e.target.value)} maxLength={200} placeholder="z. B. Krankheit Anna 12.–15."
+            onKeyDown={(e) => { if (e.key === "Enter" && reason.trim()) run(dialog.action, { reason }); }}
+            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-800" />
+          <div className="mt-1 text-[11px] text-slate-500">Der Grund ist nur für Leitung und Inhaber sichtbar, nicht für Mitarbeitende.</div>
+        </Dialog>
+      )}
     </div>
   );
 }

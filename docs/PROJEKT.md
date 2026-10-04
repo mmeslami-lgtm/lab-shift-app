@@ -30,6 +30,8 @@
 2. `2-multi-tenant-schema.sql` — شرکت‌ها، محصولات، عضویت‌ها، RLS، دستگاه‌ها، `create_organization(...)`
 3. `3-approval-archive-schema.sql` — تأیید، بایگانی، مدت نگه‌داری
 4. `4-edit-month-schema.sql` — روزهای تعطیل ماه + دلیل تغییر (برای باز کردن دوباره‌ی یک ماه ذخیره‌شده)
+7. `7-normal-changes-schema.sql` — «Normale Planänderung»: وضعیت `normal` (شمرده نمی‌شود)، قانون زمان `organizations.short_notice_days` (پیش‌فرض ۷ روز)، علامت دستی هنگام ارسال/انتشار
+6. `6-corrections-schema.sql` — اصلاح خطا: وضعیت `void` برای ردیف‌های تغییر، ابطال خودکار وقتی تغییر جدید دقیقاً عکس تغییر قبلیِ هنوز-اتفاق‌نیفتاده است، `set_change_status` با دلیل اجباری برای storno
 5. `5-changes-schema.sql` — ثبت تغییرات بعد از انتشار (`shift_changes`: cover/extra/cancelled)، ویوی امن برای کارمند (`my_shift_changes`)، وضعیت مدیر (`set_change_status`)
 - `test-setup.sql` — دو شرکت آزمایشی + ۳ کاربر تست (فقط برای تست).
 
@@ -40,7 +42,10 @@
 - جریان تأیید (`schedule_months.status`): draft → pending → published. توابع: `save_draft`، `submit_month`، `reject_month`، `publish_month`، `set_org_settings`، `purge_expired_versions`.
 - ویرایش ماه ذخیره‌شده: دکمهٔ «Plan bearbeiten» در Dienstplaner (کنار «Freigaben & Archiv») ← انتخاب ماه و سال ← پلن (آخرین پیش‌نویس، وگرنه نسخهٔ منتشرشده) با تنظیمات شیفت‌ها و تعطیلی‌ها دقیقاً بازسازی می‌شود ← تغییر در جدول (مثلاً جایگزینی فرد بیمار) ← «Zur Freigabe einreichen» (+ «Änderungsgrund») ← Inhaber در `/freigaben` تأیید می‌کند ← کارمندان نسخهٔ جدید را می‌بینند.
 - **نشان تغییر:** پلن بازشده با نسخهٔ منتشرشده مقایسه می‌شود؛ خونه‌های دستی‌تغییرکرده «Geändert» و «entfällt: نام» می‌گیرند. تغییری خودکار انجام نمی‌شود. صفحهٔ `/freigaben` فهرست تغییرات و خونه‌های نشان‌دار را به Inhaber نشان می‌دهد.
+- **UI انتشار:** پنل فقط «Zwischenspeichern» (ذخیرهٔ فقط‌برای‌خود) و دکمهٔ اصلی دارد؛ پنجرهٔ سؤال فقط وقتی باز می‌شود که ماهی که کارمند از قبل می‌بیند تغییر کند: «Einspringen / kurzfristig» ← پنجرهٔ دلیل (اجباری) یا «Normale Planänderung (kein Einspringen)». انتشار اول فقط یک تأیید کوتاه دارد.
+- **Normale Planänderung:** تغییرِ بیش از N روز قبل از شیفت (تنظیم Inhaber، پیش‌فرض ۷) یا علامت‌خورده توسط Leitung، وضعیت `normal` می‌گیرد: ثبت می‌شود و کارمند «geändert» می‌بیند، ولی در رتبه‌بندی Einspringen و یادآوری نمی‌آید. در `/freigaben` پیش‌فرض مخفی است و با «auch normale Planänderungen anzeigen» دیده می‌شود؛ هر ردیف قابل جابه‌جایی است («Als Einspringen zählen» / «Normale Änderung»).
 - **Einspringen:** هنگام انتشار مجدد، تفاوت با نسخهٔ قبلی در `shift_changes` ثبت می‌شود (cover = جایگزینی، extra = شیفت اضافه، cancelled = حذف). در `/freigaben` بخش «Einspringen & Änderungen»: رتبه‌بندی افراد، فهرست، و علامت «Berücksichtigt» توسط Leitung/Inhaber (فقط یادداشت برای تصمیم مدیر؛ هیچ پرداختی خودکار نیست). کارمند فقط تغییر شیفت‌های خودش را می‌بیند، بدون نام دیگران و بدون دلیل.
+- **اصلاح خطا:** ۱) «Plan bearbeiten» ← «Fassung» ← نسخهٔ منتشرشدهٔ قبلی از بایگانی باز می‌شود (تفاوت با نسخهٔ فعلی نشان‌دار) ← ارسال/انتشار. ۲) اگر تغییر جدید دقیقاً عکس تغییر قبلی برای شیفتی باشد که هنوز اتفاق نیفتاده، ردیف اشتباه خودکار `void` می‌شود و ردیف جدید ساخته نمی‌شود؛ برای شیفت‌های گذشته هرگز خودکار نیست. ۳) «Irrtum / Storno» با دلیل اجباری و «Wieder gültig». چیزی پاک نمی‌شود؛ ردیف‌های void شمرده نمی‌شوند و کارمند نشانشان را نمی‌بیند.
 - بایگانی: `schedule_versions` (تغییرناپذیر؛ عکس لحظه‌ای هر ارسال/رد/انتشار + `keep_until`).
 - تنظیمات شرکت: `organizations.require_approval` (پیش‌فرض true) و `retention_years` (پیش‌فرض ۶، بین ۲ تا ۱۰).
 - ساختن شرکت جدید: `select create_organization('نام', '<UID مالک>', array['lab_planner','employee_app']);` (SQL Editor).
