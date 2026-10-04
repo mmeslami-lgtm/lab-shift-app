@@ -7,12 +7,16 @@ Next.js-App, bereit für Vercel. Enthält drei Seiten und eine Zeiterfassungs-AP
 | `/` | Dienstplaner **Labor** (Schichten vorbelegt) – nur mit Anmeldung, Leitung, Produkt „Dienstplaner Labor“ |
 | `/allgemein` | Dienstplaner **allgemein** (Früh/Spät vorbelegt, alles frei änderbar) – nur mit Anmeldung, Leitung, Produkt „Dienstplaner allgemein“ |
 | `/mitarbeiter` | **Meine Schichten** – App für Mitarbeitende, zeigt die **veröffentlichten** Schichten aus der Datenbank (Plan, Team). Anträge/Zeiten/Wünsche folgen. |
+| `/freigaben` | **Freigaben & Archiv** – Monate mit Status (Entwurf / Wartet auf Freigabe / Veröffentlicht), Plan prüfen, Freigeben oder Zurückweisen, unveränderlicher Verlauf, Einstellungen (Inhaber) |
 | `/demo` | Vorschau der Mitarbeiter-App mit Beispieldaten (ohne Anmeldung) |
 | `/konto` | **Anmeldung** und Firmenübersicht mit Sicherheits-Check (zeigt, dass Firmen getrennt sind) |
 | `/api/attendance` | Eingang für das Chip-Lesegerät. Jedes Gerät gehört zu **einer Firma** und meldet sich mit Seriennummer + Geheimnis (Tabelle `devices`). |
 
 ## Plan veröffentlichen
-Im Dienstplaner oben **„Personen aus Datenbank laden“**, Plan erstellen, dann **„Veröffentlichen“**. Beide Dienstplaner schreiben in dieselben Tabellen; die Mitarbeiter-App liest sie. Die Verbindung gilt pro Firma und hängt am Produkt „Mitarbeiter-App“ (`org_products`).
+Im Dienstplaner oben Personen eintragen und **„Personen in Datenbank speichern“** (oder bestehende mit **„Personen aus Datenbank laden“** holen), Plan erstellen, dann **„Veröffentlichen“**. Eine Person aus der Liste entfernen deaktiviert sie in der Datenbank (nach Rückfrage); bisherige Schichten bleiben. Beide Dienstplaner schreiben in dieselben Tabellen; die Mitarbeiter-App liest sie. Die Verbindung gilt pro Firma und hängt am Produkt „Mitarbeiter-App“ (`org_products`).
+
+## Freigabe und Archiv
+Leitung: **Entwurf speichern** und **Zur Freigabe einreichen**. Inhaber: unter `/freigaben` prüfen und **Freigeben** oder **Zurückweisen** (oder direkt veröffentlichen). Jede Einreichung, Zurückweisung und Veröffentlichung wird als unveränderliche Kopie archiviert (Aufbewahrung standardmäßig 6 Jahre, einstellbar 2–10; nichts wird automatisch gelöscht). Einmalig `approval-archive-schema.sql` in Supabase ausführen.
 
 ## Excel-Export
 Im Dienstplaner nach dem Erstellen auf **„Als Excel herunterladen (.xlsx)“** tippen. Die Datei hat die

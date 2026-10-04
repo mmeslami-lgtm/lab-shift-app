@@ -1298,6 +1298,16 @@ function LabShiftSchedulerInner() {
     })));
     setLeaveEntries([]); setSickEntries([]); setWishEntries([]); setSchedule(null);
   };
+  const staffToDb = (s) => ({
+    email: s.email ? String(s.email).trim() : null, weekly_hours: Number(s.weeklyHours) || 0, employment_type: s.employmentType || "full",
+    night_exempt: !!s.nightExempt, weekend_exempt: !!s.weekendExempt, is_team_lead: !!s.isTeamLead,
+  });
+  // after saving, local ids ("s3") are replaced by the database ids everywhere they are used
+  const applyStaffIds = (idMap) => {
+    setStaffList((prev) => prev.map((s) => (idMap[s.id] ? { ...s, id: idMap[s.id] } : s)));
+    const remap = (prev) => prev.map((e) => (idMap[e.staffId] ? { ...e, staffId: idMap[e.staffId] } : e));
+    setLeaveEntries(remap); setSickEntries(remap); setWishEntries(remap); setSchedule(null);
+  };
 
 
   const staffMap = useMemo(() => {
@@ -1362,7 +1372,12 @@ function LabShiftSchedulerInner() {
     const id = `s${nextIdRef.current++}`;
     setStaffList((prev) => [...prev, { id, name: `Mitarbeiter ${prev.length + 1}`, weeklyHours: 38.5, employmentType: "full", nightExempt: false, weekendExempt: false, isTeamLead: false, email: "" }]);
   }
-  function removeStaff(id) {
+  async function removeStaff(id) {
+    if (orgCtx && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(id))) {
+      if (!window.confirm("Diese Person ist in der Datenbank gespeichert. Wirklich entfernen? Sie wird deaktiviert und erscheint nicht mehr in der Liste. Bisherige Schichten bleiben erhalten.")) return;
+      const res = await orgCtx.supabase.from("staff").update({ active: false }).eq("id", id);
+      if (res.error) { window.alert("Fehler: " + res.error.message); return; }
+    }
     setStaffList((prev) => prev.filter((s) => s.id !== id));
     setLeaveEntries((prev) => prev.filter((e) => e.staffId !== id));
     setSickEntries((prev) => prev.filter((e) => e.staffId !== id));
@@ -1648,7 +1663,7 @@ function LabShiftSchedulerInner() {
           <p className="text-sm text-slate-500">Frei definierbare Schichten unter Berücksichtigung der Wochenstunden, der Nachtdienstrotation und der Wochenendquote — nach dem Erstellen manuell bearbeitbar.</p>
         </header>
 
-        {orgCtx && <OrgBar onLoadStaff={loadStaffFromDb} />}
+        {orgCtx && <OrgBar onLoadStaff={loadStaffFromDb} staffList={staffList} toDb={staffToDb} onIdsChanged={applyStaffIds} year={year} monthIdx={monthIdx} />}
 
         {/* Archive */}
         {archiveList.length > 0 && (

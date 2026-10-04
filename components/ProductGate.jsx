@@ -17,9 +17,11 @@ const card = { background: "#fff", borderRadius: 18, padding: 16, marginBottom: 
 
 // Wraps a product page. Nothing is shown until the person is logged in AND their company has this
 // product (and, for the planners, they are a boss). Then the page gets an OrgContext.
-//   product        'lab_planner' | 'generic_planner' | 'employee_app'
+//   product        'lab_planner' | 'generic_planner' | 'employee_app', or a list (any one of them is enough)
 //   supervisorOnly only owner/supervisor roles may open it (the planners)
 export default function ProductGate({ product, supervisorOnly = false, label, children }) {
+  const wanted = Array.isArray(product) ? product : [product];
+  const wantedKey = wanted.join(",");
   const [session, setSession] = useState(undefined);
   const [state, setState] = useState({ status: "loading" });
 
@@ -42,17 +44,25 @@ export default function ProductGate({ product, supervisorOnly = false, label, ch
       if (mem.error || prod.error) { setState({ status: "error", message: (mem.error || prod.error).message }); return; }
       const own = mem.data.filter((m) => m.user_id === session.user.id);
       const enabled = (orgId) => prod.data.filter((p) => p.org_id === orgId && p.enabled).map((p) => p.product);
-      const ok = own.find((m) => enabled(m.org_id).includes(product) && (!supervisorOnly || m.role !== "employee"));
+      const ok = own.find((m) => enabled(m.org_id).some((p) => wanted.includes(p)) && (!supervisorOnly || m.role !== "employee"));
       if (!ok) { setState({ status: "denied", own: own.map((m) => ({ name: m.organizations ? m.organizations.name : "Firma", role: m.role, products: enabled(m.org_id) })) }); return; }
+      // company settings added by the approval/archive script; fall back to the defaults if it has not been run yet
+      let requireApproval = true, retentionYears = 6;
+      const settings = await supabase.from("organizations").select("id, require_approval, retention_years").eq("id", ok.org_id);
+      if (!settings.error && settings.data && settings.data[0]) {
+        requireApproval = settings.data[0].require_approval !== false;
+        retentionYears = settings.data[0].retention_years || 6;
+      }
+      if (cancelled) return;
       setState({
         status: "ok",
-        ctx: { supabase, session, orgId: ok.org_id, orgName: ok.organizations ? ok.organizations.name : "Firma", role: ok.role, staffId: ok.staff_id, products: enabled(ok.org_id) },
+        ctx: { supabase, session, orgId: ok.org_id, orgName: ok.organizations ? ok.organizations.name : "Firma", role: ok.role, staffId: ok.staff_id, products: enabled(ok.org_id), requireApproval, retentionYears },
       });
     })();
     return () => { cancelled = true; };
-  }, [session, product, supervisorOnly]);
+  }, [session, wantedKey, supervisorOnly]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const what = label || PRODUCT_LABEL[product] || product;
+  const what = label || wanted.map((p) => PRODUCT_LABEL[p] || p).join(" / ");
 
   if (!supabaseConfigured) {
     return <div style={shell}><div style={{ maxWidth: 520, margin: "0 auto", ...card, background: "#FFF1D2", color: "#7A4E00" }}>Supabase ist hier nicht eingerichtet (NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_ANON_KEY fehlen).</div></div>;
