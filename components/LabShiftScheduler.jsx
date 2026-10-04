@@ -4,6 +4,8 @@ import React, { useState, useMemo, useRef, useEffect } from "react";
 import { OrgContext } from "../lib/orgContext";
 import OrgBar from "./OrgBar";
 import PublishPanel from "./PublishPanel";
+import { fetchAll } from "../lib/fetchAll";
+import { computeChanges } from "../lib/planDiff";
 import { Calendar, Users, AlertTriangle, RefreshCw, Plus, Trash2, Copy, Check, ClipboardList, Info } from "lucide-react";
 import { storage } from "../lib/storage";
 
@@ -1014,6 +1016,7 @@ function LabShiftSchedulerInner() {
     { key: "B", label: "Büro", time: "08:00-16:00", frequency: "quota", quotaCount: 9, preferLead: true },
   ]);
   const [holidays, setHolidays] = useState([]); // array of day numbers
+  const [editMode, setEditMode] = useState(false); // true only after a saved month was opened with "Plan bearbeiten"
   const [baseline, setBaseline] = useState(null); // published version of the opened month: "day|shiftKey" -> [staffIds]
   const [leaveEntries, setLeaveEntries] = useState([]); // {id, staffId, days}
   const [sickEntries, setSickEntries] = useState([]); // {id, staffId, days}
@@ -1213,6 +1216,37 @@ function LabShiftSchedulerInner() {
 
   // ---- connection to the shared database (only active when the page runs behind the login gate) ----
   const orgCtx = React.useContext(OrgContext);
+  // What the employees currently see for the shown month. Every difference of the plan on screen to this
+  // published version is marked yellow — no matter whether the plan was generated or opened with "Plan bearbeiten".
+  const [publishedTick, setPublishedTick] = useState(0);
+  useEffect(() => {
+    const h = () => setPublishedTick((n) => n + 1);
+    window.addEventListener("schedule-status-changed", h);
+    return () => window.removeEventListener("schedule-status-changed", h);
+  }, []);
+  useEffect(() => {
+    if (!orgCtx) { setBaseline(null); return; }
+    let alive = true;
+    (async () => {
+      try {
+        const m = monthIdx + 1; const from = `${year}-${String(m).padStart(2, "0")}-01`;
+        const nx = new Date(year, m, 1); const to = `${nx.getFullYear()}-${String(nx.getMonth() + 1).padStart(2, "0")}-01`;
+        const rows = await fetchAll(() => orgCtx.supabase.from("scheduled_shifts").select("staff_id, shift_date, shift_key").eq("org_id", orgCtx.orgId).eq("status", "published").gte("shift_date", from).lt("shift_date", to));
+        if (!alive) return;
+        if (!rows.length) { setBaseline(null); return; }
+        const base = {};
+        rows.forEach((r) => { const k = `${Number(String(r.shift_date).slice(8, 10))}|${r.shift_key}`; (base[k] = base[k] || []).push(r.staff_id); });
+        setBaseline(base);
+      } catch (e) { if (alive) setBaseline(null); }
+    })();
+    return () => { alive = false; };
+  }, [orgCtx, year, monthIdx, publishedTick]); // eslint-disable-line react-hooks/exhaustive-deps
+  const changeCount = useMemo(() => {
+    if (!baseline || !schedule) return null;
+    const oldRows = []; Object.entries(baseline).forEach(([k, ids]) => { const [day, key] = k.split("|"); ids.forEach((id) => oldRows.push({ staff_id: id, shift_date: `D${day}`, shift_key: key })); });
+    const newRows = []; schedule.days.forEach((d) => Object.entries(d.shifts).forEach(([key, ids]) => (ids || []).filter(Boolean).forEach((id) => newRows.push({ staff_id: id, shift_date: `D${d.day}`, shift_key: key }))));
+    return computeChanges(oldRows, newRows).length;
+  }, [baseline, schedule]);
   const shiftListForDb = dayOrderedKeys.map((k) => {
     const def = dayShiftDefs.find((d) => d.key === k);
     return {
@@ -1226,7 +1260,7 @@ function LabShiftSchedulerInner() {
       id: r.id, name: r.name, weeklyHours: Number(r.weekly_hours) || 38.5, employmentType: r.employment_type || "full",
       nightExempt: !!r.night_exempt, weekendExempt: !!r.weekend_exempt, isLeadMTLA: !!r.is_team_lead, email: r.email || "",
     })));
-    setLeaveEntries([]); setSickEntries([]); setWishEntries([]); setSchedule(null); setBaseline(null);
+    setLeaveEntries([]); setSickEntries([]); setWishEntries([]); setSchedule(null); setEditMode(false);
   };
   const staffToDb = (s) => ({
     email: s.email ? String(s.email).trim() : null, weekly_hours: Number(s.weeklyHours) || 0, employment_type: s.employmentType || "full",
@@ -1236,7 +1270,7 @@ function LabShiftSchedulerInner() {
   const applyStaffIds = (idMap) => {
     setStaffList((prev) => prev.map((s) => (idMap[s.id] ? { ...s, id: idMap[s.id] } : s)));
     const remap = (prev) => prev.map((e) => (idMap[e.staffId] ? { ...e, staffId: idMap[e.staffId] } : e));
-    setLeaveEntries(remap); setSickEntries(remap); setWishEntries(remap); setSchedule(null); setBaseline(null);
+    setLeaveEntries(remap); setSickEntries(remap); setWishEntries(remap); setSchedule(null); setEditMode(false);
   };
   // Reopen a saved month (draft or published) exactly as stored, so it can be edited (e.g. sick leave)
   const applyLoadedPlan = ({ year: y, month: m, rows, holidays: hol, defs, staffRows, baselineRows }) => {
@@ -1288,6 +1322,7 @@ function LabShiftSchedulerInner() {
       baselineRows.forEach((r) => { const key = `${Number(String(r.shift_date).slice(8, 10))}|${r.shift_key}`; (base[key] = base[key] || []).push(r.staff_id); });
       setBaseline(base);
     } else setBaseline(null);
+    setEditMode(true);
     return { ok: true };
   };
 
@@ -1444,7 +1479,7 @@ function LabShiftSchedulerInner() {
       // rule the generator couldn't fully guarantee up front (e.g. a rare consecutive-workday
       // overrun caused by an already-fixed night block) still surfaces as a warning immediately.
       const stats = computeStatsAndWarnings(result.days, staffList, leaveMap, shiftHours, dayOrderedKeys);
-      setBaseline(null);
+      setEditMode(false);
       setSchedule({
         days: result.days,
         hours: stats.hours,
@@ -1714,7 +1749,7 @@ function LabShiftSchedulerInner() {
               <input
                 type="month"
                 value={monthValue}
-                onChange={(e) => { setMonthValue(e.target.value); setSchedule(null); setBaseline(null); }}
+                onChange={(e) => { setMonthValue(e.target.value); setSchedule(null); setEditMode(false); }}
                 className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
               />
               <p className="text-xs text-slate-400 mt-1">{MONTH_DE[monthIdx]} {year} — {totalDays} Tage</p>
@@ -2201,7 +2236,7 @@ function LabShiftSchedulerInner() {
                   </a>
                 </div>
               </div>
-              {orgCtx && <PublishPanel schedule={schedule} staffList={staffList} year={year} monthIdx={monthIdx} shiftList={shiftListForDb} holidays={holidays} />}
+              {orgCtx && <PublishPanel schedule={schedule} staffList={staffList} year={year} monthIdx={monthIdx} shiftList={shiftListForDb} holidays={holidays} changeCount={changeCount} editMode={editMode} />}
               {(archiveState === "error" || saveState === "error") && (
                 <div className="mx-4 mt-3 rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs text-rose-800">
                   {archiveState === "error" && (

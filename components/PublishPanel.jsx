@@ -45,7 +45,7 @@ const ghost = "rounded-xl px-4 py-2 text-sm text-slate-500 hover:bg-slate-50";
 //   Zwischenspeichern  ->  (Leitung) zur Freigabe einreichen  ->  (Inhaber) Freigeben / Zurückweisen  ->  veröffentlicht
 // An Inhaber, or any boss in a company that does not require approval, can publish directly.
 // A question is only asked when it matters: when a month that employees already see is changed.
-export default function PublishPanel({ schedule, staffList, year, monthIdx, shiftList, holidays }) {
+export default function PublishPanel({ schedule, staffList, year, monthIdx, shiftList, holidays, changeCount, editMode }) {
   const org = useContext(OrgContext);
   const [phase, setPhase] = useState("idle"); // idle | working | done | error
   const [info, setInfo] = useState("");
@@ -138,7 +138,10 @@ export default function PublishPanel({ schedule, staffList, year, monthIdx, shif
   }
 
   // the main button: ask only what is needed
-  function startMain() { setReason(""); setDialog({ step: hasPublished ? "choose" : "confirm", action: mainAction }); }
+  // The question "Einspringen or normal?" belongs to EDITING a saved month ("Plan bearbeiten"). A newly created plan
+  // only gets a short confirmation; if it replaces a published month it is recorded as a normal plan change.
+  const replacing = hasPublished && !editMode;
+  function startMain() { setReason(""); setDialog({ step: hasPublished && editMode ? "choose" : "confirm", action: mainAction }); }
   const status = row ? row.status : null;
   const chip = !status ? { t: "Noch nicht gespeichert", c: "bg-slate-100 text-slate-600" }
     : status === "pending" ? { t: "Wartet auf Freigabe durch die Inhaber", c: "bg-amber-100 text-amber-800" }
@@ -160,20 +163,28 @@ export default function PublishPanel({ schedule, staffList, year, monthIdx, shif
         </div>
       </div>
       <div className="mt-1.5 text-[11px] text-indigo-600">Zwischenspeichern sichert den Plan nur für dich. Mitarbeitende sehen ihn erst nach „{mainLabel}“{direct ? "" : " und der Freigabe"}.</div>
+      {changeCount !== null && changeCount !== undefined && (
+        <div className={`mt-1.5 text-[11px] ${changeCount > 0 ? "font-semibold text-amber-800" : "text-indigo-600"}`}>
+          {changeCount === 0 ? "Keine Änderung gegenüber der veröffentlichten Fassung." : `Gegenüber der veröffentlichten Fassung: ${changeCount} ${changeCount === 1 ? "Änderung" : "Änderungen"} (im Plan gelb markiert).`}
+          {changeCount > 15 && <span className="font-normal"> Das sind viele. Wurde der Plan neu erstellt? Für einzelne Korrekturen (z. B. Krankheit) besser „Plan bearbeiten“ und „Plan laden“ benutzen, dann bleibt der Rest unverändert.</span>}
+        </div>
+      )}
       {notFromDb.length > 0 && phase === "idle" && (
         <div className="mt-2 text-amber-800">Hinweis: {notFromDb.length} Person(en) sind noch nicht in der Datenbank. Zuerst „Personen in Datenbank speichern“.</div>
       )}
       {info && <div className={`mt-2 ${phase === "error" ? "font-medium text-rose-700" : phase === "done" ? "font-medium text-emerald-700" : "text-indigo-700"}`}>{info}</div>}
 
       {dialog && dialog.step === "confirm" && (
-        <Dialog title={dialog.action === "submit" ? "Plan zur Freigabe einreichen?" : "Plan veröffentlichen?"} onClose={() => setDialog(null)}
+        <Dialog title={replacing ? "Veröffentlichte Fassung ersetzen?" : dialog.action === "submit" ? "Plan zur Freigabe einreichen?" : "Plan veröffentlichen?"} onClose={() => setDialog(null)}
           actions={<>
-            <button className={primary} onClick={() => run(dialog.action)}>{confirmWord}</button>
+            <button className={primary} onClick={() => run(dialog.action, { normal: replacing })}>{confirmWord}</button>
             <button className={ghost} onClick={() => setDialog(null)}>Abbrechen</button>
           </>}>
-          {dialog.action === "submit"
-            ? `Die Inhaber prüfen den Plan für ${MONTHS[monthIdx]} ${year}. Mitarbeitende sehen ihn erst nach der Freigabe.`
-            : `Mitarbeitende von „${org.orgName}“ sehen den Plan für ${MONTHS[monthIdx]} ${year} danach in ihrer App.`}
+          {replacing
+            ? `Für ${MONTHS[monthIdx]} ${year} gibt es schon eine veröffentlichte Fassung. Der neue Plan ersetzt sie${changeCount ? ` (${changeCount} Änderungen)` : ""}, die Mitarbeitenden sehen danach die neue Version. Das zählt als normale Planänderung, nicht als Einspringen. Für einzelne Korrekturen (z. B. Krankheit) besser „Plan bearbeiten“ benutzen.${dialog.action === "submit" ? " Sie sehen sie erst nach der Freigabe." : ""}`
+            : dialog.action === "submit"
+              ? `Die Inhaber prüfen den Plan für ${MONTHS[monthIdx]} ${year}. Mitarbeitende sehen ihn erst nach der Freigabe.`
+              : `Mitarbeitende von „${org.orgName}“ sehen den Plan für ${MONTHS[monthIdx]} ${year} danach in ihrer App.`}
         </Dialog>
       )}
       {dialog && dialog.step === "choose" && (
