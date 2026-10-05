@@ -12,6 +12,7 @@
 | `/allgemein` | Dienstplaner allgemein (`generic_planner`) | Leitung / Inhaber |
 | `/mitarbeiter` | اپ کارمند «Meine Schichten» (`employee_app`) | کارمندان |
 | `/freigaben` | Freigaben & Archiv | Leitung (مشاهده/ارسال)، Inhaber (تأیید/رد/تنظیمات) |
+| `/admin` | **Plattform-Verwaltung** (فقط برای ردیف‌های `platform_admins`): همهٔ شرکت‌ها، محصول‌ها روشن/خاموش، ساخت شرکت+ورود مالک، افزودن/حذف حساب، رمز جدید، فعال/غیرفعال کردن شرکت | فقط اپراتور (تو) |
 | `/konto` | ورود + «Sicherheits-Check» (تست جدایی شرکت‌ها) | همه |
 | `/demo` | پیش‌نمایش اپ کارمند با داده نمونه | آزاد، بدون ورود |
 | `/api/attendance` | دریافت ثبت ورود/خروج از دستگاه | دستگاه (با serial + secret) |
@@ -30,6 +31,8 @@
 2. `2-multi-tenant-schema.sql` — شرکت‌ها، محصولات، عضویت‌ها، RLS، دستگاه‌ها، `create_organization(...)`
 3. `3-approval-archive-schema.sql` — تأیید، بایگانی، مدت نگه‌داری
 4. `4-edit-month-schema.sql` — روزهای تعطیل ماه + دلیل تغییر (برای باز کردن دوباره‌ی یک ماه ذخیره‌شده)
+9. `9-admin-schema.sql` — جدول `admin_log` (ثبت همهٔ کارهای ادمین؛ فقط سرور می‌خواند/می‌نویسد)
+8. `8-roles-schema.sql` — نقش‌ها: `planner` (Schichtplaner: می‌نویسد و ارسال می‌کند)، `supervisor` (Leitung/Leiter: تأیید، رد، تصمیم Einspringen، تنظیمات)، `owner` (Inhaber: همه‌کار، ولی برای تأیید لازم نیست)، `employee`. توابع `is_org_supervisor` (= می‌تواند برنامه‌ریزی کند) و `is_org_leader` (= Leitung یا Inhaber). این اسکریپت روی Supabase واقعی از طریق اتصال اجرا و با نقش‌های واقعی تست شده است (۲۵ بررسی).
 7. `7-normal-changes-schema.sql` — «Normale Planänderung»: وضعیت `normal` (شمرده نمی‌شود)، قانون زمان `organizations.short_notice_days` (پیش‌فرض ۷ روز)، علامت دستی هنگام ارسال/انتشار
 6. `6-corrections-schema.sql` — اصلاح خطا: وضعیت `void` برای ردیف‌های تغییر، ابطال خودکار وقتی تغییر جدید دقیقاً عکس تغییر قبلیِ هنوز-اتفاق‌نیفتاده است، `set_change_status` با دلیل اجباری برای storno
 5. `5-changes-schema.sql` — ثبت تغییرات بعد از انتشار (`shift_changes`: cover/extra/cancelled)، ویوی امن برای کارمند (`my_shift_changes`)، وضعیت مدیر (`set_change_status`)
@@ -46,6 +49,7 @@
 - **نشان زرد:** پلنِ روی صفحه همیشه با نسخهٔ منتشرشدهٔ همان ماه (از دیتابیس) مقایسه می‌شود، چه تولید شده چه باز شده باشد: «Geändert» / «entfällt: نام» + شمارش «N Änderungen». اگر N بزرگ باشد، راهنما می‌گوید برای اصلاح کوچک از «Plan bearbeiten» استفاده کن.
 - **Normale Planänderung:** تغییرِ بیش از N روز قبل از شیفت (تنظیم Inhaber، پیش‌فرض ۷) یا علامت‌خورده توسط Leitung، وضعیت `normal` می‌گیرد: ثبت می‌شود و کارمند «geändert» می‌بیند، ولی در رتبه‌بندی Einspringen و یادآوری نمی‌آید. در `/freigaben` پیش‌فرض مخفی است و با «auch normale Planänderungen anzeigen» دیده می‌شود؛ هر ردیف قابل جابه‌جایی است («Als Einspringen zählen» / «Normale Änderung»).
 - **Einspringen:** هنگام انتشار مجدد، تفاوت با نسخهٔ قبلی در `shift_changes` ثبت می‌شود (cover = جایگزینی، extra = شیفت اضافه، cancelled = حذف). در `/freigaben` بخش «Einspringen & Änderungen»: رتبه‌بندی افراد، فهرست، و علامت «Berücksichtigt» توسط Leitung/Inhaber (فقط یادداشت برای تصمیم مدیر؛ هیچ پرداختی خودکار نیست). کارمند فقط تغییر شیفت‌های خودش را می‌بیند، بدون نام دیگران و بدون دلیل.
+- **چرخهٔ تأیید (نقش‌ها):** Schichtplaner فقط «Zwischenspeichern» و «Zur Freigabe einreichen» دارد (وقتی `require_approval` روشن است). Leitung یا Inhaber در `/freigaben` «Freigeben» یا «Zurückweisen» می‌زنند؛ Leitung/Inhaber مستقیم هم می‌توانند منتشر کنند. بخش «Einspringen & Änderungen» و «Einstellungen» فقط برای Leitung/Inhaber است، Schichtplaner آن‌ها را نمی‌بیند.
 - **اصلاح خطا:** ۱) «Plan bearbeiten» ← «Fassung» ← نسخهٔ منتشرشدهٔ قبلی از بایگانی باز می‌شود (تفاوت با نسخهٔ فعلی نشان‌دار) ← ارسال/انتشار. ۲) اگر تغییر جدید دقیقاً عکس تغییر قبلی برای شیفتی باشد که هنوز اتفاق نیفتاده، ردیف اشتباه خودکار `void` می‌شود و ردیف جدید ساخته نمی‌شود؛ برای شیفت‌های گذشته هرگز خودکار نیست. ۳) «Irrtum / Storno» با دلیل اجباری و «Wieder gültig». چیزی پاک نمی‌شود؛ ردیف‌های void شمرده نمی‌شوند و کارمند نشانشان را نمی‌بیند.
 - بایگانی: `schedule_versions` (تغییرناپذیر؛ عکس لحظه‌ای هر ارسال/رد/انتشار + `keep_until`).
 - تنظیمات شرکت: `organizations.require_approval` (پیش‌فرض true) و `retention_years` (پیش‌فرض ۶، بین ۲ تا ۱۰).
@@ -77,6 +81,9 @@
 ## ۵.۵ وضعیت تست
 حدود ۱۴۰ بررسی خودکار روی یک Supabase شبیه‌سازی‌شده (مرورگر واقعی + دیتابیس ساختگی) پاس شده‌اند. روی Supabase واقعی: اسکریپت‌های SQL ۱ تا ۷ اجرا شده‌اند و امضای توابع درست است؛ صفحهٔ ورود، جدایی شرکت‌ها، Freigaben، Einspringen، Berücksichtigt و پنجرهٔ سؤال با عکس‌های کاربر دیده شده‌اند. تست‌های خودکار در `dev-tests.zip` (جدا از پروژه) هستند.
 
+## ۵.۷ صفحهٔ /admin و امنیت
+صفحه از مسیر سرور `app/api/admin/route.js` کار می‌کند (کلید `service_role` فقط آنجاست). هر درخواست: توکن ورود ← بررسی در Supabase ← وجود در `platform_admins`، وگرنه 401/403. رمز هرگز ذخیره یا لاگ نمی‌شود؛ رمز ساخته‌شده فقط یک بار نشان داده می‌شود. هر عمل در `admin_log` ثبت می‌شود. حساب ادمین **باید رمز قوی** داشته باشد (حساب‌های تست با رمز ضعیف هرگز ادمین نشوند). ادمین‌شدن: `insert into platform_admins (user_id) select id from auth.users where email = 'ایمیل-واقعی';`. بعداً: ورود دومرحله‌ای (2FA)، لینک دعوت با ایمیل، «رمز فراموش شد» برای مشتری.
+
 ## ۶. کارهای باز (به ترتیب پیشنهادی)
 0. اعلان فعال (push/ایمیل) به کارمند هنگام تغییر؛ ثبت بیماری (sickEntries) در دیتابیس؛ قفل‌کردن روزهای گذشته هنگام ویرایش.
 1. ساختن ورود برای هر کارمند از خود Dienstplaner (بخش سرور با `service_role`؛ رمز اولیه یا ایمیل دعوت).
@@ -92,7 +99,10 @@
 - Betriebsrat: تغییر برنامهٔ شیفت معمولاً با آن هماهنگ می‌شود.
 - مدت نگه‌داری: حداقل ۲ سال برای ثبت ساعت کار (§16 ArbZG، §17 MiLoG)، ۶ سال برای مدارک مالیات حقوق (§41 EStG). پیش‌فرض اپ ۶ سال؛ هیچ‌چیز خودکار پاک نمی‌شود.
 
-## ۸. حساب‌های تست
+## ۸. حساب‌های تست (نقش‌ها)
+`planer@test.de` = Schichtplaner (می‌نویسد و ارسال می‌کند)، `leitung@test.de` = Leitung/Leiter (تأیید می‌کند)، `a-chef@test.de` = Inhaber شرکت A، `b-chef@test.de` = Inhaber شرکت B، `mitarbeiter@test.de` = کارمند (Anna). رمز `leitung`، `planer` و `mitarbeiter`: `Test12345!`.
+
+## ۸.۱ حساب‌های قدیمی (توضیح)
 `a-chef@test.de` (Inhaber شرکت A)، `leitung@test.de` (اختیاری، Leitung A)، `mitarbeiter@test.de` (کارمند A = Anna)، `b-chef@test.de` (Inhaber شرکت B). رمزها را خودت تعیین کرده‌ای؛ برای تغییر رمز تست: `update auth.users set encrypted_password = extensions.crypt('NEUES-PASSWORT', extensions.gen_salt('bf')) where email = '...';`
 
 ## ۹. چگونه تغییر بدهیم

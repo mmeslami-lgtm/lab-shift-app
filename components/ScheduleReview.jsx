@@ -103,7 +103,8 @@ function PlanGrid({ defs, shifts, year, month, marks = {}, extraNames = {} }) {
 export default function ScheduleReview() {
   const org = useContext(OrgContext);
   const sb = org.supabase;
-  const isOwner = org.role === "owner";
+  const isLeader = org.role === "owner" || org.role === "supervisor"; // approves, decides, changes settings
+  const roleText = { owner: "Inhaber", supervisor: "Leitung", planner: "Schichtplaner" }[org.role] || org.role;
   const [requireApproval, setRequireApproval] = useState(org.requireApproval !== false);
   const [retention, setRetention] = useState(org.retentionYears || 6);
   const [months, setMonths] = useState(null);
@@ -285,7 +286,7 @@ export default function ScheduleReview() {
       <div style={{ maxWidth: 920, margin: "0 auto" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, marginBottom: 12, flexWrap: "wrap" }}>
           <div>
-            <div style={{ fontSize: 13, color: MUTED }}>{org.orgName} · {isOwner ? "Inhaber" : "Leitung"}</div>
+            <div style={{ fontSize: 13, color: MUTED }}>{org.orgName} · {roleText}</div>
             <h1 style={{ fontSize: 24, fontWeight: 750, letterSpacing: -0.4, margin: 0 }}>Freigaben &amp; Archiv</h1>
           </div>
           <div style={{ display: "flex", gap: 8 }}>
@@ -337,7 +338,7 @@ export default function ScheduleReview() {
 
             <div style={{ marginTop: 14 }}>
               {monthRow.review_note && status === "draft" && <div style={{ fontSize: 13, color: "#B3263E", background: "#FCE5EA", borderRadius: 10, padding: "8px 10px", marginBottom: 10 }}>Zuletzt zurückgewiesen: {monthRow.review_note}</div>}
-              {status === "pending" && isOwner && (
+              {status === "pending" && isLeader && (
                 <div>
                   <div style={{ fontSize: 14, marginBottom: 8 }}>Dieser Plan wartet auf deine Freigabe{monthRow.submitted_at ? ` (eingereicht ${fmtDateTime(monthRow.submitted_at)})` : ""}. Die Mitarbeitenden sehen ihn erst nach „Freigeben“.</div>
                   {monthRow.change_note && <div style={{ fontSize: 14, background: "#FFF1D2", color: "#7A4E00", borderRadius: 10, padding: "8px 10px", marginBottom: 8 }}><b>Änderungsgrund:</b> {monthRow.change_note}</div>}
@@ -349,10 +350,10 @@ export default function ScheduleReview() {
                   </div>
                 </div>
               )}
-              {status === "pending" && !isOwner && <div style={{ fontSize: 14, color: MUTED }}>Wartet auf Freigabe durch die Inhaber.</div>}
+              {status === "pending" && !isLeader && <div style={{ fontSize: 14, color: MUTED }}>Wartet auf Freigabe durch die Leitung.</div>}
               {status === "draft" && (
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-                  {isOwner || !requireApproval
+                  {isLeader || !requireApproval
                     ? <button disabled={busy} style={btn} onClick={() => call("publish_month", rpcArgs, "Plan veröffentlicht.")}>Veröffentlichen</button>
                     : <button disabled={busy} style={btn} onClick={() => call("submit_month", rpcArgs, "Zur Freigabe eingereicht.")}>Zur Freigabe einreichen</button>}
                   <span style={{ fontSize: 12, color: MUTED }}>Der Entwurf ist für Mitarbeitende noch nicht sichtbar.</span>
@@ -378,6 +379,7 @@ export default function ScheduleReview() {
           </div>
         )}
 
+        {isLeader && (
         <div id="einspringer" style={card}>
           <div style={{ fontSize: 15, fontWeight: 650, marginBottom: 4 }}>Einspringen &amp; Änderungen</div>
           <div style={{ fontSize: 13, color: MUTED, marginBottom: 10 }}>Wer bei einer Änderung eine Schicht übernimmt oder zusätzlich bekommt, wird hier festgehalten, damit es der Leitung auffällt. Das ist nur eine Übersicht für deine Entscheidung (z. B. Anerkennung). Es wird nichts automatisch ausgezahlt oder geändert.</div>
@@ -429,13 +431,14 @@ export default function ScheduleReview() {
             );
           })}
         </div>
+        )}
 
-        {isOwner && (
+        {isLeader && (
           <div style={card}>
             <div style={{ fontSize: 15, fontWeight: 650, marginBottom: 10 }}>Einstellungen der Firma</div>
             <label style={{ display: "flex", gap: 10, alignItems: "flex-start", fontSize: 14, marginBottom: 12 }}>
               <input type="checkbox" checked={requireApproval} onChange={(e) => setRequireApproval(e.target.checked)} style={{ marginTop: 3 }} />
-              <span>Die Leitung muss Pläne zur Freigabe einreichen, nur die Inhaber veröffentlichen<br /><span style={{ fontSize: 12, color: MUTED }}>Ausgeschaltet können alle in der Leitung selbst veröffentlichen.</span></span>
+              <span>Schichtplaner müssen Pläne zur Freigabe einreichen, nur die Leitung gibt frei<br /><span style={{ fontSize: 12, color: MUTED }}>Ausgeschaltet können Schichtplaner selbst veröffentlichen. Leitung und Inhaber können immer direkt veröffentlichen.</span></span>
             </label>
             <label style={{ display: "block", fontSize: 14, marginBottom: 6 }}>Als „kurzfristig“ (Einspringen) gilt eine Änderung höchstens
               <select value={shortDays} onChange={(e) => setShortDays(Number(e.target.value))} style={{ margin: "0 8px", border: `1px solid ${LINE}`, borderRadius: 10, padding: "6px 8px", fontSize: 14 }}>

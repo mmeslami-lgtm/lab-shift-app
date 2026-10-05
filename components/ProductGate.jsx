@@ -10,7 +10,7 @@ const INK = "#1B2433";
 const MUTED = "#6B7588";
 const PRIMARY = "#243B6B";
 const PRODUCT_LABEL = { lab_planner: "Dienstplaner Labor", generic_planner: "Dienstplaner allgemein", employee_app: "Mitarbeiter-App" };
-const ROLE_LABEL = { owner: "Inhaber", supervisor: "Leitung", employee: "Mitarbeitende" };
+const ROLE_LABEL = { owner: "Inhaber", supervisor: "Leitung", planner: "Schichtplaner", employee: "Mitarbeitende" };
 
 const shell = { background: PAPER, color: INK, minHeight: "100vh", fontFamily: "system-ui, -apple-system, 'Segoe UI', sans-serif", padding: "20px 16px 60px" };
 const card = { background: "#fff", borderRadius: 18, padding: 16, marginBottom: 12 };
@@ -90,7 +90,7 @@ export default function ProductGate({ product, supervisorOnly = false, label, ch
             Dein Konto <b>{session.user.email}</b> darf <b>{what}</b> nicht öffnen.
           </div>
           <div style={{ fontSize: 13, color: MUTED }}>
-            {supervisorOnly ? "Dafür braucht deine Firma das Produkt und du brauchst die Rolle Leitung oder Inhaber." : "Dafür muss deine Firma das Produkt gebucht haben."}
+            {supervisorOnly ? "Dafür braucht deine Firma das Produkt und du brauchst die Rolle Schichtplaner, Leitung oder Inhaber." : "Dafür muss deine Firma das Produkt gebucht haben."}
           </div>
           {state.own.length > 0 && (
             <div style={{ marginTop: 12, fontSize: 13 }}>

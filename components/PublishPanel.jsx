@@ -42,8 +42,8 @@ const secondary = "rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-
 const ghost = "rounded-xl px-4 py-2 text-sm text-slate-500 hover:bg-slate-50";
 
 // Saves the generated month and moves it through the approval steps:
-//   Zwischenspeichern  ->  (Leitung) zur Freigabe einreichen  ->  (Inhaber) Freigeben / Zurückweisen  ->  veröffentlicht
-// An Inhaber, or any boss in a company that does not require approval, can publish directly.
+//   Zwischenspeichern  ->  (Schichtplaner) zur Freigabe einreichen  ->  (Leitung) Freigeben / Zurückweisen  ->  veröffentlicht
+// The Leitung and the Inhaber publish directly. A Schichtplaner only publishes directly if the company does not require approval.
 // A question is only asked when it matters: when a month that employees already see is changed.
 export default function PublishPanel({ schedule, staffList, year, monthIdx, shiftList, holidays, changeCount, editMode }) {
   const org = useContext(OrgContext);
@@ -68,7 +68,7 @@ export default function PublishPanel({ schedule, staffList, year, monthIdx, shif
   if (!org || !schedule) return null;
 
   const notFromDb = staffList.filter((s) => !UUID.test(String(s.id)));
-  const direct = org.role === "owner" || org.requireApproval === false;
+  const direct = org.role !== "planner" || org.requireApproval === false;
   const mainAction = direct ? "publish" : "submit";
   const mainLabel = direct ? "Veröffentlichen" : "Zur Freigabe einreichen";
   const hasPublished = !!(row && row.published_at); // employees already see a version of this month
@@ -124,7 +124,7 @@ export default function PublishPanel({ schedule, staffList, year, monthIdx, shif
         setInfo("Einreichen …");
         const r = await org.supabase.rpc("submit_month", { p_org: org.orgId, p_year: year, p_month: month, p_note: note, p_normal: !!opts.normal });
         if (r.error) throw r.error;
-        done = `Zur Freigabe eingereicht (${n} Schichten). Die Inhaber können den Plan unter „Freigaben & Archiv“ prüfen.`;
+        done = `Zur Freigabe eingereicht (${n} Schichten). Die Leitung kann den Plan unter „Freigaben & Archiv“ prüfen.`;
       } else if (kind === "publish") {
         setInfo("Veröffentlichen …");
         const r = await org.supabase.rpc("publish_month", { p_org: org.orgId, p_year: year, p_month: month, p_note: note, p_normal: !!opts.normal });
@@ -144,7 +144,7 @@ export default function PublishPanel({ schedule, staffList, year, monthIdx, shif
   function startMain() { setReason(""); setDialog({ step: hasPublished && editMode ? "choose" : "confirm", action: mainAction }); }
   const status = row ? row.status : null;
   const chip = !status ? { t: "Noch nicht gespeichert", c: "bg-slate-100 text-slate-600" }
-    : status === "pending" ? { t: "Wartet auf Freigabe durch die Inhaber", c: "bg-amber-100 text-amber-800" }
+    : status === "pending" ? { t: "Wartet auf Freigabe durch die Leitung", c: "bg-amber-100 text-amber-800" }
     : status === "published" ? { t: row.has_newer_draft ? "Veröffentlicht · neuerer Entwurf noch nicht veröffentlicht" : "Veröffentlicht", c: "bg-emerald-100 text-emerald-800" }
     : { t: "Entwurf", c: "bg-slate-100 text-slate-700" };
   const busy = phase === "working";
@@ -183,7 +183,7 @@ export default function PublishPanel({ schedule, staffList, year, monthIdx, shif
           {replacing
             ? `Für ${MONTHS[monthIdx]} ${year} gibt es schon eine veröffentlichte Fassung. Der neue Plan ersetzt sie${changeCount ? ` (${changeCount} Änderungen)` : ""}, die Mitarbeitenden sehen danach die neue Version. Das zählt als normale Planänderung, nicht als Einspringen. Für einzelne Korrekturen (z. B. Krankheit) besser „Plan bearbeiten“ benutzen.${dialog.action === "submit" ? " Sie sehen sie erst nach der Freigabe." : ""}`
             : dialog.action === "submit"
-              ? `Die Inhaber prüfen den Plan für ${MONTHS[monthIdx]} ${year}. Mitarbeitende sehen ihn erst nach der Freigabe.`
+              ? `Die Leitung prüft den Plan für ${MONTHS[monthIdx]} ${year}. Mitarbeitende sehen ihn erst nach der Freigabe.`
               : `Mitarbeitende von „${org.orgName}“ sehen den Plan für ${MONTHS[monthIdx]} ${year} danach in ihrer App.`}
         </Dialog>
       )}

@@ -15,7 +15,7 @@ const PRODUCT_LABEL = {
   generic_planner: "Dienstplaner allgemein",
   employee_app: "Mitarbeiter-App",
 };
-const ROLE_LABEL = { owner: "Inhaber", supervisor: "Leitung", employee: "Mitarbeitende" };
+const ROLE_LABEL = { owner: "Inhaber", supervisor: "Leitung", planner: "Schichtplaner", employee: "Mitarbeitende" };
 
 const card = { background: "#fff", borderRadius: 18, padding: 16, marginBottom: 12 };
 const btn = { border: 0, borderRadius: 14, background: PRIMARY, color: "#fff", fontSize: 16, fontWeight: 650, padding: "13px 16px", cursor: "pointer" };

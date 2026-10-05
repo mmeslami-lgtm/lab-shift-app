@@ -4,7 +4,7 @@ import React, { useContext, useEffect, useState } from "react";
 import { OrgContext } from "../lib/orgContext";
 import { fetchAll } from "../lib/fetchAll";
 
-const ROLE_LABEL = { owner: "Inhaber", supervisor: "Leitung", employee: "Mitarbeitende" };
+const ROLE_LABEL = { owner: "Inhaber", supervisor: "Leitung", planner: "Schichtplaner", employee: "Mitarbeitende" };
 const PRODUCT_LABEL = { lab_planner: "Dienstplaner Labor", generic_planner: "Dienstplaner allgemein", employee_app: "Mitarbeiter-App" };
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const SAMPLE_NAME = /^Mitarbeiter \d+$/;
@@ -29,7 +29,7 @@ export default function OrgBar({ onLoadStaff, staffList, toDb, onIdsChanged, yea
   const [versions, setVersions] = useState([]);
   const [openJumps, setOpenJumps] = useState(0); // Einspringer entries the Leitung has not looked at yet
 
-  // status of the month shown in the planner (and the reason, if the Inhaber rejected it)
+  // status of the month shown in the planner (and the reason, if the Leitung rejected it)
   useEffect(() => {
     if (!org || year === undefined) return;
     let alive = true;
@@ -246,7 +246,7 @@ export default function OrgBar({ onLoadStaff, staffList, toDb, onIdsChanged, yea
         </div>
       )}
       {msg && <div className="mt-1.5 text-xs text-slate-700">{msg}</div>}
-      {row && row.status === "pending" && <div className="mt-2 rounded-lg bg-amber-50 p-2 text-xs text-amber-800">{MONTHS[monthIdx]} {year} wartet auf Freigabe durch die Inhaber.</div>}
+      {row && row.status === "pending" && <div className="mt-2 rounded-lg bg-amber-50 p-2 text-xs text-amber-800">{MONTHS[monthIdx]} {year} wartet auf Freigabe durch die Leitung.</div>}
       {row && row.status === "draft" && row.review_note && <div className="mt-2 rounded-lg bg-rose-50 p-2 text-xs font-medium text-rose-700">{MONTHS[monthIdx]} {year} wurde zurückgewiesen: {row.review_note}</div>}
     </div>
   );

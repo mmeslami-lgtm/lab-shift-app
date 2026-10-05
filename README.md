@@ -9,6 +9,7 @@ Next.js-App, bereit für Vercel. Enthält drei Seiten und eine Zeiterfassungs-AP
 | `/mitarbeiter` | **Meine Schichten** – App für Mitarbeitende, zeigt die **veröffentlichten** Schichten aus der Datenbank (Plan, Team). Anträge/Zeiten/Wünsche folgen. |
 | `/freigaben` | **Freigaben & Archiv** – Monate mit Status (Entwurf / Wartet auf Freigabe / Veröffentlicht), Plan prüfen, Freigeben oder Zurückweisen, unveränderlicher Verlauf, Einstellungen (Inhaber) |
 | `/demo` | Vorschau der Mitarbeiter-App mit Beispieldaten (ohne Anmeldung) |
+| `/admin` | **Plattform-Verwaltung** nur für Plattform-Admins: Firmen, Produkte, Konten, Passwörter |
 | `/konto` | **Anmeldung** und Firmenübersicht mit Sicherheits-Check (zeigt, dass Firmen getrennt sind) |
 | `/api/attendance` | Eingang für das Chip-Lesegerät. Jedes Gerät gehört zu **einer Firma** und meldet sich mit Seriennummer + Geheimnis (Tabelle `devices`). |
 
