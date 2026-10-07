@@ -1,5 +1,6 @@
 import "./globals.css";
 import RegisterSW from "../components/RegisterSW";
+import PasswordGate from "../components/PasswordGate";
 
 export const metadata = {
   title: "Dienstplaner",
@@ -15,7 +16,8 @@ export default function RootLayout({ children }) {
   return (
     <html lang="de">
       <body>
-        {children}
+        {/* PasswordGate: a person who still has the temporary password sees only the "choose your own password" screen */}
+        <PasswordGate>{children}</PasswordGate>
         <RegisterSW />
       </body>
     </html>
