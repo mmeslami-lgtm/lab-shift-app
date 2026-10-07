@@ -6,7 +6,8 @@ import OrgBar from "./OrgBar";
 import PublishPanel from "./PublishPanel";
 import { fetchAll } from "../lib/fetchAll";
 import { computeChanges } from "../lib/planDiff";
-import { Calendar, Users, AlertTriangle, RefreshCw, Plus, Trash2, Copy, Check, ClipboardList, Info } from "lucide-react";
+import { openPrintView } from "../lib/printPlan";
+import { Calendar, Users, AlertTriangle, RefreshCw, Plus, Trash2, Copy, Check, ClipboardList, Info, Printer } from "lucide-react";
 import { storage } from "../lib/storage";
 
 // Catches any crash anywhere in the render tree (not just inside click handlers) and shows the
@@ -1029,6 +1030,7 @@ function LabShiftSchedulerInner() {
   const [freiWishByStaff, setFreiWishByStaff] = useState({}); // staffId -> Set(day) for "Frei" wishes
   const [copyState, setCopyState] = useState("idle");
   const [excelState, setExcelState] = useState("idle");
+  const [printState, setPrintState] = useState("idle"); // Drucken / PDF button
   const [emailTableState, setEmailTableState] = useState("idle"); // idle | copied
   const [balances, setBalances] = useState({}); // name(trimmed) -> { hours, satDeficit, sunDeficit, nightDeficit }
   const [balancesLoaded, setBalancesLoaded] = useState(false);
@@ -1568,34 +1570,40 @@ function LabShiftSchedulerInner() {
     return lines.join("\n");
   }
 
+  // same data for the Excel file and the print view
+  function exportInput() {
+    const codeOf = (k) => (typeof shiftCodes !== "undefined" && shiftCodes[k]) || k;
+    const shifts = dayOrderedKeys.map((k) => ({ key: k, code: codeOf(k), label: shiftMeta[k].label, time: shiftMeta[k].time, hours: shiftMeta[k].hours, hex: shiftMeta[k].hex }));
+    const columns = columnPlan.map((c) => ({ key: c.shiftType, label: shiftMeta[c.shiftType].label, time: shiftMeta[c.shiftType].time, slotIndex: c.slotIndex }));
+    const now = new Date();
+    return {
+      monthName: MONTH_DE[monthIdx],
+      title: `Dienstplan — ${MONTH_DE[monthIdx]} ${year}`,
+      subtitle: `Erstellt am ${String(now.getDate()).padStart(2, "0")}.${String(now.getMonth() + 1).padStart(2, "0")}.${now.getFullYear()} · ${staffList.length} Mitarbeitende`,
+      weekdayNames: WEEKDAY_DE,
+      weekdayShort: WEEKDAY_DE.map((x) => x.slice(0, 2)),
+      staff: staffList.map((s) => ({ id: s.id, name: s.name })),
+      days: schedule.days,
+      columns,
+      shifts,
+      skipKeys: dailyDayShiftKeys,
+      quotaKeys: new Set(dayShiftDefs.filter((d) => d.frequency === "quota").map((d) => d.key)),
+      matrix: staffDayMatrix,
+      nameOf: staffMap,
+      absentByDay,
+      hours: schedule.hours,
+      targets: schedule.targetOf,
+      satCount: schedule.satCount,
+      sunCount: schedule.sunCount,
+      warnings: schedule.warnings || [],
+      notes: schedule.notes || [],
+    };
+  }
+
   async function downloadExcel() {
     if (!schedule) return;
     try {
-      const codeOf = (k) => (typeof shiftCodes !== "undefined" && shiftCodes[k]) || k;
-      const shifts = dayOrderedKeys.map((k) => ({ key: k, code: codeOf(k), label: shiftMeta[k].label, time: shiftMeta[k].time, hours: shiftMeta[k].hours, hex: shiftMeta[k].hex }));
-      const columns = columnPlan.map((c) => ({ key: c.shiftType, label: shiftMeta[c.shiftType].label, time: shiftMeta[c.shiftType].time, slotIndex: c.slotIndex }));
-      const now = new Date();
-      const bytes = buildScheduleXlsx({
-        title: `Dienstplan — ${MONTH_DE[monthIdx]} ${year}`,
-        subtitle: `Erstellt am ${String(now.getDate()).padStart(2, "0")}.${String(now.getMonth() + 1).padStart(2, "0")}.${now.getFullYear()} · ${staffList.length} Mitarbeitende`,
-        weekdayNames: WEEKDAY_DE,
-        weekdayShort: WEEKDAY_DE.map((x) => x.slice(0, 2)),
-        staff: staffList.map((s) => ({ id: s.id, name: s.name })),
-        days: schedule.days,
-        columns,
-        shifts,
-        skipKeys: dailyDayShiftKeys,
-        quotaKeys: new Set(dayShiftDefs.filter((d) => d.frequency === "quota").map((d) => d.key)),
-        matrix: staffDayMatrix,
-        nameOf: staffMap,
-        absentByDay,
-        hours: schedule.hours,
-        targets: schedule.targetOf,
-        satCount: schedule.satCount,
-        sunCount: schedule.sunCount,
-        warnings: schedule.warnings || [],
-        notes: schedule.notes || [],
-      });
+      const bytes = buildScheduleXlsx(exportInput());
       await downloadXlsx(bytes, `Dienstplan_${year}-${String(monthIdx + 1).padStart(2, "0")}.xlsx`);
       setExcelState("done");
       setTimeout(() => setExcelState("idle"), 6000);
@@ -1604,6 +1612,22 @@ function LabShiftSchedulerInner() {
       setExcelState("error");
       setTimeout(() => setExcelState("idle"), 6000);
     }
+  }
+
+  // "Drucken / PDF": clean A4 sheets for the notice board (no absences, no vacation, no sickness)
+  function printPlan() {
+    if (!schedule) return;
+    if (orgCtx && changeCount > 0 && !window.confirm(`Dieser Plan hat ${changeCount} Änderung${changeCount === 1 ? "" : "en"}, die noch nicht veröffentlicht ${changeCount === 1 ? "ist" : "sind"}.\n\nTrotzdem drucken? Auf dem Ausdruck steht dann „Entwurf“.`)) return;
+    setPrintState("busy");
+    try {
+      const status = !orgCtx ? "" : changeCount === 0 ? "published" : "draft";
+      const ok = openPrintView(exportInput(), { year, monthIdx, orgName: orgCtx ? orgCtx.orgName : "", status });
+      setPrintState(ok ? "done" : "blocked");
+    } catch (err) {
+      console.error(err);
+      setPrintState("error");
+    }
+    setTimeout(() => setPrintState("idle"), 6000);
   }
 
   function copyAsText() {
@@ -2224,6 +2248,10 @@ function LabShiftSchedulerInner() {
                   <button onClick={downloadExcel} title="Schön formatierte Excel-Datei mit Plan, Mitarbeiter-Übersicht und Zusammenfassung" className="inline-flex items-center gap-1.5 text-xs text-emerald-800 hover:text-emerald-900 border border-emerald-200 bg-emerald-50 rounded-lg px-2.5 py-1.5 hover:bg-emerald-100">
                     {excelState === "done" ? <Check size={14} /> : <Copy size={14} />}
                     {excelState === "done" ? "Excel-Datei erstellt" : excelState === "error" ? "Excel-Export fehlgeschlagen" : "Als Excel herunterladen (.xlsx)"}
+                  </button>
+                  <button onClick={printPlan} disabled={printState === "busy"} title="Saubere A4-Seiten für den Aushang: nach Schicht und nach Mitarbeitenden. Im Druckfenster auch als PDF speicherbar." className="inline-flex items-center gap-1.5 text-xs text-indigo-800 hover:text-indigo-900 border border-indigo-200 bg-indigo-50 rounded-lg px-2.5 py-1.5 hover:bg-indigo-100 active:translate-y-px disabled:opacity-60">
+                    {printState === "done" ? <Check size={14} /> : <Printer size={14} />}
+                    {printState === "busy" ? "Moment …" : printState === "done" ? "Druckansicht geöffnet" : printState === "blocked" ? "Pop-up blockiert – bitte erlauben" : printState === "error" ? "Druckansicht fehlgeschlagen" : "Drucken / PDF (Aushang)"}
                   </button>
                   <a
                     href={fullTableMailtoUrl()}
