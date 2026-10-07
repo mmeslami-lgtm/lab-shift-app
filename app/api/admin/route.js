@@ -11,6 +11,8 @@ export const dynamic = "force-dynamic";
 //  * The token is verified with Supabase, and the person must be listed in the table platform_admins.
 //    Otherwise: 401 (not logged in) or 403 (not an administrator). The key itself never leaves the server.
 //  * Passwords are never stored or logged by this route. A generated password is returned ONCE.
+//  * Every login created here, and every password reset here, is marked "first login": the person must choose
+//    their own password before using the app (table first_login_flags, see the profile page).
 //  * Every action is written to admin_log (who, what, which company).
 
 const PRODUCTS = ["lab_planner", "generic_planner", "employee_app"];
@@ -43,6 +45,15 @@ async function log(actor, action, orgId, target, detail) {
   await supabaseAdmin.from("admin_log").insert({ actor: actor.id, actor_email: actor.email, action, org_id: orgId || null, target: target || null, detail: detail || null });
 }
 
+// The person must choose their own password at the next login. Never blocks the action if this fails
+// (for example while the database script is not applied yet); the failure is only written to the server log.
+async function markFirstLogin(userId) {
+  try {
+    const r = await supabaseAdmin.rpc("flag_first_login", { p_user: userId });
+    if (r.error) console.error("flag_first_login:", r.error.message);
+  } catch (e) { console.error("flag_first_login failed"); }
+}
+
 async function findUserByEmail(email) {
   // listUsers is paginated; our platform is small, so scan the pages
   for (let page = 1; page <= 50; page++) {
@@ -64,6 +75,8 @@ async function createLogin(email, password) {
 export async function GET(request) {
   const auth = await authorize(request);
   if (auth.error) return auth.error;
+  // light check used by the profile page ("is this person a platform admin?")
+  if (new URL(request.url).searchParams.get("check")) return json({ ok: true, me: auth.user.email });
   try {
     const [orgs, prods, mems, staff] = await Promise.all([
       supabaseAdmin.from("organizations").select("id, name, active, created_at, require_approval, retention_years, short_notice_days").order("created_at"),
@@ -112,6 +125,7 @@ export async function POST(request) {
         const user = await createLogin(email, password);
         const rpc = await supabaseAdmin.rpc("create_organization", { p_name: name, p_owner: user.id, p_products: products });
         if (rpc.error) { await supabaseAdmin.auth.admin.deleteUser(user.id); throw new Error("Firma konnte nicht angelegt werden: " + rpc.error.message); } // undo the login
+        await markFirstLogin(user.id);
         await log(me, "create_org", rpc.data, email, { name, products });
         return json({ ok: true, orgId: rpc.data, email, password: given ? null : password });
       }
@@ -135,6 +149,7 @@ export async function POST(request) {
         const user = await createLogin(email, password);
         const ins = await supabaseAdmin.from("memberships").insert({ user_id: user.id, org_id: body.orgId, role: body.role, staff_id: staffId });
         if (ins.error) { await supabaseAdmin.auth.admin.deleteUser(user.id); throw new Error("Konto konnte nicht zugeordnet werden."); }
+        await markFirstLogin(user.id);
         await log(me, "add_member", body.orgId, email, { role: body.role, staffId });
         return json({ ok: true, email, password: given ? null : password });
       }
@@ -147,6 +162,7 @@ export async function POST(request) {
         const password = given || newPassword();
         const { error } = await supabaseAdmin.auth.admin.updateUserById(u.id, { password });
         if (error) throw error;
+        await markFirstLogin(u.id);
         await log(me, "reset_password", null, email, null);
         return json({ ok: true, email, password: given ? null : password });
       }
