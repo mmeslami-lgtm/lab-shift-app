@@ -3,6 +3,7 @@
 import React, { useContext, useEffect, useState } from "react";
 import { OrgContext } from "../lib/orgContext";
 import { fetchAll } from "../lib/fetchAll";
+import WishesDialog from "./WishesDialog";
 
 const ROLE_LABEL = { owner: "Inhaber", supervisor: "Leitung", planner: "Schichtplaner", employee: "Mitarbeitende" };
 const PRODUCT_LABEL = { lab_planner: "Dienstplaner Labor", generic_planner: "Dienstplaner allgemein", employee_app: "Mitarbeiter-App" };
@@ -15,7 +16,7 @@ const MONTHS = ["Januar", "Februar", "März", "April", "Mai", "Juni", "Juli", "A
 //   onLoadStaff(rows)   replace the planner list with the rows from the database
 //   staffList, toDb(s)  the planner's current people and how one becomes a database row
 //   onIdsChanged(map)   tell the planner that local ids were replaced by database ids
-export default function OrgBar({ onLoadStaff, staffList, toDb, onIdsChanged, year, monthIdx, onLoadPlan, hasPlan }) {
+export default function OrgBar({ onLoadStaff, staffList, toDb, onIdsChanged, year, monthIdx, onLoadPlan, hasPlan, onImportWishes }) {
   const org = useContext(OrgContext);
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState("");
@@ -28,6 +29,18 @@ export default function OrgBar({ onLoadStaff, staffList, toDb, onIdsChanged, yea
   const [versionId, setVersionId] = useState("current"); // "current" = newest state, otherwise an archived published version
   const [versions, setVersions] = useState([]);
   const [openJumps, setOpenJumps] = useState(0); // Einspringer entries the Leitung has not looked at yet
+  const [wishesOpen, setWishesOpen] = useState(false); // popup "Wünsche"
+  const [openWishes, setOpenWishes] = useState(0);     // wishes sent by employees, not decided yet
+  const [wishBump, setWishBump] = useState(0);
+  useEffect(() => {
+    if (!org) return undefined;
+    let alive = true;
+    (async () => {
+      const r = await org.supabase.from("wishes").select("id").eq("org_id", org.orgId).eq("status", "submitted");
+      if (alive) setOpenWishes(!r.error && r.data ? r.data.length : 0); // before script 11 the column is missing: show 0
+    })();
+    return () => { alive = false; };
+  }, [org, wishBump]);
 
   // status of the month shown in the planner (and the reason, if the Leitung rejected it)
   useEffect(() => {
@@ -209,12 +222,14 @@ export default function OrgBar({ onLoadStaff, staffList, toDb, onIdsChanged, yea
           <button onClick={save} disabled={!!busy} className="rounded-lg border border-indigo-200 bg-indigo-50 px-2.5 py-1.5 text-xs text-indigo-800 hover:bg-indigo-100 disabled:opacity-60">
             {busy === "save" ? "Speichert …" : "Personen in Datenbank speichern"}
           </button>
+          <button onClick={() => setWishesOpen(true)} className={`rounded-lg border px-2.5 py-1.5 text-xs active:translate-y-px ${openWishes > 0 ? "border-rose-200 bg-rose-50 font-medium text-rose-800 hover:bg-rose-100" : "border-slate-200 text-slate-700 hover:bg-slate-50"}`}>Wünsche{openWishes > 0 ? ` · ${openWishes} offen` : ""}</button>
           <a href="/freigaben" className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs text-slate-700 hover:bg-slate-50">Freigaben &amp; Archiv{openJumps > 0 ? ` · ${openJumps} Einspringen offen` : ""}</a>
           <button onClick={openEdit} disabled={!!busy} aria-expanded={editOpen} className="rounded-lg border border-amber-300 bg-amber-50 px-2.5 py-1.5 text-xs font-medium text-amber-900 hover:bg-amber-100 disabled:opacity-60">Plan bearbeiten</button>
           <button onClick={() => sb.auth.signOut()} className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs text-slate-600 hover:bg-slate-50">Abmelden</button>
         </div>
       </div>
       <div className="mt-2 text-[11px] text-slate-500">Neue oder geänderte Personen sind erst nach „Personen in Datenbank speichern“ in der Datenbank. Nur Personen aus der Datenbank können Pläne veröffentlicht bekommen.</div>
+      {wishesOpen && <WishesDialog year={year} monthIdx={monthIdx} onImport={onImportWishes} onChanged={() => setWishBump((b) => b + 1)} onClose={() => { setWishesOpen(false); setWishBump((b) => b + 1); }} />}
       {editOpen && (
         <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
           <div className="mb-2 font-semibold">Gespeicherten Plan zum Bearbeiten öffnen</div>

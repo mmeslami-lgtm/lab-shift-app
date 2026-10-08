@@ -1058,6 +1058,8 @@ function LabShiftSchedulerInner() {
   const [freiWishByStaff, setFreiWishByStaff] = useState({}); // staffId -> Set(day) for "Frei" wishes
   const [copyState, setCopyState] = useState("idle");
   const [excelState, setExcelState] = useState("idle");
+  const [genBusy, setGenBusy] = useState(false);
+  const [genInfo, setGenInfo] = useState(null); // { at, changed, first } shown under the generate button
   const [printState, setPrintState] = useState("idle"); // Drucken / PDF button
   const [emailTableState, setEmailTableState] = useState("idle"); // idle | copied
   const [balances, setBalances] = useState({}); // name(trimmed) -> { hours, satDeficit, sunDeficit, nightDeficit }
@@ -1463,6 +1465,22 @@ function LabShiftSchedulerInner() {
   function removeWishEntry(id) {
     setWishEntries((prev) => prev.filter((e) => e.id !== id));
   }
+  // Approved wishes from the employee app ("Wünsche" in the bar above) -> wish list of this plan.
+  // Only when the Leitung presses the button there; wishes already taken over are not added twice.
+  function importWishes(list) {
+    const valid = new Set([...Object.keys(shiftMeta), "Frei"]);
+    const have = new Set(wishEntries.map((e) => e.dbId).filter(Boolean));
+    const staffIds = new Set(staffList.map((x) => x.id));
+    const add = []; let already = 0, noPerson = 0, noShift = 0;
+    list.forEach((w) => {
+      if (have.has(w.dbId)) { already++; return; }
+      if (!staffIds.has(w.staffId)) { noPerson++; return; }
+      if (!valid.has(w.shiftType)) { noShift++; return; }
+      add.push({ id: `we${nextEntryIdRef.current++}`, staffId: w.staffId, days: w.days, shiftType: w.shiftType, dbId: w.dbId });
+    });
+    if (add.length) setWishEntries((prev) => [...prev, ...add]);
+    return { added: add.length, already, noPerson, noShift };
+  }
 
   // Shared by runGenerate and updateSlot so target-hours calculations stay consistent
   // everywhere (leave/sick/Frei days always reduce the target the same way).
@@ -1509,6 +1527,15 @@ function LabShiftSchedulerInner() {
       // rule the generator couldn't fully guarantee up front (e.g. a rare consecutive-workday
       // overrun caused by an already-fixed night block) still surfaces as a warning immediately.
       const stats = computeStatsAndWarnings(result.days, staffList, leaveMap, shiftHours, dayOrderedKeys);
+      // how much differs from the plan that was on the screen before (so the button visibly does something)
+      let changed = 0;
+      if (schedule && schedule.days) {
+        result.days.forEach((nd, i) => {
+          const od = schedule.days[i] || { shifts: {} };
+          Object.keys(nd.shifts).forEach((k) => { (nd.shifts[k] || []).forEach((id) => { if (!(od.shifts[k] || []).includes(id)) changed++; }); });
+        });
+      }
+      setGenInfo({ at: new Date(), changed, first: !schedule });
       setEditMode(false);
       setSchedule({
         days: result.days,
@@ -1730,7 +1757,7 @@ function LabShiftSchedulerInner() {
           <p className="text-sm text-slate-500">Vier feste Schichten unter Berücksichtigung der Wochenstunden, der Nachtdienstrotation und der Wochenendquote — nach dem Erstellen manuell bearbeitbar.</p>
         </header>
 
-        {orgCtx && <OrgBar onLoadStaff={loadStaffFromDb} staffList={staffList} toDb={staffToDb} onIdsChanged={applyStaffIds} year={year} monthIdx={monthIdx} onLoadPlan={applyLoadedPlan} hasPlan={!!schedule} />}
+        {orgCtx && <OrgBar onLoadStaff={loadStaffFromDb} staffList={staffList} toDb={staffToDb} onIdsChanged={applyStaffIds} year={year} monthIdx={monthIdx} onLoadPlan={applyLoadedPlan} hasPlan={!!schedule} onImportWishes={importWishes} />}
 
         {/* Archive */}
         {archiveList.length > 0 && (
@@ -2173,13 +2200,22 @@ function LabShiftSchedulerInner() {
             </div>
           )}
 
-          <button
-            onClick={runGenerate}
-            disabled={staffList.length === 0}
-            className="inline-flex items-center gap-2 bg-teal-600 hover:bg-teal-700 disabled:bg-slate-300 text-white font-medium text-sm px-4 py-2.5 rounded-xl transition-colors"
-          >
-            <RefreshCw size={16} /> {schedule ? "Neu generieren" : "Dienstplan erstellen"}
-          </button>
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              onClick={() => { if (genBusy) return; setGenBusy(true); setGenInfo(null); setTimeout(() => { try { runGenerate(); } finally { setGenBusy(false); } }, 40); }}
+              disabled={staffList.length === 0 || genBusy}
+              aria-busy={genBusy}
+              className="inline-flex items-center gap-2 bg-teal-600 hover:bg-teal-700 disabled:bg-slate-300 text-white font-medium text-sm px-4 py-2.5 rounded-xl transition-colors active:translate-y-px"
+            >
+              <RefreshCw size={16} className={genBusy ? "animate-spin" : ""} /> {genBusy ? "Moment …" : schedule ? "Neu generieren" : "Dienstplan erstellen"}
+            </button>
+            {genInfo && !genBusy && (
+              <span role="status" className="text-xs text-teal-800 bg-teal-50 border border-teal-200 rounded-lg px-2.5 py-1.5">
+                {genInfo.first ? "Plan erstellt" : "Neu erstellt"} um {String(genInfo.at.getHours()).padStart(2, "0")}:{String(genInfo.at.getMinutes()).padStart(2, "0")}:{String(genInfo.at.getSeconds()).padStart(2, "0")} Uhr
+                {!genInfo.first && (genInfo.changed > 0 ? ` – ${genInfo.changed} Einträge anders als vorher` : " – gleiches Ergebnis (mit diesen Personen und Regeln gibt es keine andere Verteilung)")}
+              </span>
+            )}
+          </div>
 
           {generateError && (
             <div className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs text-rose-800">

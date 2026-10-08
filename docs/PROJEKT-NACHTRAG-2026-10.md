@@ -1,0 +1,50 @@
+# نسخهٔ تکمیلی سند پروژه — اکتبر ۲۰۲۶ (بعد از بخش ۱۰ در PROJEKT.md)
+
+> این فایل را همراه `PROJEKT.md` به چت تازه بده. هیچ رمز یا کلیدی در آن نیست.
+
+## ۱۱. تغییرات این دوره
+
+### چاپ / PDF برای تابلو
+- دکمهٔ «Drucken / PDF (Aushang)» کنار دکمهٔ Excel، در هر دو Dienstplaner. کد مشترک: `lib/printPlan.js`.
+- پنجرهٔ چاپ مرورگر (با پیش‌نمایش) مستقیم روی همان صفحه باز می‌شود (iframe پنهان)؛ پلن روی صفحه دست نمی‌خورد. فقط روی iPhone/iPad زبانهٔ تازه باز می‌شود.
+- دو برگهٔ A4 افقی: «nach Schicht» (هر ردیف ۷ روز، دوشنبه اول، شیفت‌ها چپ، نام‌ها داخل خانه، `unbesetzt` قرمز، ردیف `Abwesend`) و «nach Mitarbeitenden». شنبه/یکشنبه سرستون تیره، روزهای عادی روشن.
+- مرخصی = `U`؛ بیماری **هرگز** `K` نیست، فقط `A` (abwesend) — ثابت `SICK_CODE` در `lib/printPlan.js`.
+- اگر پلن تغییر منتشرنشده دارد، قبل از چاپ سؤال؛ روی برگه «Entwurf» یا «Veröffentlichte Fassung» + تاریخ چاپ.
+
+### قوانین تولید پلن (هر دو Dienstplaner)
+- **شب‌کاری منصفانه:** سهم هر نفر = کل شب‌ها × (روزهای حاضر او ÷ مجموع روزهای حاضر همه) (+ حداکثر ۲ شب بدهی ماه قبل در Labor). اولویت با کسی که عقب است؛ حداکثر = سهم گردشده + ۱؛ بیشتر فقط اگر کس دیگری نباشد (یادداشت در Hinweise).
+- **شنبه = یکشنبه (قانون محکم):** برای شنبه فقط کسی انتخاب می‌شود که یکشنبه همان شیفت را هم بتواند (مرخصی، استراحت بعد از شب، روز ششم متوالی، سقف ساعت بررسی می‌شود). بلوک شب هیچ‌وقت شنبه تمام نمی‌شود. استثنا: مرخصی/بیماری فقط در یکی از دو روز، یا تغییر دستی (هیچ‌چیز خودکار تغییر نمی‌کند).
+- نتیجهٔ شبیه‌سازی (۹ نفر، دو نفر مرخصی، ۴۰ ماه): قبل بدترین ۷–۸ شب، بعد ۵؛ جفت‌های ناهمسان آخر هفته از ۲۳ از ۴۸۰ به ۰.
+
+### باگ مهم: پاک شدن پلن بعد از خواب کامپیوتر — رفع شد
+علت: Supabase بعد از بیدار شدن توکن را تمدید می‌کند؛ `ProductGate` و `PasswordGate` این را «ورود تازه» حساب می‌کردند و صفحه را از نو می‌ساختند. حالا فقط تغییر کاربر یا خروج حساب می‌شود.
+
+### Dienstplaner allgemein: Öffnungstage و Betriebsschließung
+- کارت «Öffnungstage» بالای بخش Feiertage: یک دکمه برای هر روز هفته (پیش‌فرض هر ۷ روز)، تیک «An Feiertagen geschlossen» (فقط Leitung/Inhaber)، و «Ganzer Betrieb geschlossen in diesem Monat» (مثلاً `24-31`، دکمهٔ «Übernehmen»).
+- روزهای بسته: هیچ شیفتی، روی جدول/چاپ/Excel «geschlossen»؛ هدف ساعت = ساعت هفتگی ÷ تعداد روزهای باز هفته × روزهای باز ماه (بدون مرخصی). با ۷ روز باز دقیقاً فرمول قبلی. قانون «۲ شنبه/۲ یکشنبه» فقط وقتی آخر هفته باز است.
+- اپ کارمند: روزهای Betriebsschließung با «zu» و متن «Der Betrieb ist an diesem Tag geschlossen.»
+- Dienstplaner Labor تغییری نکرده (آزمایشگاه همیشه باز).
+- دیتابیس: `docs/sql/10-opening-days-schema.sql` — **روی Supabase واقعی با Connector اجرا شده** و با نقش‌های واقعی در تراکنش برگشت‌خورده تست شد (۱۰ بررسی: Leitung می‌نویسد، شرکت دیگر نه، کارمند فقط می‌خواند، anon هیچ). ستون‌ها: `organizations.open_weekdays`، `organizations.closed_on_holidays`؛ جدول `month_closures`؛ توابع `set_opening_days`، `set_month_closed_days`.
+
+### دکمهٔ ساخت پلن (هر دو Dienstplaner)
+- «Dienstplan erstellen» / «Neu generieren» حالا واکنش می‌دهد: «Moment …» با آیکون چرخان، بعد پیام «Plan erstellt um HH:MM:SS Uhr» یا «Neu erstellt … – N Einträge anders als vorher» (یا «gleiches Ergebnis …» اگر توزیع دیگری ممکن نیست).
+
+### Wünsche (اپ کارمند ↔ Leitung)
+- اپ کارمند، زبانهٔ «Wünsche» (`components/EmployeeWishes.jsx`): «Frei» یا «Arbeiten» (با شیفت)، بازهٔ تاریخ (فقط امروز به بعد)، یادداشت → «Hinzufügen» (پیش‌نویس، فقط خودش می‌بیند) → یک دکمه «An die Leitung senden (N)». وضعیت‌ها: نوشته‌نشده / گسیل‌شده (قابل «Zurückziehen») / genehmigt / abgelehnt + «Antwort».
+- Dienstplaner: دکمهٔ «Wünsche» در نوار بالا (قرمز با «· N offen» اگر منتظر است) → پنجرهٔ `components/WishesDialog.jsx`: «Genehmigen» / «Ablehnen» (دلیل اختیاری که کارمند می‌بیند) / «Wieder öffnen»؛ «Genehmigte Wünsche in den Plan übernehmen» وارد فهرست Wünsche همان ماه می‌کند (بدون تکرار؛ «Frei» = آن روز برنامه‌ریزی نشود). فقط با «Neu generieren» اثر می‌کند — هیچ‌چیز خودکار نیست.
+- دیتابیس: `docs/sql/11-wishes-schema.sql` — **روی Supabase واقعی اجرا شده** و با نقش‌های واقعی در تراکنش برگشت‌خورده تست شد (۱۳ بررسی: کارمند فقط پیش‌نویس خودش، نه برای همکار، نه خودتأییدی، تصمیم فقط Leitung/Inhaber، شرکت دیگر هیچ، تصمیم‌گرفته‌شده را کارمند نمی‌تواند پاک کند). ستون‌های جدید `wishes`: `status`، `submitted_at`، `decided_by`، `decided_at`، `decision_note`؛ توابع `submit_my_wishes(p_org)`، `decide_wish(p_id, p_status, p_note)`.
+
+### صفحهٔ پروفایل
+- صفحهٔ `/profil` (پوشهٔ `app/profil`) ساخته شد؛ لینک‌ها به `/profil` می‌روند. پوشهٔ قدیمی `app/profile` بی‌ضرر مانده است.
+- اسکریپت SQL جدول `first_login_flags` و توابع `flag_first_login` / `clear_first_login` در دیتابیس هست ولی در `docs/sql` نیست → بعداً از دیتابیس به فایل منتقل شود.
+
+### تست‌ها
+تست‌های جدید در `dev-tests` (جدا از پروژه): `print_test`، `wake_test`، `opening_test`، `closed_emp_test`، `wishes_test`، `genbtn_test`، و شبیه‌سازی تولید پلن. `edit_test` و `approval_test` قدیمی هستند (مدل نقش قبلی «Zur Freigabe einreichen») و باید به‌روز شوند.
+
+## ۱۲. کارهای باز (به‌روز)
+1. دکمهٔ «Zugänge» برای Leitung: ساخت ورود کارمند و رمز جدید بدون ادمین (در یک چت قبلی ساخته و تست شده بود، روی نسخهٔ جدید منتقل نشده).
+2. صندوق پیام / اعلان برای کارمند.
+3. Anträge (مرخصی) در اپ کارمند ↔ صفحهٔ Leitung (Wünsche ساخته شد).
+4. ورود و خروج (تبلت/QR + PIN، اصلاح با دلیل).
+5. ذخیرهٔ خودکار پلنِ ذخیره‌نشده در مرورگر (برای بسته شدن واقعی زبانه).
+6. Supabase Pro، Vercel Pro، دامنه، حقوقی.

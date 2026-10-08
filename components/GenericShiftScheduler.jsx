@@ -77,8 +77,10 @@ function daysInMonth(year, monthIdx) {
 // now ANY shift (named whatever the supervisor wants) can be flagged this way, there can be
 // zero, one, or several such shifts, and the 2-4 day block + mandatory 2-day rest + cooldown +
 // Sat/Sun continuity logic runs independently for each one that's flagged.
-function generateSchedule(staffList, year, monthIdx, holidaySet, shiftHours, shiftLabels, dayShiftDefs, perShiftCount, leaveMap, carryOver, wishes) {
+function generateSchedule(staffList, year, monthIdx, holidaySet, shiftHours, shiftLabels, dayShiftDefs, perShiftCount, leaveMap, carryOver, wishes, closedSet, openCount) {
   carryOver = carryOver || {};
+  closedSet = closedSet || new Set(); // days the company is closed (closed weekday, closed holiday, Betriebsschließung)
+  openCount = openCount || 7;         // open weekdays per week (for the monthly hour target)
   wishes = wishes || [];
   dayShiftDefs = dayShiftDefs || [];
   const total = daysInMonth(year, monthIdx);
@@ -94,7 +96,7 @@ function generateSchedule(staffList, year, monthIdx, holidaySet, shiftHours, shi
     const weekday = new Date(year, monthIdx, d).getDay();
     const shifts = {};
     allKeys.forEach((k) => { shifts[k] = []; });
-    days.push({ day: d, weekday, isWeekend: weekday === 0 || weekday === 6, isHoliday: holidaySet.has(d), shifts });
+    days.push({ day: d, weekday, isWeekend: weekday === 0 || weekday === 6, isHoliday: holidaySet.has(d), isClosed: closedSet.has(d), shifts });
   }
 
   const ids = staffList.map((s) => s.id);
@@ -103,11 +105,7 @@ function generateSchedule(staffList, year, monthIdx, holidaySet, shiftHours, shi
   const MAX_CONSECUTIVE_WORKDAYS = 6;
   const REST_COOLDOWN_EXTRA_DAYS = 2;
   ids.forEach((id) => { hours[id] = 0; satCount[id] = 0; sunCount[id] = 0; forcedRest[id] = new Set(); consecutiveWorkDays[id] = 0; restCooldown[id] = new Set(); shiftCount[id] = 0; restShiftCountSoFar[id] = 0; });
-  staffList.forEach((s) => {
-    const leaveDays = (leaveMap[s.id] && leaveMap[s.id].size) || 0;
-    const availableDays = Math.max(0, total - leaveDays);
-    targetOf[s.id] = Math.min((s.weeklyHours || 38.5) * (availableDays / 7), MONTHLY_HOUR_CAP);
-  });
+  staffList.forEach((s) => { targetOf[s.id] = monthTarget(s, total, leaveMap, closedSet, openCount); });
   const warnings = [];
   const notes = [];
   const isOnLeave = (id, dayNum) => leaveMap[id] && leaveMap[id].has(dayNum);
@@ -128,6 +126,7 @@ function generateSchedule(staffList, year, monthIdx, holidaySet, shiftHours, shi
   wishes.forEach((w) => {
     if (!ids.includes(w.staffId) || !shiftHours[w.shiftType] || w.day < 1 || w.day > total) return;
     if (isOnLeave(w.staffId, w.day)) { droppedWishCount++; return; }
+    if (closedSet.has(w.day)) { droppedWishCount++; return; } // company closed that day
     const wDay = days[w.day - 1];
     if (wDay && (wDay.isHoliday || wDay.isWeekend) && dailyKeys.includes(w.shiftType)) { droppedWishCount++; return; }
     validWishes.push(w);
@@ -167,6 +166,7 @@ function generateSchedule(staffList, year, monthIdx, holidaySet, shiftHours, shi
 
     function capForDay(dIdx) {
       const day = days[dIdx];
+      if (day.isClosed) return 0; // company closed: nobody
       return (day.isWeekend || day.isHoliday) ? 1 : needed;
     }
 
@@ -201,7 +201,7 @@ function generateSchedule(staffList, year, monthIdx, holidaySet, shiftHours, shi
     let places = 0;
     for (let d = 0; d < total; d++) places += capForDay(d);
     const avail = {};
-    pool.forEach((c) => { let n = 0; for (let d = 1; d <= total; d++) if (!isOnLeave(c, d)) n++; avail[c] = n; });
+    pool.forEach((c) => { let n = 0; for (let d = 1; d <= total; d++) if (!isOnLeave(c, d) && !closedSet.has(d)) n++; avail[c] = n; });
     const availSum = pool.reduce((sum, c) => sum + avail[c], 0) || 1;
     const shareOf = {};
     pool.forEach((c) => { shareOf[c] = places * avail[c] / availSum; });
@@ -373,7 +373,7 @@ function generateSchedule(staffList, year, monthIdx, holidaySet, shiftHours, shi
     const candidateDays = [];
     for (let d = 1; d <= total; d++) {
       const wd = new Date(year, monthIdx, d).getDay();
-      if (wd !== 0 && wd !== 6 && !holidaySet.has(d)) candidateDays.push(d);
+      if (wd !== 0 && wd !== 6 && !holidaySet.has(d) && !closedSet.has(d)) candidateDays.push(d);
     }
     const targetDays = new Set();
     const qCount = Math.max(1, qd.quotaCount || 9);
@@ -399,7 +399,7 @@ function generateSchedule(staffList, year, monthIdx, holidaySet, shiftHours, shi
     const todayAssigned = new Set(allKeys.flatMap((k) => day.shifts[k]));
     const prevDay = d > 0 ? days[d - 1] : null;
     const prevDayS = prevDay ? new Set(prevDay.shifts.S || []) : new Set();
-    const neededShifts = (day.isHoliday || day.isWeekend) ? ["F", "S"] : ["F", ...dailyKeys, "S"];
+    const neededShifts = day.isClosed ? [] : (day.isHoliday || day.isWeekend) ? ["F", "S"] : ["F", ...dailyKeys, "S"];
     if (day.weekday === 6) weekendPairPick = {};
 
     quotaDefs.forEach((qd) => {
@@ -461,7 +461,7 @@ function generateSchedule(staffList, year, monthIdx, holidaySet, shiftHours, shi
         }
         if (pool.length === 0) break;
         // Saturday: prefer people who can also do the SAME shift on Sunday (weekend pairs stay together)
-        if (day.weekday === 6 && d + 1 < total && days[d + 1].weekday === 0) {
+        if (day.weekday === 6 && d + 1 < total && days[d + 1].weekday === 0 && !days[d + 1].isClosed) {
           const sun = days[d + 1];
           const sunOk = pool.filter((id) => !isOnLeave(id, sun.day) && !forcedRest[id].has(d + 1) && (consecutiveWorkDays[id] || 0) + 1 < MAX_CONSECUTIVE_WORKDAYS && !allKeys.some((k) => (sun.shifts[k] || []).includes(id)) && hours[id] + 2 * shiftHours[shiftType] <= hardCapFor(id));
           if (sunOk.length > 0) pool = sunOk;
@@ -504,8 +504,18 @@ function generateSchedule(staffList, year, monthIdx, holidaySet, shiftHours, shi
   return { days, hours, satCount, sunCount, targetOf, warnings, notes };
 }
 
-function computeStatsAndWarnings(days, staffList, leaveMap, shiftHours, allKeys, restKeysList, shiftLabels) {
+// Monthly hour target: weekly hours spread over the OPEN weekdays, counted only for open days the
+// person is not on leave. With all 7 days open this is exactly the old formula.
+function monthTarget(s, total, leaveMap, closedSet, openCount) {
+  let n = 0;
+  for (let d = 1; d <= total; d++) if (!closedSet.has(d) && !(leaveMap[s.id] && leaveMap[s.id].has(d))) n++;
+  return Math.min((s.weeklyHours || 38.5) * (n / (openCount || 7)), MONTHLY_HOUR_CAP);
+}
+
+function computeStatsAndWarnings(days, staffList, leaveMap, shiftHours, allKeys, restKeysList, shiftLabels, closedSet, openCount) {
   leaveMap = leaveMap || {};
+  closedSet = closedSet || new Set();
+  openCount = openCount || 7;
   shiftLabels = shiftLabels || {};
   const labelOf = (key) => shiftLabels[key] || key;
   restKeysList = restKeysList || [];
@@ -524,14 +534,12 @@ function computeStatsAndWarnings(days, staffList, leaveMap, shiftHours, allKeys,
   });
   const total = days.length;
   const targetOf = {};
-  staffList.forEach((s) => {
-    const leaveDays = (leaveMap[s.id] && leaveMap[s.id].size) || 0;
-    const availableDays = Math.max(0, total - leaveDays);
-    targetOf[s.id] = Math.min((s.weeklyHours || 38.5) * (availableDays / 7), MONTHLY_HOUR_CAP);
-  });
+  staffList.forEach((s) => { targetOf[s.id] = monthTarget(s, total, leaveMap, closedSet, openCount); });
   const warnings = [];
+  const openSat = days.filter((d) => d.weekday === 6 && !closedSet.has(d.day)).length;
+  const openSun = days.filter((d) => d.weekday === 0 && !closedSet.has(d.day)).length;
   staffList.forEach((s) => {
-    if (s.weekendExempt) return;
+    if (s.weekendExempt || openSat < 2 || openSun < 2) return; // weekend rule only when the company is open on weekends
     if (satCount[s.id] < 2) warnings.push(`${s.name}: weniger als 2 Samstage gearbeitet (${satCount[s.id]})`);
     if (sunCount[s.id] < 2) warnings.push(`${s.name}: weniger als 2 Sonntage gearbeitet (${sunCount[s.id]})`);
   });
@@ -600,6 +608,19 @@ function todayMonthValue() {
 // kept inside the stored value instead, and read back from there (see loadBalances above).
 function sanitizeKey(name) {
   return String(name || "").replace(/[\s\/\\'"]+/g, "_").slice(0, 150);
+}
+
+// [3,24,25,26] -> "3, 24-26"
+function formatDayList(list) {
+  const d = [...new Set((list || []).map(Number))].sort((a, b) => a - b);
+  const parts = [];
+  for (let i = 0; i < d.length; i++) {
+    let j = i;
+    while (j + 1 < d.length && d[j + 1] === d[j] + 1) j++;
+    parts.push(j > i ? `${d[i]}-${d[j]}` : `${d[i]}`);
+    i = j;
+  }
+  return parts.join(", ");
 }
 
 function parseDayList(str, maxDay) {
@@ -865,7 +886,7 @@ function buildScheduleXlsx(input) {
     const r = 5 + di;
     const reduced = d.isWeekend || d.isHoliday;
     xlsxSet(ws1, r, 1, d.day, d.isHoliday ? sDayNumHol : d.isWeekend ? sDayNumWk : sDayNum);
-    xlsxSet(ws1, r, 2, input.weekdayNames[d.weekday] + (d.isHoliday ? " (Feiertag)" : ""), d.isHoliday ? sWdHol : d.isWeekend ? sWdWk : sWd);
+    xlsxSet(ws1, r, 2, input.weekdayNames[d.weekday] + (d.isHoliday ? " (Feiertag)" : "") + (d.isClosed ? " (geschlossen)" : ""), d.isHoliday ? sWdHol : d.isWeekend || d.isClosed ? sWdWk : sWd);
     input.columns.forEach((col, i) => {
       const s = shiftByKey[col.key];
       const id = (d.shifts[col.key] || [])[col.slotIndex];
@@ -1099,6 +1120,8 @@ function LabShiftSchedulerInner() {
   const [freiWishByStaff, setFreiWishByStaff] = useState({}); // staffId -> Set(day) for "Frei" wishes
   const [copyState, setCopyState] = useState("idle");
   const [excelState, setExcelState] = useState("idle");
+  const [genBusy, setGenBusy] = useState(false);
+  const [genInfo, setGenInfo] = useState(null); // { at, changed, first } shown under the generate button
   const [printState, setPrintState] = useState("idle"); // Drucken / PDF button
   const [emailTableState, setEmailTableState] = useState("idle"); // idle | copied
   const [balances, setBalances] = useState({}); // name(trimmed) -> { hours, satDeficit, sunDeficit, nightDeficit }
@@ -1253,6 +1276,79 @@ function LabShiftSchedulerInner() {
   const totalDays = daysInMonth(year, monthIdx);
   const holidaySet = useMemo(() => new Set(holidays.filter((h) => h <= totalDays)), [holidays, totalDays]);
 
+  const orgCtx = React.useContext(OrgContext);
+  // ---- Öffnungstage & Betriebsschließung ----
+  // open weekdays + "closed on holidays" belong to the company (database: organizations), the closed
+  // days of one month (e.g. Betriebsurlaub 24-31) to that month (database: month_closures).
+  // On closed days the generator plans nobody. Changing them never changes a plan by itself.
+  const [openWeekdays, setOpenWeekdays] = useState([0, 1, 2, 3, 4, 5, 6]);
+  const [closedOnHolidays, setClosedOnHolidays] = useState(false);
+  const [monthClosed, setMonthClosed] = useState([]);
+  const [monthClosedText, setMonthClosedText] = useState("");
+  const [openingMsg, setOpeningMsg] = useState("");
+  const [closedMsg, setClosedMsg] = useState("");
+  const openCount = openWeekdays.length || 7;
+  const closedSet = useMemo(() => {
+    const set = new Set();
+    for (let d = 1; d <= totalDays; d++) {
+      const wd = new Date(year, monthIdx, d).getDay();
+      if (!openWeekdays.includes(wd) || (closedOnHolidays && holidaySet.has(d)) || monthClosed.includes(d)) set.add(d);
+    }
+    return set;
+  }, [openWeekdays, closedOnHolidays, monthClosed, holidaySet, totalDays, year, monthIdx]);
+  const canEditOpening = !orgCtx || orgCtx.role === "owner" || orgCtx.role === "supervisor";
+
+  useEffect(() => {
+    if (!orgCtx) return undefined;
+    let cancelled = false;
+    (async () => {
+      const r = await orgCtx.supabase.from("organizations").select("open_weekdays, closed_on_holidays").eq("id", orgCtx.orgId);
+      if (cancelled || r.error || !r.data || !r.data[0]) return; // script 10 not run yet: all days open, as before
+      const ow = r.data[0].open_weekdays;
+      if (Array.isArray(ow) && ow.length > 0) setOpenWeekdays(ow.map(Number));
+      setClosedOnHolidays(!!r.data[0].closed_on_holidays);
+    })();
+    return () => { cancelled = true; };
+  }, [orgCtx]);
+
+  useEffect(() => {
+    setMonthClosed([]); setMonthClosedText(""); setClosedMsg("");
+    if (!orgCtx) return undefined;
+    let cancelled = false;
+    (async () => {
+      const r = await orgCtx.supabase.from("month_closures").select("days").eq("org_id", orgCtx.orgId).eq("year", year).eq("month", monthIdx + 1);
+      if (cancelled || r.error) return;
+      const list = (r.data && r.data[0] && r.data[0].days) || [];
+      setMonthClosed(list.map(Number));
+      setMonthClosedText(formatDayList(list));
+    })();
+    return () => { cancelled = true; };
+  }, [orgCtx, year, monthIdx]);
+
+  async function saveOpening(nextOpen, nextHol) {
+    const sorted = [...new Set(nextOpen)].sort((a, b) => a - b);
+    if (sorted.length === 0) { setOpeningMsg("Mindestens ein Tag muss geöffnet sein."); return; }
+    setOpenWeekdays(sorted); setClosedOnHolidays(nextHol);
+    if (!orgCtx) return;
+    setOpeningMsg("Moment …");
+    const { error } = await orgCtx.supabase.rpc("set_opening_days", { p_org: orgCtx.orgId, p_open_weekdays: sorted, p_closed_on_holidays: nextHol });
+    if (error) { setOpeningMsg("Nicht gespeichert: " + error.message); return; }
+    setOpeningMsg("Gespeichert ✓");
+    setTimeout(() => setOpeningMsg((m) => (m === "Gespeichert ✓" ? "" : m)), 2500);
+  }
+
+  async function saveMonthClosed() {
+    const list = [...parseDayList(monthClosedText, totalDays)].sort((a, b) => a - b);
+    if (monthClosedText.trim() && list.length === 0) { setClosedMsg("Bitte Tage wie 24-31 oder 3,4,5 eingeben."); return; }
+    setMonthClosed(list); setMonthClosedText(formatDayList(list));
+    if (!orgCtx) { setClosedMsg(list.length ? "Übernommen ✓" : ""); return; }
+    setClosedMsg("Moment …");
+    const { error } = await orgCtx.supabase.rpc("set_month_closed_days", { p_org: orgCtx.orgId, p_year: year, p_month: monthIdx + 1, p_days: list });
+    if (error) { setClosedMsg("Nicht gespeichert: " + error.message); return; }
+    setClosedMsg("Gespeichert ✓");
+    setTimeout(() => setClosedMsg((m) => (m === "Gespeichert ✓" ? "" : m)), 2500);
+  }
+
   // Derived from specialShifts + dayShiftDefs: everything the algorithm and UI need in one place.
   // F/S keep the SAME internal keys (so their adjacency rule keeps working) but fully editable
   // label/time; every other shift — including anything flagged requiresRestAfter — is a freely
@@ -1314,7 +1410,6 @@ function LabShiftSchedulerInner() {
   const dailyDayShiftKeys = useMemo(() => new Set(dayShiftDefs.filter((d) => d.frequency !== "quota" && !d.requiresRestAfter).map((d) => d.key)), [dayShiftDefs]);
 
   // ---- connection to the shared database (only active when the page runs behind the login gate) ----
-  const orgCtx = React.useContext(OrgContext);
   // What the employees currently see for the shown month. Every difference of the plan on screen to this
   // published version is marked yellow — no matter whether the plan was generated or opened with "Plan bearbeiten".
   const [publishedTick, setPublishedTick] = useState(0);
@@ -1415,7 +1510,7 @@ function LabShiftSchedulerInner() {
     const leaveMap = {}; people.forEach((p) => { leaveMap[p.id] = new Set(); });
     const restKeys = restore ? defs.filter((d) => d.requires_rest_after && d.frequency !== "quota").map((d) => d.key) : restRequiringKeys;
     const labelsByKey = restore ? Object.fromEntries(defs.map((d) => [d.key, d.label])) : shiftLabels;
-    const stats = computeStatsAndWarnings(days, people, leaveMap, useHours, keysOrdered, restKeys, labelsByKey);
+    const stats = computeStatsAndWarnings(days, people, leaveMap, useHours, keysOrdered, restKeys, labelsByKey, closedSet, openCount);
     setSchedule({ days, hours: stats.hours, satCount: stats.satCount, sunCount: stats.sunCount, targetOf: stats.targetOf, warnings: stats.warnings, notes: [] });
     // what the employees currently see (published version) — used to mark every manual change
     if (baselineRows && baselineRows.length) {
@@ -1535,6 +1630,22 @@ function LabShiftSchedulerInner() {
   function removeWishEntry(id) {
     setWishEntries((prev) => prev.filter((e) => e.id !== id));
   }
+  // Approved wishes from the employee app ("Wünsche" in the bar above) -> wish list of this plan.
+  // Only when the Leitung presses the button there; wishes already taken over are not added twice.
+  function importWishes(list) {
+    const valid = new Set([...Object.keys(shiftMeta), "Frei"]);
+    const have = new Set(wishEntries.map((e) => e.dbId).filter(Boolean));
+    const staffIds = new Set(staffList.map((x) => x.id));
+    const add = []; let already = 0, noPerson = 0, noShift = 0;
+    list.forEach((w) => {
+      if (have.has(w.dbId)) { already++; return; }
+      if (!staffIds.has(w.staffId)) { noPerson++; return; }
+      if (!valid.has(w.shiftType)) { noShift++; return; }
+      add.push({ id: `we${nextEntryIdRef.current++}`, staffId: w.staffId, days: w.days, shiftType: w.shiftType, dbId: w.dbId });
+    });
+    if (add.length) setWishEntries((prev) => [...prev, ...add]);
+    return { added: add.length, already, noPerson, noShift };
+  }
 
   // Shared by runGenerate and updateSlot so target-hours calculations stay consistent
   // everywhere (leave/sick/Frei days always reduce the target the same way).
@@ -1576,11 +1687,20 @@ function LabShiftSchedulerInner() {
         if (e.shiftType === "Frei") return; // handled above via leaveMap, not a real shift wish
         parseDayList(e.days, totalDays).forEach((d) => wishes.push({ staffId: e.staffId, day: d, shiftType: e.shiftType }));
       });
-      const result = generateSchedule(staffList, year, monthIdx, holidaySet, shiftHours, shiftLabels, dayShiftDefs, perShiftCount, leaveMap, carryOver, wishes);
+      const result = generateSchedule(staffList, year, monthIdx, holidaySet, shiftHours, shiftLabels, dayShiftDefs, perShiftCount, leaveMap, carryOver, wishes, closedSet, openCount);
       // Recompute + validate from the final `days` (same pass used after manual edits) so any
       // rule the generator couldn't fully guarantee up front (e.g. a rare consecutive-workday
       // overrun caused by an already-fixed night block) still surfaces as a warning immediately.
-      const stats = computeStatsAndWarnings(result.days, staffList, leaveMap, shiftHours, dayOrderedKeys, restRequiringKeys, shiftLabels);
+      const stats = computeStatsAndWarnings(result.days, staffList, leaveMap, shiftHours, dayOrderedKeys, restRequiringKeys, shiftLabels, closedSet, openCount);
+      // how much differs from the plan that was on the screen before (so the button visibly does something)
+      let changed = 0;
+      if (schedule && schedule.days) {
+        result.days.forEach((nd, i) => {
+          const od = schedule.days[i] || { shifts: {} };
+          Object.keys(nd.shifts).forEach((k) => { (nd.shifts[k] || []).forEach((id) => { if (!(od.shifts[k] || []).includes(id)) changed++; }); });
+        });
+      }
+      setGenInfo({ at: new Date(), changed, first: !schedule });
       setEditMode(false);
       setSchedule({
         days: result.days,
@@ -1606,7 +1726,7 @@ function LabShiftSchedulerInner() {
         arr[slotIndex] = newId; // keep position stable — columns are now fixed, so never splice/shift
         return { ...d, shifts: { ...d.shifts, [shiftType]: arr } };
       });
-      const stats = computeStatsAndWarnings(days, staffList, buildLeaveMap(), shiftHours, dayOrderedKeys, restRequiringKeys, shiftLabels);
+      const stats = computeStatsAndWarnings(days, staffList, buildLeaveMap(), shiftHours, dayOrderedKeys, restRequiringKeys, shiftLabels, closedSet, openCount);
       return { days, ...stats };
     });
   }
@@ -1658,7 +1778,7 @@ function LabShiftSchedulerInner() {
       schedule.days.forEach((d) => {
         const row = [d.day, WEEKDAY_DE[d.weekday]];
         columnPlan.forEach((col) => {
-          const isSkippedOnHoliday = dailyDayShiftKeys.has(col.shiftType) && (d.isHoliday || d.isWeekend);
+          const isSkippedOnHoliday = (dailyDayShiftKeys.has(col.shiftType) && (d.isHoliday || d.isWeekend)) || closedSet.has(d.day);
           const id = (d.shifts[col.shiftType] || [])[col.slotIndex];
           row.push(isSkippedOnHoliday ? "" : (staffMap[id] || ""));
         });
@@ -1685,7 +1805,7 @@ function LabShiftSchedulerInner() {
       weekdayNames: WEEKDAY_DE,
       weekdayShort: WEEKDAY_DE.map((x) => x.slice(0, 2)),
       staff: staffList.map((s) => ({ id: s.id, name: s.name })),
-      days: schedule.days,
+      days: schedule.days.map((d) => ({ ...d, isClosed: closedSet.has(d.day) })),
       columns,
       shifts,
       skipKeys: dailyDayShiftKeys,
@@ -1804,7 +1924,7 @@ function LabShiftSchedulerInner() {
           <p className="text-sm text-slate-500">Frei definierbare Schichten unter Berücksichtigung der Wochenstunden, der Nachtdienstrotation und der Wochenendquote — nach dem Erstellen manuell bearbeitbar.</p>
         </header>
 
-        {orgCtx && <OrgBar onLoadStaff={loadStaffFromDb} staffList={staffList} toDb={staffToDb} onIdsChanged={applyStaffIds} year={year} monthIdx={monthIdx} onLoadPlan={applyLoadedPlan} hasPlan={!!schedule} />}
+        {orgCtx && <OrgBar onLoadStaff={loadStaffFromDb} staffList={staffList} toDb={staffToDb} onIdsChanged={applyStaffIds} year={year} monthIdx={monthIdx} onLoadPlan={applyLoadedPlan} hasPlan={!!schedule} onImportWishes={importWishes} />}
 
         {/* Archive */}
         {archiveList.length > 0 && (
@@ -2219,6 +2339,43 @@ function LabShiftSchedulerInner() {
             <p className="text-[11px] text-slate-400 mt-1.5">Diese Schichten werden zuerst fest eingetragen; alle übrigen Schichten plant der Algorithmus automatisch drumherum.</p>
           </div>
 
+          {/* Öffnungstage & Betriebsschließung */}
+          <div className="rounded-xl border border-slate-200 p-3">
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <label className="text-sm font-medium text-slate-700">Öffnungstage</label>
+              {openingMsg && <span role="status" className={`text-xs ${openingMsg.startsWith("Nicht") || openingMsg.startsWith("Mindestens") ? "text-rose-700" : "text-teal-700"}`}>{openingMsg}</span>}
+            </div>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {[1, 2, 3, 4, 5, 6, 0].map((wd) => {
+                const on = openWeekdays.includes(wd);
+                const last = on && openWeekdays.length === 1;
+                return (
+                  <button key={wd} type="button" aria-pressed={on} disabled={!canEditOpening || last}
+                    onClick={() => saveOpening(on ? openWeekdays.filter((x) => x !== wd) : [...openWeekdays, wd], closedOnHolidays)}
+                    title={last ? "Mindestens ein Tag muss geöffnet sein" : WEEKDAY_DE[wd]}
+                    className={`min-w-[44px] text-xs rounded-lg border px-2.5 py-1.5 font-medium active:translate-y-px disabled:cursor-not-allowed ${on ? "bg-teal-600 border-teal-600 text-white" : "bg-white border-slate-300 text-slate-400 line-through"}`}>
+                    {WEEKDAY_DE[wd].slice(0, 2)}
+                  </button>
+                );
+              })}
+            </div>
+            <label className="mt-2 flex items-center gap-2 text-xs text-slate-600">
+              <input type="checkbox" checked={closedOnHolidays} disabled={!canEditOpening} onChange={(e) => saveOpening(openWeekdays, e.target.checked)} />
+              An Feiertagen geschlossen
+            </label>
+            {!canEditOpening && <p className="text-[11px] text-slate-400 mt-1">Öffnungstage ändern nur Leitung oder Inhaber.</p>}
+            <div className="mt-3">
+              <label className="text-xs font-medium text-slate-700 block mb-1">Ganzer Betrieb geschlossen in diesem Monat (z. B. Betriebsurlaub)</label>
+              <div className="flex flex-wrap items-center gap-2">
+                <input value={monthClosedText} onChange={(e) => { setMonthClosedText(e.target.value); setClosedMsg(""); }} onKeyDown={(e) => { if (e.key === "Enter") saveMonthClosed(); }}
+                  placeholder="z. B. 24-31" className="border border-slate-300 rounded-lg px-2.5 py-1.5 text-sm font-mono w-44 focus:outline-none focus:ring-2 focus:ring-teal-500" />
+                <button type="button" onClick={saveMonthClosed} disabled={closedMsg === "Moment …"} className="text-sm text-teal-700 hover:text-teal-800 font-medium px-2 py-1.5 rounded-lg border border-teal-200 bg-teal-50 hover:bg-teal-100 active:translate-y-px disabled:opacity-60">{closedMsg === "Moment …" ? "Moment …" : "Übernehmen"}</button>
+                {closedMsg && closedMsg !== "Moment …" && <span role="status" className={`text-xs ${closedMsg.startsWith("Nicht") || closedMsg.startsWith("Bitte") ? "text-rose-700" : "text-teal-700"}`}>{closedMsg}</span>}
+              </div>
+            </div>
+            <p className="text-[11px] text-slate-400 mt-2">An geschlossenen Tagen wird niemand eingeplant; das Stundenziel zählt nur die offenen Tage. Gilt für neu erstellte Pläne – ein bestehender Plan ändert sich nicht von selbst.</p>
+          </div>
+
           {/* Holidays */}
           <div>
             <label className="text-sm font-medium text-slate-700 mb-2 block">Gesetzliche Feiertage in diesem Monat (Tage anklicken)</label>
@@ -2271,13 +2428,22 @@ function LabShiftSchedulerInner() {
             </div>
           )}
 
-          <button
-            onClick={runGenerate}
-            disabled={staffList.length === 0}
-            className="inline-flex items-center gap-2 bg-teal-600 hover:bg-teal-700 disabled:bg-slate-300 text-white font-medium text-sm px-4 py-2.5 rounded-xl transition-colors"
-          >
-            <RefreshCw size={16} /> {schedule ? "Neu generieren" : "Dienstplan erstellen"}
-          </button>
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              onClick={() => { if (genBusy) return; setGenBusy(true); setGenInfo(null); setTimeout(() => { try { runGenerate(); } finally { setGenBusy(false); } }, 40); }}
+              disabled={staffList.length === 0 || genBusy}
+              aria-busy={genBusy}
+              className="inline-flex items-center gap-2 bg-teal-600 hover:bg-teal-700 disabled:bg-slate-300 text-white font-medium text-sm px-4 py-2.5 rounded-xl transition-colors active:translate-y-px"
+            >
+              <RefreshCw size={16} className={genBusy ? "animate-spin" : ""} /> {genBusy ? "Moment …" : schedule ? "Neu generieren" : "Dienstplan erstellen"}
+            </button>
+            {genInfo && !genBusy && (
+              <span role="status" className="text-xs text-teal-800 bg-teal-50 border border-teal-200 rounded-lg px-2.5 py-1.5">
+                {genInfo.first ? "Plan erstellt" : "Neu erstellt"} um {String(genInfo.at.getHours()).padStart(2, "0")}:{String(genInfo.at.getMinutes()).padStart(2, "0")}:{String(genInfo.at.getSeconds()).padStart(2, "0")} Uhr
+                {!genInfo.first && (genInfo.changed > 0 ? ` – ${genInfo.changed} Einträge anders als vorher` : " – gleiches Ergebnis (mit diesen Personen und Regeln gibt es keine andere Verteilung)")}
+              </span>
+            )}
+          </div>
 
           {generateError && (
             <div className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs text-rose-800">
@@ -2459,17 +2625,18 @@ function LabShiftSchedulerInner() {
                     {schedule.days.map((d, di) => (
                       <tr
                         key={d.day}
-                        className={`border-b border-slate-50 ${d.isHoliday ? "bg-rose-50/60" : d.isWeekend ? "bg-slate-50/70" : ""}`}
+                        className={`border-b border-slate-50 ${closedSet.has(d.day) ? "bg-slate-100" : d.isHoliday ? "bg-rose-50/60" : d.isWeekend ? "bg-slate-50/70" : ""}`}
                       >
                         <td className="px-2 py-1.5 whitespace-nowrap align-top font-semibold">{d.day}</td>
                         <td className="px-2 py-1.5 whitespace-nowrap align-top text-slate-500">
                           {WEEKDAY_DE[d.weekday]}
                           {d.isHoliday && <div className="text-rose-600 font-medium text-[10px]">Feiertag</div>}
+                          {closedSet.has(d.day) && <div className="text-slate-500 font-medium text-[10px]">geschlossen</div>}
                         </td>
                         {columnPlan.map((col, ci) => {
                           const { shiftType: st, slotIndex } = col;
-                          const isSkippedOnHoliday = dailyDayShiftKeys.has(st) && (d.isHoliday || d.isWeekend);
                           const val = (d.shifts[st] || [])[slotIndex];
+                          const isSkippedOnHoliday = (dailyDayShiftKeys.has(st) && (d.isHoliday || d.isWeekend)) || (closedSet.has(d.day) && !val); // closed: nothing to fill (an old entry stays editable)
                           // marks versus the published version (only when a saved month was opened for editing)
                           const baseIds = baseline ? (baseline[`${d.day}|${st}`] || []) : null;
                           const isNewHere = !!(baseIds && val && !baseIds.includes(val));
