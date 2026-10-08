@@ -21,7 +21,10 @@ export default function PasswordGate({ children }) {
   useEffect(() => {
     if (!supabaseConfigured) { setSession(null); return; }
     supabase.auth.getSession().then(({ data }) => setSession(data.session || null));
-    const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => setSession(s || null));
+    // Supabase renews the login token by itself (e.g. when the computer wakes up from sleep). That
+    // must NOT reload the page content, otherwise an unsaved plan on the screen would be lost:
+    // only a different person or a logout counts as a change.
+    const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => setSession((prev) => (prev && s && prev.user && s.user && prev.user.id === s.user.id ? prev : (s || null))));
     return () => sub.subscription.unsubscribe();
   }, []);
 
