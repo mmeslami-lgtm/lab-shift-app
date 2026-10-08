@@ -49,7 +49,8 @@ class ErrorBoundary extends React.Component {
 
 
 
-const MONTHLY_HOUR_CAP = 160; // hard ceiling on paid hours per person per month
+const MONTHLY_HOUR_CAP = 160; // hard ceiling on paid hours per person per month (part-time / Minijob)
+const FULLTIME_MONTHLY_CEILING = 190; // full-time: never planned above this
 // Cycled through for any shift column (built-in or custom) so everything gets a distinct,
 // readable color without needing per-key hardcoding.
 const SHIFT_COLOR_PALETTE = [
@@ -509,7 +510,11 @@ function generateSchedule(staffList, year, monthIdx, holidaySet, shiftHours, shi
 function monthTarget(s, total, leaveMap, closedSet, openCount) {
   let n = 0;
   for (let d = 1; d <= total; d++) if (!closedSet.has(d) && !(leaveMap[s.id] && leaveMap[s.id].has(d))) n++;
-  return Math.min((s.weeklyHours || 38.5) * (n / (openCount || 7)), MONTHLY_HOUR_CAP);
+  // Full-time staff: the real monthly hours (a month with 22 workdays has ~169 h at 38.5 h/week) may
+  // exceed MONTHLY_HOUR_CAP; capping them there left the LAST days of the month short-staffed.
+  // Full-time is therefore only capped at the overtime ceiling; part-time/Minijob keep the hard cap.
+  const fullTime = (s.weeklyHours || 38.5) >= 35;
+  return Math.min((s.weeklyHours || 38.5) * (n / (openCount || 7)), fullTime ? FULLTIME_MONTHLY_CEILING : MONTHLY_HOUR_CAP);
 }
 
 function computeStatsAndWarnings(days, staffList, leaveMap, shiftHours, allKeys, restKeysList, shiftLabels, closedSet, openCount) {
@@ -1735,6 +1740,7 @@ function LabShiftSchedulerInner() {
     if (!schedule) return null;
     let totalDemandHours = 0;
     schedule.days.forEach((d) => {
+      if (closedSet.has(d.day)) return; // company closed: no demand
       const reduced = d.isWeekend || d.isHoliday;
       totalDemandHours += shiftHours.F * (reduced ? 1 : perShiftCount.F || 1) + shiftHours.S * (reduced ? 1 : perShiftCount.S || 1);
       dayShiftDefs.forEach((def) => {
@@ -1756,7 +1762,7 @@ function LabShiftSchedulerInner() {
       : 0;
     const suggestedStaff = avgTarget > 0 ? Math.round(totalDemandHours / avgTarget) : 0;
     return { totalDemandHours, avgActual, avgTarget, suggestedStaff };
-  }, [schedule, staffList, perShiftCount, shiftHours, dayShiftDefs]);
+  }, [schedule, staffList, perShiftCount, shiftHours, dayShiftDefs, closedSet]);
 
   function buildScheduleText() {
     if (!schedule) return "";
