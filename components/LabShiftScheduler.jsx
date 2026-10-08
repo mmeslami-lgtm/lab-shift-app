@@ -183,6 +183,19 @@ function generateSchedule(staffList, year, monthIdx, holidaySet, shiftHours, shi
     return (day.isWeekend || day.isHoliday) ? 1 : nightNeeded;
   }
 
+  // ---- fair share of nights ----
+  // Every night place of the month, divided among the people who can do nights, in proportion to
+  // the days they are NOT on leave (+ nights still owed from last month, at most 2). Someone who is
+  // behind their share is preferred; more than share + 1 nights only when nobody else is possible.
+  let nightPlaces = 0;
+  for (let d = 0; d < total; d++) nightPlaces += nightCapForDay(d);
+  const nightAvail = {};
+  nightPool.forEach((c) => { let n = 0; for (let d = 1; d <= total; d++) if (!isOnLeave(c, d)) n++; nightAvail[c] = n; });
+  const nightAvailSum = nightPool.reduce((sum, c) => sum + nightAvail[c], 0) || 1;
+  const nightShareOf = {};
+  nightPool.forEach((c) => { nightShareOf[c] = nightPlaces * nightAvail[c] / nightAvailSum + Math.min(2, Math.max(0, (carryOver[c] && carryOver[c].nightDeficit) || 0)); });
+  const nightMaxOf = (c) => Math.round(nightShareOf[c] || 0) + 1;
+
   for (let track = 0; track < nightNeeded; track++) {
     let dayIdx = 0;
     while (dayIdx < total) {
@@ -213,7 +226,7 @@ function generateSchedule(staffList, year, monthIdx, holidaySet, shiftHours, shi
         if (nightOf[dayIdx].length >= nightCapForDay(dayIdx)) { dayIdx += 1; continue; }
       }
 
-      function searchNightCandidate(hourCapFor, restrictToFullTime) {
+      function searchNightCandidate(hourCapFor, restrictToFullTime, keepNightMax) {
         let best = null, bestFeasibleLen = 0, bestScore = Infinity;
         let fallback = null, fallbackFeasibleLen = 0, fallbackScore = Infinity;
         for (const c of nightPool) {
@@ -222,6 +235,8 @@ function generateSchedule(staffList, year, monthIdx, holidaySet, shiftHours, shi
           let len = 0;
           for (let d = dayIdx; d < Math.min(dayIdx + 4, total); d++) {
             if (forcedRest[c].has(d) || dayNightUsed[d].has(c) || isOnLeave(c, d + 1) || nightOf[d].length >= nightCapForDay(d) || hours[c] + shiftHours.N * (len + 1) > hourCapFor(c)) break;
+            if (keepNightMax && nightCountSoFar[c] + len + 1 > nightMaxOf(c)) break;
+            if (keepNightMax && days[d].weekday === 6 && d + 1 < total && nightCountSoFar[c] + len + 2 > nightMaxOf(c)) break; // Saturday night needs room for Sunday too
             len++;
           }
           if (len === 0) continue;
@@ -229,16 +244,22 @@ function generateSchedule(staffList, year, monthIdx, holidaySet, shiftHours, shi
           // Same pacing idea as pickBest: score by how far ahead/behind pace they are, not raw
           // hours/target, so low-target people aren't exhausted early in the month.
           const expectedByNow = t * ((dayIdx + 1) / total);
-          const score = (hours[c] - expectedByNow) / t + Math.random() * 0.01;
+          const share = Math.max(1, nightShareOf[c] || 0);
+          const nightPace = (nightCountSoFar[c] - (nightShareOf[c] || 0) * ((dayIdx + 1) / total)) / share; // behind on nights = negative
+          const score = nightPace * 2 + (hours[c] - expectedByNow) / t + Math.random() * 0.01;
           if (len >= 2 && score < bestScore) { best = c; bestFeasibleLen = len; bestScore = score; }
           if (score < fallbackScore) { fallback = c; fallbackFeasibleLen = len; fallbackScore = score; }
         }
         return { best, bestFeasibleLen, fallback, fallbackFeasibleLen };
       }
-      let { best, bestFeasibleLen, fallback, fallbackFeasibleLen } = searchNightCandidate((c) => targetOf[c], false);
+      let { best, bestFeasibleLen, fallback, fallbackFeasibleLen } = searchNightCandidate((c) => targetOf[c], false, true);
       if (best === null && fallback === null) {
-        let r = searchNightCandidate((c) => hardCapFor(c), true);
-        if (r.best === null && r.fallback === null) r = searchNightCandidate((c) => hardCapFor(c), false);
+        ({ best, bestFeasibleLen, fallback, fallbackFeasibleLen } = searchNightCandidate((c) => targetOf[c], false, false));
+        if (best !== null || fallback !== null) notes.push(`Tag ${dayIdx + 1}: Nachtdienst – mehr Nächte als der faire Anteil, weil sonst niemand verfügbar war`);
+      }
+      if (best === null && fallback === null) {
+        let r = searchNightCandidate((c) => hardCapFor(c), true, false);
+        if (r.best === null && r.fallback === null) r = searchNightCandidate((c) => hardCapFor(c), false, false);
         ({ best, bestFeasibleLen, fallback, fallbackFeasibleLen } = r);
         if (best !== null || fallback !== null) warnings.push(`Tag ${dayIdx + 1}: persönliches Stundenziel für Nachtdienst überschritten, da niemand anders verfügbar war`);
       }
@@ -255,7 +276,8 @@ function generateSchedule(staffList, year, monthIdx, holidaySet, shiftHours, shi
       if (candidateRatio < 0.9) desiredLen = r2 < 0.45 ? 4 : r2 < 0.8 ? 3 : 2;
       else if (candidateRatio > 1.05) desiredLen = r2 < 0.6 ? 2 : r2 < 0.9 ? 3 : 4;
       else desiredLen = r2 < 0.33 ? 2 : r2 < 0.66 ? 3 : 4;
-      const blockLen = Math.max(1, Math.min(desiredLen, feasibleLen, total - dayIdx));
+      let blockLen = Math.max(1, Math.min(desiredLen, feasibleLen, total - dayIdx));
+      if (blockLen === 4 && days[dayIdx + 3] && days[dayIdx + 3].weekday === 6) blockLen = 3; // Saturday + Sunday stay together
       if (blockLen < 2) notes.push(`Tag ${dayIdx + 1}: Nachtdienst-Block wurde auf 1 Tag begrenzt (wegen Urlaub/anstehender Einschränkung)`);
       for (let d = dayIdx; d < dayIdx + blockLen; d++) {
         nightOf[d].push(candidate);
@@ -372,7 +394,7 @@ function generateSchedule(staffList, year, monthIdx, holidaySet, shiftHours, shi
       if (day.weekday === 0 && filled < desired && weekendPairPick[shiftType]) {
         const carryId = weekendPairPick[shiftType];
         const carryOk = !todayAssigned.has(carryId) && !forcedRest[carryId].has(d) && !isOnLeave(carryId, day.day) &&
-          !(shiftType === "F" && prevDayS.has(carryId)) && hours[carryId] + shiftHours[shiftType] <= targetOf[carryId];
+          !(shiftType === "F" && prevDayS.has(carryId)) && hours[carryId] + shiftHours[shiftType] <= hardCapFor(carryId);
         if (carryOk) {
           day.shifts[shiftType].push(carryId);
           todayAssigned.add(carryId);
@@ -407,6 +429,12 @@ function generateSchedule(staffList, year, monthIdx, holidaySet, shiftHours, shi
           if (pool.length > 0) relaxedNote = "Das persönliche Stundenziel wurde überschritten (nur bei Vollzeit-Personal), da niemand anders verfügbar war";
         }
         if (pool.length === 0) break;
+        // Saturday: prefer people who can also do the SAME shift on Sunday (weekend pairs stay together)
+        if (day.weekday === 6 && d + 1 < total && days[d + 1].weekday === 0) {
+          const sun = days[d + 1];
+          const sunOk = pool.filter((id) => !isOnLeave(id, sun.day) && !forcedRest[id].has(d + 1) && (consecutiveWorkDays[id] || 0) + 1 < MAX_CONSECUTIVE_WORKDAYS && !allKeys.some((k) => (sun.shifts[k] || []).includes(id)) && hours[id] + 2 * shiftHours[shiftType] <= hardCapFor(id));
+          if (sunOk.length > 0) pool = sunOk;
+        }
         const chosen = pickBest(pool, day);
         if (relaxedNote) warnings.push(`Tag ${d + 1} (${labelOf(shiftType)}): ${relaxedNote}`);
         day.shifts[shiftType].push(chosen);
