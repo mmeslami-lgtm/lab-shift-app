@@ -20,7 +20,7 @@ html, body { background: var(--kb-page); }
 .kb-band { background: var(--kb-ink); color: #fff; border-radius: 14px; padding: 14px 18px; }
 .kb-band h1, .kb-band .text-teal-700 { color: #fff !important; }
 .kb-band p { color: #C9D6EE !important; }
-/* "Abmelden" at the very top, outside the band, in a strong colour */
+/* "Abmelden" at the very top right, outside the band, in a strong colour */
 .kb-logout { background: #A32D2D; color: #fff; border: 1.5px solid #791F1F; box-shadow: 0 4px 12px -6px rgba(121, 31, 31, 0.6); }
 .kb-logout:hover { background: #791F1F; }
 
