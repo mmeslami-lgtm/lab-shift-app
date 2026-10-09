@@ -178,6 +178,11 @@ export default function AdminDashboard() {
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
             <div>
               <span style={{ fontSize: 17, fontWeight: 700 }}>{f.name}</span>
+              <button style={{ ...ghost, marginLeft: 8, padding: "3px 9px", fontSize: 12 }} disabled={busy} onClick={() => {
+                const name = window.prompt(`Neuer Name für „${f.name}“:`, f.name);
+                if (name === null || name.trim() === f.name) return;
+                act({ action: "rename_org", orgId: f.id, name: name.trim() }, { key: "rn" + f.id, okText: `Firma heißt jetzt „${name.trim()}“.` });
+              }}>{label("rn" + f.id, "Umbenennen")}</button>
               <span style={{ marginLeft: 8, fontSize: 11, fontWeight: 650, borderRadius: 999, padding: "2px 9px", background: f.active ? "#DDF2E8" : "#FCE5EA", color: f.active ? "#1F6347" : "#8A2A3E" }}>{f.active ? "aktiv" : "deaktiviert"}</span>
               <div style={{ fontSize: 12, color: MUTED }}>seit {fmt(f.created_at)} · {f.staff.length} Personen · {f.members.length} Konten</div>
             </div>
@@ -202,6 +207,11 @@ export default function AdminDashboard() {
                     <td style={{ padding: "6px", color: MUTED }}>{m.staffName || "–"}</td>
                     <td style={{ padding: "6px", color: MUTED }}>{m.lastSignIn ? fmt(m.lastSignIn) : "noch nie"}</td>
                     <td style={{ padding: "6px", whiteSpace: "nowrap", textAlign: "right" }}>
+                      <button style={{ ...ghost, marginRight: 6 }} disabled={busy} onClick={() => {
+                        const email = window.prompt(`Neue E-Mail-Adresse für ${m.email}:\n\nDie Person meldet sich danach mit der neuen Adresse an. Das Passwort bleibt gleich.`, m.email);
+                        if (email === null || email.trim().toLowerCase() === m.email.toLowerCase()) return;
+                        act({ action: "change_email", userId: m.userId, email: email.trim() }, { key: "em" + m.userId, okText: `E-Mail geändert: ${email.trim().toLowerCase()}` });
+                      }}>{label("em" + m.userId, "E-Mail ändern")}</button>
                       <button style={ghost} disabled={busy} onClick={() => { if (window.confirm(`Neues Passwort für ${m.email} erzeugen? Das alte Passwort gilt dann nicht mehr.`)) act({ action: "reset_password", email: m.email }, { title: "Neues Passwort", key: "pw" + m.userId, okText: `Neues Passwort für ${m.email} erzeugt. Es steht oben auf der Seite.` }); }}>{label("pw" + m.userId, "Neues Passwort")}</button>
                       {m.role !== "owner" && <button style={{ ...ghost, marginLeft: 6, color: "#B3263E" }} disabled={busy} onClick={() => { if (window.confirm(`${m.email} aus „${f.name}“ entfernen?`)) act({ action: "remove_member", orgId: f.id, userId: m.userId }, { key: "rm" + m.userId, okText: `${m.email} entfernt.` }); }}>{label("rm" + m.userId, "Entfernen")}</button>}
                     </td>

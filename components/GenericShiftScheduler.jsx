@@ -78,7 +78,11 @@ function daysInMonth(year, monthIdx) {
 // now ANY shift (named whatever the supervisor wants) can be flagged this way, there can be
 // zero, one, or several such shifts, and the 2-4 day block + mandatory 2-day rest + cooldown +
 // Sat/Sun continuity logic runs independently for each one that's flagged.
-function generateSchedule(staffList, year, monthIdx, holidaySet, shiftHours, shiftLabels, dayShiftDefs, perShiftCount, leaveMap, carryOver, wishes, closedSet, openCount, lateOn) {
+function generateSchedule(staffList, year, monthIdx, holidaySet, shiftHours, shiftLabels, dayShiftDefs, perShiftCount, leaveMap, carryOver, wishes, closedSet, openCount, lateOn, half) {
+  // half days: half.days = { 17: "am" } (open only in the morning) / "pm"; half.parts = { F: "am", M: "pm" }
+  const halfDays = (half && half.days) || {};
+  const halfParts = (half && half.parts) || {};
+  const blockedOn = (dayNum, key) => !!halfDays[dayNum] && !!halfParts[key] && halfParts[key] !== halfDays[dayNum];
   const lateKeys = lateOn === false ? [] : ["S"]; // Spätdienst is optional in this planner (many practices have none)
   carryOver = carryOver || {};
   closedSet = closedSet || new Set(); // days the company is closed (closed weekday, closed holiday, Betriebsschließung)
@@ -98,7 +102,7 @@ function generateSchedule(staffList, year, monthIdx, holidaySet, shiftHours, shi
     const weekday = new Date(year, monthIdx, d).getDay();
     const shifts = {};
     allKeys.forEach((k) => { shifts[k] = []; });
-    days.push({ day: d, weekday, isWeekend: weekday === 0 || weekday === 6, isHoliday: holidaySet.has(d), isClosed: closedSet.has(d), shifts });
+    days.push({ day: d, weekday, isWeekend: weekday === 0 || weekday === 6, isHoliday: holidaySet.has(d), isClosed: closedSet.has(d), half: halfDays[d] || null, shifts });
   }
 
   const ids = staffList.map((s) => s.id);
@@ -107,7 +111,7 @@ function generateSchedule(staffList, year, monthIdx, holidaySet, shiftHours, shi
   const MAX_CONSECUTIVE_WORKDAYS = 6;
   const REST_COOLDOWN_EXTRA_DAYS = 2;
   ids.forEach((id) => { hours[id] = 0; satCount[id] = 0; sunCount[id] = 0; forcedRest[id] = new Set(); consecutiveWorkDays[id] = 0; restCooldown[id] = new Set(); shiftCount[id] = 0; restShiftCountSoFar[id] = 0; });
-  staffList.forEach((s) => { targetOf[s.id] = adjustedTarget(s, monthTarget(s, total, leaveMap, closedSet, openCount), carryOver[s.id]); });
+  staffList.forEach((s) => { targetOf[s.id] = adjustedTarget(s, monthTarget(s, total, leaveMap, closedSet, openCount, halfDays), carryOver[s.id]); });
   const warnings = [];
   const notes = [];
   const isOnLeave = (id, dayNum) => leaveMap[id] && leaveMap[id].has(dayNum);
@@ -129,6 +133,7 @@ function generateSchedule(staffList, year, monthIdx, holidaySet, shiftHours, shi
     if (!ids.includes(w.staffId) || !shiftHours[w.shiftType] || w.day < 1 || w.day > total) return;
     if (isOnLeave(w.staffId, w.day)) { droppedWishCount++; return; }
     if (closedSet.has(w.day)) { droppedWishCount++; return; } // company closed that day
+    if (blockedOn(w.day, w.shiftType)) { droppedWishCount++; return; } // half day: this shift does not take place
     const wDay = days[w.day - 1];
     if (wDay && (wDay.isHoliday || wDay.isWeekend) && dailyKeys.includes(w.shiftType)) { droppedWishCount++; return; }
     validWishes.push(w);
@@ -169,6 +174,7 @@ function generateSchedule(staffList, year, monthIdx, holidaySet, shiftHours, shi
     function capForDay(dIdx) {
       const day = days[dIdx];
       if (day.isClosed) return 0; // company closed: nobody
+      if (blockedOn(day.day, RKEY)) return 0; // half day: this shift does not take place
       return (day.isWeekend || day.isHoliday) ? 1 : needed;
     }
 
@@ -375,7 +381,7 @@ function generateSchedule(staffList, year, monthIdx, holidaySet, shiftHours, shi
     const candidateDays = [];
     for (let d = 1; d <= total; d++) {
       const wd = new Date(year, monthIdx, d).getDay();
-      if (wd !== 0 && wd !== 6 && !holidaySet.has(d) && !closedSet.has(d)) candidateDays.push(d);
+      if (wd !== 0 && wd !== 6 && !holidaySet.has(d) && !closedSet.has(d) && !blockedOn(d, qd.key)) candidateDays.push(d);
     }
     const targetDays = new Set();
     const qCount = Math.max(1, qd.quotaCount || 9);
@@ -405,7 +411,7 @@ function generateSchedule(staffList, year, monthIdx, holidaySet, shiftHours, shi
   const availUpTo = {}, availTotal = {};
   ids.forEach((id) => {
     let n = 0; availUpTo[id] = [];
-    for (let i = 0; i < total; i++) { if (!closedSet.has(i + 1) && !isOnLeave(id, i + 1)) n++; availUpTo[id].push(n); }
+    for (let i = 0; i < total; i++) { if (!closedSet.has(i + 1) && !isOnLeave(id, i + 1)) n += halfDays[i + 1] ? 0.5 : 1; availUpTo[id].push(n); }
     availTotal[id] = n || 1;
   });
   const paceOk = (id, d, h) => hours[id] + h <= targetOf[id] * (availUpTo[id][d] / availTotal[id]) + maxShiftH;
@@ -415,7 +421,7 @@ function generateSchedule(staffList, year, monthIdx, holidaySet, shiftHours, shi
     const todayAssigned = new Set(allKeys.flatMap((k) => day.shifts[k]));
     const prevDay = d > 0 ? days[d - 1] : null;
     const prevDayS = prevDay ? new Set(prevDay.shifts.S || []) : new Set();
-    const neededShifts = day.isClosed ? [] : (day.isHoliday || day.isWeekend) ? ["F", ...lateKeys] : ["F", ...dailyKeys, ...lateKeys];
+    const neededShifts = (day.isClosed ? [] : (day.isHoliday || day.isWeekend) ? ["F", ...lateKeys] : ["F", ...dailyKeys, ...lateKeys]).filter((k) => !blockedOn(day.day, k));
     if (day.weekday === 6) weekendPairPick = {};
 
     quotaDefs.forEach((qd) => {
@@ -490,7 +496,7 @@ function generateSchedule(staffList, year, monthIdx, holidaySet, shiftHours, shi
         }
         if (pool.length === 0) break;
         // Saturday: prefer people who can also do the SAME shift on Sunday (weekend pairs stay together)
-        if (day.weekday === 6 && d + 1 < total && days[d + 1].weekday === 0 && !days[d + 1].isClosed) {
+        if (day.weekday === 6 && d + 1 < total && days[d + 1].weekday === 0 && !days[d + 1].isClosed && !blockedOn(days[d + 1].day, shiftType)) {
           const sun = days[d + 1];
           const sunOk = pool.filter((id) => !isOnLeave(id, sun.day) && !forcedRest[id].has(d + 1) && (consecutiveWorkDays[id] || 0) + 1 < MAX_CONSECUTIVE_WORKDAYS && !allKeys.some((k) => (sun.shifts[k] || []).includes(id)) && hours[id] + 2 * shiftHours[shiftType] <= hardCapFor(id));
           if (sunOk.length > 0) pool = sunOk;
@@ -536,9 +542,9 @@ function generateSchedule(staffList, year, monthIdx, holidaySet, shiftHours, shi
 
 // Monthly hour target: weekly hours spread over the OPEN weekdays, counted only for open days the
 // person is not on leave. With all 7 days open this is exactly the old formula.
-function monthTarget(s, total, leaveMap, closedSet, openCount) {
+function monthTarget(s, total, leaveMap, closedSet, openCount, halfDays) {
   let n = 0;
-  for (let d = 1; d <= total; d++) if (!closedSet.has(d) && !(leaveMap[s.id] && leaveMap[s.id].has(d))) n++;
+  for (let d = 1; d <= total; d++) if (!closedSet.has(d) && !(leaveMap[s.id] && leaveMap[s.id].has(d))) n += halfDays && halfDays[d] ? 0.5 : 1; // half day = half
   // Full-time staff: the real monthly hours (a month with 22 workdays has ~169 h at 38.5 h/week) may
   // exceed MONTHLY_HOUR_CAP; capping them there left the LAST days of the month short-staffed.
   // Full-time is therefore only capped at the overtime ceiling; part-time/Minijob keep the hard cap.
@@ -554,7 +560,7 @@ function adjustedTarget(s, contract, carry) {
   return Math.max(0, Math.min(contract + owed, fullTime ? FULLTIME_MONTHLY_CEILING : Math.max(contract, MONTHLY_HOUR_CAP)));
 }
 
-function computeStatsAndWarnings(days, staffList, leaveMap, shiftHours, allKeys, restKeysList, shiftLabels, closedSet, openCount, carryOver) {
+function computeStatsAndWarnings(days, staffList, leaveMap, shiftHours, allKeys, restKeysList, shiftLabels, closedSet, openCount, carryOver, halfDays) {
   leaveMap = leaveMap || {};
   carryOver = carryOver || {};
   closedSet = closedSet || new Set();
@@ -577,7 +583,7 @@ function computeStatsAndWarnings(days, staffList, leaveMap, shiftHours, allKeys,
   });
   const total = days.length;
   const targetOf = {};
-  staffList.forEach((s) => { targetOf[s.id] = adjustedTarget(s, monthTarget(s, total, leaveMap, closedSet, openCount), carryOver[s.id]); });
+  staffList.forEach((s) => { targetOf[s.id] = adjustedTarget(s, monthTarget(s, total, leaveMap, closedSet, openCount, halfDays), carryOver[s.id]); });
   const warnings = [];
   const openSat = days.filter((d) => d.weekday === 6 && !closedSet.has(d.day)).length;
   const openSun = days.filter((d) => d.weekday === 0 && !closedSet.has(d.day)).length;
@@ -929,7 +935,7 @@ function buildScheduleXlsx(input) {
     const r = 5 + di;
     const reduced = d.isWeekend || d.isHoliday;
     xlsxSet(ws1, r, 1, d.day, d.isHoliday ? sDayNumHol : d.isWeekend ? sDayNumWk : sDayNum);
-    xlsxSet(ws1, r, 2, input.weekdayNames[d.weekday] + (d.isHoliday ? " (Feiertag)" : "") + (d.isClosed ? " (geschlossen)" : ""), d.isHoliday ? sWdHol : d.isWeekend || d.isClosed ? sWdWk : sWd);
+    xlsxSet(ws1, r, 2, input.weekdayNames[d.weekday] + (d.isHoliday ? " (Feiertag)" : "") + (d.isClosed ? " (geschlossen)" : d.half === "am" ? " (nur vormittags)" : d.half === "pm" ? " (nur nachmittags)" : ""), d.isHoliday ? sWdHol : d.isWeekend || d.isClosed ? sWdWk : sWd);
     input.columns.forEach((col, i) => {
       const s = shiftByKey[col.key];
       const id = (d.shifts[col.key] || [])[col.slotIndex];
@@ -1266,7 +1272,7 @@ function LabShiftSchedulerInner() {
 
       // contract hours of THIS month (without the saldo, which is already part of targetOf)
       const lm = buildLeaveMap();
-      const contractOf = (x) => monthTarget(x, totalDays, lm, closedSet, openCount);
+      const contractOf = (x) => monthTarget(x, totalDays, lm, closedSet, openCount, halfMap);
       const openSat = schedule.days.filter((d) => d.weekday === 6 && !closedSet.has(d.day)).length;
       const openSun = schedule.days.filter((d) => d.weekday === 0 && !closedSet.has(d.day)).length;
 
@@ -1392,7 +1398,14 @@ function LabShiftSchedulerInner() {
   const [monthClosedText, setMonthClosedText] = useState("");
   const [openingMsg, setOpeningMsg] = useState("");
   const [closedMsg, setClosedMsg] = useState("");
-  const openCount = openWeekdays.length || 7;
+  // half days: weekday -> "am" (nur vormittags) / "pm" (nur nachmittags); shift -> part of the day (manual choice)
+  const [halfWeekdays, setHalfWeekdays] = useState({});
+  const [shiftPartChoice, setShiftPartChoice] = useState({});
+  const [monthAm, setMonthAm] = useState([]);
+  const [monthPm, setMonthPm] = useState([]);
+  const [monthAmText, setMonthAmText] = useState("");
+  const [monthPmText, setMonthPmText] = useState("");
+  const openCount = openWeekdays.reduce((n, wd) => n + (halfWeekdays[wd] ? 0.5 : 1), 0) || 7; // half day = half
   const closedSet = useMemo(() => {
     const set = new Set();
     for (let d = 1; d <= totalDays; d++) {
@@ -1407,48 +1420,77 @@ function LabShiftSchedulerInner() {
     if (!orgCtx) return undefined;
     let cancelled = false;
     (async () => {
-      const r = await orgCtx.supabase.from("organizations").select("open_weekdays, closed_on_holidays").eq("id", orgCtx.orgId);
+      let r = await orgCtx.supabase.from("organizations").select("open_weekdays, closed_on_holidays, half_day_config").eq("id", orgCtx.orgId);
+      if (r.error) r = await orgCtx.supabase.from("organizations").select("open_weekdays, closed_on_holidays").eq("id", orgCtx.orgId); // script 13 not run yet
       if (cancelled || r.error || !r.data || !r.data[0]) return; // script 10 not run yet: all days open, as before
       const ow = r.data[0].open_weekdays;
       if (Array.isArray(ow) && ow.length > 0) setOpenWeekdays(ow.map(Number));
       setClosedOnHolidays(!!r.data[0].closed_on_holidays);
+      const cfg = r.data[0].half_day_config || {};
+      setHalfWeekdays(cfg.weekdays || {});
+      setShiftPartChoice(cfg.shifts || {});
     })();
     return () => { cancelled = true; };
   }, [orgCtx]);
 
   useEffect(() => {
     setMonthClosed([]); setMonthClosedText(""); setClosedMsg("");
+    setMonthAm([]); setMonthPm([]); setMonthAmText(""); setMonthPmText("");
     if (!orgCtx) return undefined;
     let cancelled = false;
     (async () => {
-      const r = await orgCtx.supabase.from("month_closures").select("days").eq("org_id", orgCtx.orgId).eq("year", year).eq("month", monthIdx + 1);
+      let r = await orgCtx.supabase.from("month_closures").select("days, am_days, pm_days").eq("org_id", orgCtx.orgId).eq("year", year).eq("month", monthIdx + 1);
+      if (r.error) r = await orgCtx.supabase.from("month_closures").select("days").eq("org_id", orgCtx.orgId).eq("year", year).eq("month", monthIdx + 1);
       if (cancelled || r.error) return;
-      const list = (r.data && r.data[0] && r.data[0].days) || [];
+      const row = (r.data && r.data[0]) || {};
+      const list = row.days || [];
       setMonthClosed(list.map(Number));
       setMonthClosedText(formatDayList(list));
+      setMonthAm((row.am_days || []).map(Number)); setMonthAmText(formatDayList(row.am_days || []));
+      setMonthPm((row.pm_days || []).map(Number)); setMonthPmText(formatDayList(row.pm_days || []));
     })();
     return () => { cancelled = true; };
   }, [orgCtx, year, monthIdx]);
 
-  async function saveOpening(nextOpen, nextHol) {
+  async function saveOpening(nextOpen, nextHol, nextHalf = halfWeekdays, nextParts = shiftPartChoice) {
     const sorted = [...new Set(nextOpen)].sort((a, b) => a - b);
     if (sorted.length === 0) { setOpeningMsg("Mindestens ein Tag muss geöffnet sein."); return; }
-    setOpenWeekdays(sorted); setClosedOnHolidays(nextHol);
+    const half = {}; Object.keys(nextHalf).forEach((wd) => { if (sorted.includes(Number(wd))) half[wd] = nextHalf[wd]; }); // closed days have no half
+    setOpenWeekdays(sorted); setClosedOnHolidays(nextHol); setHalfWeekdays(half); setShiftPartChoice(nextParts);
     if (!orgCtx) return;
     setOpeningMsg("Moment …");
-    const { error } = await orgCtx.supabase.rpc("set_opening_days", { p_org: orgCtx.orgId, p_open_weekdays: sorted, p_closed_on_holidays: nextHol });
+    const { error } = await orgCtx.supabase.rpc("set_opening_days", { p_org: orgCtx.orgId, p_open_weekdays: sorted, p_closed_on_holidays: nextHol, p_half_day_config: { weekdays: half, shifts: nextParts } });
     if (error) { setOpeningMsg("Nicht gespeichert: " + error.message); return; }
     setOpeningMsg("Gespeichert ✓");
     setTimeout(() => setOpeningMsg((m) => (m === "Gespeichert ✓" ? "" : m)), 2500);
   }
 
+  // one click = next state: ganztags -> nur vormittags -> nur nachmittags -> geschlossen -> ganztags
+  function cycleWeekday(wd) {
+    const open = openWeekdays.includes(wd), mode = halfWeekdays[wd];
+    const half = { ...halfWeekdays };
+    if (open && !mode) { half[wd] = "am"; return saveOpening(openWeekdays, closedOnHolidays, half); }
+    if (open && mode === "am") { half[wd] = "pm"; return saveOpening(openWeekdays, closedOnHolidays, half); }
+    if (open && mode === "pm") {
+      delete half[wd];
+      if (openWeekdays.length === 1) { setOpeningMsg("Mindestens ein Tag muss geöffnet sein."); return saveOpening(openWeekdays, closedOnHolidays, half); }
+      return saveOpening(openWeekdays.filter((x) => x !== wd), closedOnHolidays, half);
+    }
+    delete half[wd];
+    return saveOpening([...openWeekdays, wd], closedOnHolidays, half);
+  }
+
   async function saveMonthClosed() {
     const list = [...parseDayList(monthClosedText, totalDays)].sort((a, b) => a - b);
-    if (monthClosedText.trim() && list.length === 0) { setClosedMsg("Bitte Tage wie 24-31 oder 3,4,5 eingeben."); return; }
+    const am = [...parseDayList(monthAmText, totalDays)].filter((d) => !list.includes(d)).sort((a, b) => a - b);
+    const pm = [...parseDayList(monthPmText, totalDays)].filter((d) => !list.includes(d) && !am.includes(d)).sort((a, b) => a - b);
+    const bad = (txt, l) => txt.trim() && l.length === 0;
+    if (bad(monthClosedText, list) || bad(monthAmText, am) || bad(monthPmText, pm)) { setClosedMsg("Bitte Tage wie 24-31 oder 3,4,5 eingeben."); return; }
     setMonthClosed(list); setMonthClosedText(formatDayList(list));
-    if (!orgCtx) { setClosedMsg(list.length ? "Übernommen ✓" : ""); return; }
+    setMonthAm(am); setMonthAmText(formatDayList(am)); setMonthPm(pm); setMonthPmText(formatDayList(pm));
+    if (!orgCtx) { setClosedMsg(list.length || am.length || pm.length ? "Übernommen ✓" : ""); return; }
     setClosedMsg("Moment …");
-    const { error } = await orgCtx.supabase.rpc("set_month_closed_days", { p_org: orgCtx.orgId, p_year: year, p_month: monthIdx + 1, p_days: list });
+    const { error } = await orgCtx.supabase.rpc("set_month_closed_days", { p_org: orgCtx.orgId, p_year: year, p_month: monthIdx + 1, p_days: list, p_am_days: am, p_pm_days: pm });
     if (error) { setClosedMsg("Nicht gespeichert: " + error.message); return; }
     setClosedMsg("Gespeichert ✓");
     setTimeout(() => setClosedMsg((m) => (m === "Gespeichert ✓" ? "" : m)), 2500);
@@ -1473,6 +1515,27 @@ function LabShiftSchedulerInner() {
     });
     return meta;
   }, [specialShifts, dayShiftDefs]);
+  // which part of a half day each shift belongs to: manual choice, else start before 12:00 = morning
+  const shiftParts = useMemo(() => {
+    const parts = {};
+    Object.keys(shiftMeta).forEach((k) => {
+      const m = String(shiftMeta[k].time || "").match(/^(\d{1,2})/);
+      parts[k] = shiftPartChoice[k] || (m && Number(m[1]) < 12 ? "am" : "pm");
+    });
+    return parts;
+  }, [shiftMeta, shiftPartChoice]);
+  // day of this month -> "am" / "pm" (a single-day setting of the month wins over the weekday)
+  const halfMap = useMemo(() => {
+    const map = {};
+    for (let d = 1; d <= totalDays; d++) {
+      if (closedSet.has(d)) continue;
+      if (monthAm.includes(d)) map[d] = "am";
+      else if (monthPm.includes(d)) map[d] = "pm";
+      else { const wd = new Date(year, monthIdx, d).getDay(); if (halfWeekdays[wd]) map[d] = halfWeekdays[wd]; }
+    }
+    return map;
+  }, [closedSet, monthAm, monthPm, halfWeekdays, totalDays, year, monthIdx]);
+  const blockedHalf = (dayNum, key) => !!halfMap[dayNum] && !!shiftParts[key] && shiftParts[key] !== halfMap[dayNum];
   const shiftHours = useMemo(() => {
     const h = {};
     Object.keys(shiftMeta).forEach((k) => { h[k] = shiftMeta[k].hours; });
@@ -1618,7 +1681,7 @@ function LabShiftSchedulerInner() {
     const leaveMap = {}; people.forEach((p) => { leaveMap[p.id] = new Set(); });
     const restKeys = restore ? defs.filter((d) => d.requires_rest_after && d.frequency !== "quota").map((d) => d.key) : restRequiringKeys;
     const labelsByKey = restore ? Object.fromEntries(defs.map((d) => [d.key, d.label])) : shiftLabels;
-    const stats = computeStatsAndWarnings(days, people, leaveMap, useHours, keysOrdered, restKeys, labelsByKey, closedSet, openCount, carryMap());
+    const stats = computeStatsAndWarnings(days, people, leaveMap, useHours, keysOrdered, restKeys, labelsByKey, closedSet, openCount, carryMap(), halfMap);
     setSchedule({ days, hours: stats.hours, satCount: stats.satCount, sunCount: stats.sunCount, targetOf: stats.targetOf, warnings: stats.warnings, notes: [] });
     // what the employees currently see (published version) — used to mark every manual change
     if (baselineRows && baselineRows.length) {
@@ -1794,11 +1857,11 @@ function LabShiftSchedulerInner() {
         if (e.shiftType === "Frei") return; // handled above via leaveMap, not a real shift wish
         parseDayList(e.days, totalDays).forEach((d) => wishes.push({ staffId: e.staffId, day: d, shiftType: e.shiftType }));
       });
-      const result = generateSchedule(staffList, year, monthIdx, holidaySet, shiftHours, shiftLabels, dayShiftDefs, perShiftCount, leaveMap, carryOver, wishes, closedSet, openCount, useLate);
+      const result = generateSchedule(staffList, year, monthIdx, holidaySet, shiftHours, shiftLabels, dayShiftDefs, perShiftCount, leaveMap, carryOver, wishes, closedSet, openCount, useLate, { days: halfMap, parts: shiftParts });
       // Recompute + validate from the final `days` (same pass used after manual edits) so any
       // rule the generator couldn't fully guarantee up front (e.g. a rare consecutive-workday
       // overrun caused by an already-fixed night block) still surfaces as a warning immediately.
-      const stats = computeStatsAndWarnings(result.days, staffList, leaveMap, shiftHours, dayOrderedKeys, restRequiringKeys, shiftLabels, closedSet, openCount, carryMap());
+      const stats = computeStatsAndWarnings(result.days, staffList, leaveMap, shiftHours, dayOrderedKeys, restRequiringKeys, shiftLabels, closedSet, openCount, carryMap(), halfMap);
       // how much differs from the plan that was on the screen before (so the button visibly does something)
       let changed = 0;
       if (schedule && schedule.days) {
@@ -1833,7 +1896,7 @@ function LabShiftSchedulerInner() {
         arr[slotIndex] = newId; // keep position stable — columns are now fixed, so never splice/shift
         return { ...d, shifts: { ...d.shifts, [shiftType]: arr } };
       });
-      const stats = computeStatsAndWarnings(days, staffList, buildLeaveMap(), shiftHours, dayOrderedKeys, restRequiringKeys, shiftLabels, closedSet, openCount, carryMap());
+      const stats = computeStatsAndWarnings(days, staffList, buildLeaveMap(), shiftHours, dayOrderedKeys, restRequiringKeys, shiftLabels, closedSet, openCount, carryMap(), halfMap);
       return { days, ...stats };
     });
   }
@@ -1886,7 +1949,7 @@ function LabShiftSchedulerInner() {
       schedule.days.forEach((d) => {
         const row = [d.day, WEEKDAY_DE[d.weekday]];
         columnPlan.forEach((col) => {
-          const isSkippedOnHoliday = (dailyDayShiftKeys.has(col.shiftType) && (d.isHoliday || d.isWeekend)) || closedSet.has(d.day);
+          const isSkippedOnHoliday = (dailyDayShiftKeys.has(col.shiftType) && (d.isHoliday || d.isWeekend)) || closedSet.has(d.day) || blockedHalf(d.day, col.shiftType);
           const id = (d.shifts[col.shiftType] || [])[col.slotIndex];
           row.push(isSkippedOnHoliday ? "" : (staffMap[id] || ""));
         });
@@ -1913,7 +1976,7 @@ function LabShiftSchedulerInner() {
       weekdayNames: WEEKDAY_DE,
       weekdayShort: WEEKDAY_DE.map((x) => x.slice(0, 2)),
       staff: staffList.map((s) => ({ id: s.id, name: s.name })),
-      days: schedule.days.map((d) => ({ ...d, isClosed: closedSet.has(d.day) })),
+      days: schedule.days.map((d) => ({ ...d, isClosed: closedSet.has(d.day), half: halfMap[d.day] || null, blockedKeys: Object.keys(shiftParts).filter((k) => blockedHalf(d.day, k)) })),
       columns,
       shifts,
       skipKeys: dailyDayShiftKeys,
@@ -2469,21 +2532,43 @@ function LabShiftSchedulerInner() {
             <div className="mt-2 flex flex-wrap gap-1.5">
               {[1, 2, 3, 4, 5, 6, 0].map((wd) => {
                 const on = openWeekdays.includes(wd);
-                const last = on && openWeekdays.length === 1;
+                const mode = on ? (halfWeekdays[wd] || "full") : "closed";
+                const word = { full: "ganztags", am: "nur vorm.", pm: "nur nachm.", closed: "geschlossen" }[mode];
+                const look = mode === "full" ? "bg-teal-600 border-teal-600 text-white"
+                  : mode === "closed" ? "bg-white border-slate-300 text-slate-400"
+                  : "bg-teal-50 border-teal-300 text-teal-800";
                 return (
-                  <button key={wd} type="button" aria-pressed={on} disabled={!canEditOpening || last}
-                    onClick={() => saveOpening(on ? openWeekdays.filter((x) => x !== wd) : [...openWeekdays, wd], closedOnHolidays)}
-                    title={last ? "Mindestens ein Tag muss geöffnet sein" : WEEKDAY_DE[wd]}
-                    className={`min-w-[44px] text-xs rounded-lg border px-2.5 py-1.5 font-medium active:translate-y-px disabled:cursor-not-allowed ${on ? "bg-teal-600 border-teal-600 text-white" : "bg-white border-slate-300 text-slate-400 line-through"}`}>
-                    {WEEKDAY_DE[wd].slice(0, 2)}
+                  <button key={wd} type="button" disabled={!canEditOpening} onClick={() => cycleWeekday(wd)}
+                    aria-label={`${WEEKDAY_DE[wd]}: ${word}. Klicken für die nächste Einstellung`}
+                    title="Klicken: ganztags → nur vormittags → nur nachmittags → geschlossen"
+                    className={`min-w-[64px] rounded-lg border px-2 py-1.5 font-medium leading-tight active:translate-y-px disabled:cursor-not-allowed ${look}`}>
+                    <span className={`block text-xs ${mode === "closed" ? "line-through" : ""}`}>{WEEKDAY_DE[wd].slice(0, 2)}</span>
+                    <span className="block text-[10px] font-normal opacity-90">{word}</span>
                   </button>
                 );
               })}
             </div>
+            <p className="text-[11px] text-slate-400 mt-1">Ein Klick auf einen Tag wechselt: ganztags → nur vormittags → nur nachmittags → geschlossen.</p>
             <label className="mt-2 flex items-center gap-2 text-xs text-slate-600">
               <input type="checkbox" checked={closedOnHolidays} disabled={!canEditOpening} onChange={(e) => saveOpening(openWeekdays, e.target.checked)} />
               An Feiertagen geschlossen
             </label>
+            {(Object.keys(halfWeekdays).length > 0 || monthAm.length > 0 || monthPm.length > 0) && (
+              <div className="mt-3 rounded-lg bg-slate-50 p-2">
+                <div className="text-xs font-medium text-slate-700 mb-1">An halben Tagen gehört die Schicht zu …</div>
+                {dayOrderedKeys.map((k) => (
+                  <div key={k} className="flex flex-wrap items-center gap-2 py-0.5">
+                    <span className="text-xs text-slate-700 min-w-[9rem]">{shiftMeta[k].label} <span className="text-slate-400">{shiftMeta[k].time}</span></span>
+                    {[["am", "Vormittag"], ["pm", "Nachmittag"]].map(([part, word]) => (
+                      <button key={part} type="button" disabled={!canEditOpening} aria-pressed={shiftParts[k] === part}
+                        onClick={() => saveOpening(openWeekdays, closedOnHolidays, halfWeekdays, { ...shiftPartChoice, [k]: part })}
+                        className={`text-xs rounded-md border px-2 py-1 active:translate-y-px ${shiftParts[k] === part ? "bg-teal-600 border-teal-600 text-white" : "bg-white border-slate-300 text-slate-600"}`}>{word}</button>
+                    ))}
+                  </div>
+                ))}
+                <p className="text-[11px] text-slate-400 mt-1">Ohne Auswahl: Beginn vor 12:00 Uhr = Vormittag.</p>
+              </div>
+            )}
             {!canEditOpening && <p className="text-[11px] text-slate-400 mt-1">Öffnungstage ändern nur Leitung oder Inhaber.</p>}
             <div className="mt-3">
               <label className="text-xs font-medium text-slate-700 block mb-1">Ganzer Betrieb geschlossen in diesem Monat (z. B. Betriebsurlaub)</label>
@@ -2493,8 +2578,19 @@ function LabShiftSchedulerInner() {
                 <button type="button" onClick={saveMonthClosed} disabled={closedMsg === "Moment …"} className="text-sm text-teal-700 hover:text-teal-800 font-medium px-2 py-1.5 rounded-lg border border-teal-200 bg-teal-50 hover:bg-teal-100 active:translate-y-px disabled:opacity-60">{closedMsg === "Moment …" ? "Moment …" : "Übernehmen"}</button>
                 {closedMsg && closedMsg !== "Moment …" && <span role="status" className={`text-xs ${closedMsg.startsWith("Nicht") || closedMsg.startsWith("Bitte") ? "text-rose-700" : "text-teal-700"}`}>{closedMsg}</span>}
               </div>
+              <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                <label className="text-xs font-medium text-slate-700">Nur vormittags geöffnet (dieser Monat)
+                  <input value={monthAmText} onChange={(e) => { setMonthAmText(e.target.value); setClosedMsg(""); }} onKeyDown={(e) => { if (e.key === "Enter") saveMonthClosed(); }}
+                    placeholder="z. B. 24, 31" className="mt-1 block border border-slate-300 rounded-lg px-2.5 py-1.5 text-sm font-mono w-44 focus:outline-none focus:ring-2 focus:ring-teal-500" />
+                </label>
+                <label className="text-xs font-medium text-slate-700">Nur nachmittags geöffnet (dieser Monat)
+                  <input value={monthPmText} onChange={(e) => { setMonthPmText(e.target.value); setClosedMsg(""); }} onKeyDown={(e) => { if (e.key === "Enter") saveMonthClosed(); }}
+                    placeholder="z. B. 2" className="mt-1 block border border-slate-300 rounded-lg px-2.5 py-1.5 text-sm font-mono w-44 focus:outline-none focus:ring-2 focus:ring-teal-500" />
+                </label>
+              </div>
+              <p className="text-[11px] text-slate-400 mt-1">„Übernehmen“ speichert alle drei Felder.</p>
             </div>
-            <p className="text-[11px] text-slate-400 mt-2">An geschlossenen Tagen wird niemand eingeplant; das Stundenziel zählt nur die offenen Tage. Gilt für neu erstellte Pläne – ein bestehender Plan ändert sich nicht von selbst.</p>
+            <p className="text-[11px] text-slate-400 mt-2">An geschlossenen Tagen wird niemand eingeplant, an halben Tagen nur die passenden Schichten; das Stundenziel zählt nur die offenen Tage (halber Tag = halb). Gilt für neu erstellte Pläne – ein bestehender Plan ändert sich nicht von selbst.</p>
           </div>
 
           {/* Holidays */}
@@ -2753,11 +2849,12 @@ function LabShiftSchedulerInner() {
                           {WEEKDAY_DE[d.weekday]}
                           {d.isHoliday && <div className="text-rose-600 font-medium text-[10px]">Feiertag</div>}
                           {closedSet.has(d.day) && <div className="text-slate-500 font-medium text-[10px]">geschlossen</div>}
+                          {halfMap[d.day] && <div className="text-teal-700 font-medium text-[10px]">{halfMap[d.day] === "am" ? "nur vormittags" : "nur nachmittags"}</div>}
                         </td>
                         {columnPlan.map((col, ci) => {
                           const { shiftType: st, slotIndex } = col;
                           const val = (d.shifts[st] || [])[slotIndex];
-                          const isSkippedOnHoliday = (dailyDayShiftKeys.has(st) && (d.isHoliday || d.isWeekend)) || (closedSet.has(d.day) && !val); // closed: nothing to fill (an old entry stays editable)
+                          const isSkippedOnHoliday = (dailyDayShiftKeys.has(st) && (d.isHoliday || d.isWeekend)) || ((closedSet.has(d.day) || blockedHalf(d.day, st)) && !val); // closed / other half of the day: nothing to fill (an old entry stays editable)
                           // marks versus the published version (only when a saved month was opened for editing)
                           const baseIds = baseline ? (baseline[`${d.day}|${st}`] || []) : null;
                           const isNewHere = !!(baseIds && val && !baseIds.includes(val));

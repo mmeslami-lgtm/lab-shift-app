@@ -36,12 +36,24 @@
 - دیتابیس: `docs/sql/12-hour-balance-schema.sql` — روی Supabase واقعی اجرا و با نقش‌های واقعی تست شد (۶ بررسی). تابع `save_month_balances(p_org, p_year, p_month, p_rows)`.
 - Dienstplaner Labor عمداً بدون تغییر است (Saldo در مرورگر، Ziel با سقف ۱۶۰). به Labor منتقل نشود مگر کاربر بخواهد.
 
+### نیم‌روز (فقط Dienstplaner allgemein)
+- دکمهٔ هر روز در «Öffnungstage» با هر کلیک: ganztags → nur vormittags → nur nachmittags → geschlossen. برای یک ماه: «Nur vormittags/nachmittags geöffnet (dieser Monat)» کنار Betriebsschließung (یک «Übernehmen» برای هر سه).
+- شیفت صبح/عصر: شروع قبل از ۱۲ = Vormittag، وگرنه Nachmittag؛ قابل انتخاب دستی («An halben Tagen gehört die Schicht zu …»). در نیم‌روز فقط شیفت‌های همان نیمه؛ در Ziel نیم‌روز = نصف روز. نمایش: جدول، چاپ («nur vorm./nachm.»)، Excel، اپ کارمند («½»).
+- دیتابیس: `docs/sql/13-half-days-schema.sql` — روی Supabase واقعی اجرا و تست شد (۶ بررسی). `organizations.half_day_config` (`weekdays`, `shifts`)، `month_closures.am_days/pm_days`؛ توابع `set_opening_days` و `set_month_closed_days` یک پارامتر اختیاری بیشتر دارند (فراخوانی قدیمی کار می‌کند).
+
+### Labor: شیفت‌های میانی جمعه/شنبه/یکشنبه
+- برای هر شیفت اضافه (Mitteldienst، Büro، شیفت‌های خود کاربر) در Dienstplaner Labor سه تیک: «Freitag» (پیش‌فرض روشن)، «Samstag»، «Sonntag» (پیش‌فرض خاموش). دوشنبه تا پنجشنبه همیشه، تعطیلات رسمی هرگز. برای «Täglich» و «Kontingent/Monat». شنبه و یکشنبه هم همان نفر (قانون جفت آخر هفته).
+- ذخیره با انتشار در `shift_definitions` (`on_friday`, `on_saturday`, `on_sunday`) و بازگشت با «Plan bearbeiten». دیتابیس: `docs/sql/14-middle-shift-days-schema.sql` (روی Supabase واقعی اجرا شد؛ فقط ستون جدید با مقدار پیش‌فرض رفتار قبلی).
+
+### /admin: نام شرکت و E-Mail
+- «Umbenennen» کنار نام هر شرکت (نام تکراری رد می‌شود)؛ «E-Mail ändern» کنار هر حساب (بدون ایمیل تأیید، رمز همان می‌ماند؛ ایمیل تکراری رد؛ ایمیل ادمین دیگر محافظت‌شده). هر دو در `admin_log`.
+
 ### Spätdienst اختیاری (فقط Dienstplaner allgemein)
 - در allgemein فقط «Frühdienst» از پیش هست. «+ Spätdienst hinzufügen» در «Schichtzeiten» آن را اضافه می‌کند (با سطل زباله برداشته می‌شود). پلن ذخیره‌شده‌ای که Spätdienst دارد، هنگام باز شدن آن را خودش روشن می‌کند. Labor بدون تغییر (F/S/N ثابت).
 
 ### ظاهر «Klares Blau» (همهٔ صفحه‌ها)
 - انتخاب کاربر از سه نمونه. Dienstplanerها: کل ظاهر در `app/globals.css` (بخش «Erscheinungsbild Klares Blau»): زمینهٔ آبی ملایم `#E9EEF8`، عنوان صفحه نوار آبی تیره `#243B6B`، کارت‌ها با نوار بالایی آبی و سایهٔ نرم، رنگ teal قبلی همه‌جا آبی `#185FA5`. صفحه‌های با استایل درون‌خطی (اپ کارمند، /freigaben، /konto، /profil، /admin، دمو): ثابت `PAPER` = `#E9EEF8`، کارت‌های اپ کارمند با حاشیهٔ `#CBD8EE`. برگهٔ چاپ تغییر نکرد.
-- دکمه‌ها: حاشیهٔ پررنگ‌تر (۱٫۵px، `#93A7CB` / `#9AAED0`) و متن یک درجه بزرگ‌تر (در Dienstplanerها از `globals.css`، در بقیه از ثابت‌های `btn`/`ghost`). در Dienstplanerها «Abmelden» بالای صفحه، سمت چپ، بیرون نوار آبی عنوان، قرمز تیره (`.kb-logout`)؛ در OrgBar دیگر نیست. در /profil و /freigaben جدا از بقیهٔ دکمه‌ها. خطوط کم‌رنگ (جدول، کادر تنظیمات، فیلدها) در `globals.css` پررنگ‌تر شدند.
+- دکمه‌ها: حاشیهٔ پررنگ‌تر (۱٫۵px، `#93A7CB` / `#9AAED0`) و متن یک درجه بزرگ‌تر (در Dienstplanerها از `globals.css`، در بقیه از ثابت‌های `btn`/`ghost`). در Dienstplanerها «Abmelden» بالای صفحه، سمت راست، بیرون نوار آبی عنوان، قرمز تیره (`.kb-logout`)؛ در OrgBar دیگر نیست. در /profil و /freigaben جدا از بقیهٔ دکمه‌ها. خطوط کم‌رنگ (جدول، کادر تنظیمات، فیلدها) در `globals.css` پررنگ‌تر شدند.
 
 ### دکمهٔ ساخت پلن (هر دو Dienstplaner)
 - «Dienstplan erstellen» / «Neu generieren» حالا واکنش می‌دهد: «Moment …» با آیکون چرخان، بعد پیام «Plan erstellt um HH:MM:SS Uhr» یا «Neu erstellt … – N Einträge anders als vorher» (یا «gleiches Ergebnis …» اگر توزیع دیگری ممکن نیست).
@@ -56,7 +68,7 @@
 - اسکریپت SQL جدول `first_login_flags` و توابع `flag_first_login` / `clear_first_login` در دیتابیس هست ولی در `docs/sql` نیست → بعداً از دیتابیس به فایل منتقل شود.
 
 ### تست‌ها
-تست‌های جدید در `dev-tests` (جدا از پروژه): `print_test`، `wake_test`، `opening_test`، `closed_emp_test`، `wishes_test`، `genbtn_test`، `saldo_test`، `late_test`، و شبیه‌سازی تولید پلن. `edit_test` و `approval_test` قدیمی هستند (مدل نقش قبلی «Zur Freigabe einreichen») و باید به‌روز شوند.
+تست‌های جدید در `dev-tests` (جدا از پروژه): `print_test`، `wake_test`، `opening_test`، `closed_emp_test`، `wishes_test`، `genbtn_test`، `saldo_test`، `late_test`، `opening_test` (نیم‌روز)، `admin_test`، `mid_ui_test`، و شبیه‌سازی تولید پلن. `edit_test` و `approval_test` قدیمی هستند (مدل نقش قبلی «Zur Freigabe einreichen») و باید به‌روز شوند.
 
 ## ۱۲. کارهای باز (به‌روز)
 1. دکمهٔ «Zugänge» برای Leitung: ساخت ورود کارمند و رمز جدید بدون ادمین (در یک چت قبلی ساخته و تست شده بود، روی نسخهٔ جدید منتقل نشده).

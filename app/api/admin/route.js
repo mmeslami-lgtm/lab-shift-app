@@ -166,6 +166,32 @@ export async function POST(request) {
         await log(me, "reset_password", null, email, null);
         return json({ ok: true, email, password: given ? null : password });
       }
+      case "rename_org": {
+        const name = String(body.name || "").trim();
+        if (name.length < 2 || name.length > 120) return json({ error: "Bitte einen Firmennamen angeben (2 bis 120 Zeichen)." }, 400);
+        const all = await supabaseAdmin.from("organizations").select("id, name");
+        if (all.error) throw all.error;
+        const old = all.data.find((o) => o.id === body.orgId);
+        if (!old) return json({ error: "Firma nicht gefunden." }, 404);
+        if (all.data.some((o) => o.id !== body.orgId && String(o.name).trim().toLowerCase() === name.toLowerCase())) return json({ error: "Eine Firma mit diesem Namen gibt es schon." }, 409);
+        const r = await supabaseAdmin.from("organizations").update({ name }).eq("id", body.orgId);
+        if (r.error) throw r.error;
+        await log(me, "rename_org", body.orgId, null, { from: old.name, to: name });
+        return json({ ok: true });
+      }
+      case "change_email": {
+        const email = String(body.email || "").trim().toLowerCase();
+        if (!EMAIL.test(email)) return json({ error: "Bitte eine gültige E-Mail-Adresse angeben." }, 400);
+        const { data: got, error: gErr } = await supabaseAdmin.auth.admin.getUserById(String(body.userId || ""));
+        if (gErr || !got || !got.user) return json({ error: "Konto nicht gefunden." }, 404);
+        const adm = await supabaseAdmin.from("platform_admins").select("user_id").eq("user_id", got.user.id);
+        if (adm.data && adm.data.length && got.user.id !== me.id) return json({ error: "Die E-Mail eines anderen Plattform-Admins kann hier nicht geändert werden." }, 403);
+        if ((got.user.email || "").toLowerCase() === email) return json({ ok: true, email });
+        const { error } = await supabaseAdmin.auth.admin.updateUserById(got.user.id, { email, email_confirm: true }); // no confirmation mail; the admin is responsible
+        if (error) return json({ error: /already|registered|exists/i.test(error.message) ? "Diese E-Mail hat schon ein Konto." : error.message }, 400);
+        await log(me, "change_email", null, email, { from: got.user.email });
+        return json({ ok: true, email });
+      }
       case "set_product": {
         if (!PRODUCTS.includes(body.product)) return json({ error: "Unbekanntes Produkt." }, 400);
         const r = await supabaseAdmin.from("org_products").upsert({ org_id: body.orgId, product: body.product, enabled: !!body.enabled }, { onConflict: "org_id,product" });

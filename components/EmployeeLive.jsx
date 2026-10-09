@@ -83,6 +83,7 @@ export default function EmployeeLive() {
   const [myChanges, setMyChanges] = useState({});   // iso -> [{ key, kind }] changes of MY shifts that have not happened yet
   const [error, setError] = useState("");
   const [closedDays, setClosedDays] = useState(new Set()); // iso dates the whole company is closed (Betriebsschließung)
+  const [halfDays, setHalfDays] = useState({}); // iso date -> "am" (nur vormittags) / "pm" (nur nachmittags)
 
   const sb = org.supabase;
   const my = org.staffId;
@@ -114,10 +115,24 @@ export default function EmployeeLive() {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const r = await sb.from("month_closures").select("days").eq("org_id", org.orgId).eq("year", view.y).eq("month", view.m + 1);
+      let r = await sb.from("month_closures").select("days, am_days, pm_days").eq("org_id", org.orgId).eq("year", view.y).eq("month", view.m + 1);
+      if (r.error) r = await sb.from("month_closures").select("days").eq("org_id", org.orgId).eq("year", view.y).eq("month", view.m + 1);
+      const o = await sb.from("organizations").select("half_day_config").eq("id", org.orgId);
       if (cancelled) return;
-      const list = !r.error && r.data && r.data[0] ? r.data[0].days || [] : []; // table missing (script 10 not run) = nothing closed
-      setClosedDays(new Set(list.map((d) => isoOf(view.y, view.m, Number(d)))));
+      const row = !r.error && r.data && r.data[0] ? r.data[0] : {}; // table missing (script 10 not run) = nothing closed
+      const closed = new Set((row.days || []).map((d) => isoOf(view.y, view.m, Number(d))));
+      setClosedDays(closed);
+      const weekly = (!o.error && o.data && o.data[0] && o.data[0].half_day_config && o.data[0].half_day_config.weekdays) || {};
+      const half = {};
+      const last = new Date(view.y, view.m + 1, 0).getDate();
+      for (let d = 1; d <= last; d++) {
+        const iso = isoOf(view.y, view.m, d);
+        if (closed.has(iso)) continue;
+        if ((row.am_days || []).includes(d)) half[iso] = "am";
+        else if ((row.pm_days || []).includes(d)) half[iso] = "pm";
+        else if (weekly[new Date(view.y, view.m, d).getDay()]) half[iso] = weekly[new Date(view.y, view.m, d).getDay()];
+      }
+      setHalfDays(half);
     })();
     return () => { cancelled = true; };
   }, [sb, org.orgId, view]);
@@ -257,7 +272,8 @@ export default function EmployeeLive() {
                       <span className="tn" style={{ fontSize: 13, fontWeight: today ? 800 : 500, color: today ? "#fff" : INK, background: today ? PRIMARY : "transparent", borderRadius: 10, minWidth: 22, lineHeight: "22px", textAlign: "center" }}>{d}</span>
                       {st ? <span style={{ fontSize: 11, fontWeight: 700, color: st.ink }}>{codes[key] || "?"}</span>
                         : (myChanges[iso] || []).some((c) => c.kind === "cancelled") ? <span style={{ fontSize: 11, fontWeight: 700, color: "#B45309" }}>✕</span>
-                        : closedDays.has(iso) ? <span style={{ fontSize: 10, fontWeight: 600, color: MUTED }}>zu</span> : <span style={{ height: 14 }} />}
+                        : closedDays.has(iso) ? <span style={{ fontSize: 10, fontWeight: 600, color: MUTED }}>zu</span>
+                        : halfDays[iso] ? <span style={{ fontSize: 10, fontWeight: 600, color: MUTED }}>½</span> : <span style={{ height: 14 }} />}
                       {(myChanges[iso] || []).length > 0 && <i aria-hidden="true" style={{ position: "absolute", top: 4, right: 5, width: 7, height: 7, borderRadius: 7, background: "#F59E0B" }} />}
                     </button>
                   );
@@ -267,7 +283,7 @@ export default function EmployeeLive() {
                 {shownDefs.map((d) => <span key={d.key} style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><i style={{ width: 9, height: 9, borderRadius: 3, background: styleOf(d.key).solid, display: "inline-block" }} />{codes[d.key]} {d.label}</span>)}
               </div>
               {Object.keys(myChanges).length > 0 && <div style={{ fontSize: 11, color: "#B45309", marginTop: 8, paddingLeft: 4 }}>● geändert · ✕ entfällt</div>}
-              {closedDays.size > 0 && <div style={{ fontSize: 11, color: MUTED, marginTop: 6, paddingLeft: 4 }}>zu = Betrieb geschlossen</div>}
+              {(closedDays.size > 0 || Object.keys(halfDays).length > 0) && <div style={{ fontSize: 11, color: MUTED, marginTop: 6, paddingLeft: 4 }}>{[closedDays.size > 0 && "zu = Betrieb geschlossen", Object.keys(halfDays).length > 0 && "½ = nur halber Tag geöffnet"].filter(Boolean).join(" · ")}</div>}
               <div className="tn" style={{ fontSize: 12, color: MUTED, marginTop: 10, paddingLeft: 4 }}>Geplant in diesem Monat: {fmtH(monthHours)} Std.</div>
             </Card>
 
@@ -291,7 +307,7 @@ export default function EmployeeLive() {
                     <div className="tn" style={{ fontSize: 13, fontWeight: 650, color: st.ink }}>{fmtH(netHours(def))} Std.</div>
                   </div>
                 );
-              })() : <div style={{ fontSize: 14, color: MUTED }}>{closedDays.has(selIso) ? "Der Betrieb ist an diesem Tag geschlossen." : "Kein Dienst. Der Tag ist frei."}</div>}
+              })() : <div style={{ fontSize: 14, color: MUTED }}>{closedDays.has(selIso) ? "Der Betrieb ist an diesem Tag geschlossen." : halfDays[selIso] ? `Kein Dienst. Der Betrieb ist an diesem Tag nur ${halfDays[selIso] === "am" ? "vormittags" : "nachmittags"} geöffnet.` : "Kein Dienst. Der Tag ist frei."}</div>}
               {(myChanges[selIso] || []).map((c, i) => (
                 <div key={i} style={{ marginTop: 10, background: "#FFF1D2", color: "#7A4E00", borderRadius: 12, padding: "9px 12px", fontSize: 13, fontWeight: 600 }}>
                   {c.kind === "cancelled"

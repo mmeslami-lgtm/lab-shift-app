@@ -72,12 +72,23 @@ function daysInMonth(year, monthIdx) {
   return new Date(year, monthIdx + 1, 0).getDate();
 }
 
+// Extra shifts (Mitteldienst, Büro, own shifts) run Monday-Thursday always, Friday / Saturday / Sunday
+// only when switched on for that shift ("auch Fr / Sa / So"). Never on holidays.
+function extraShiftRuns(def, day) {
+  if (!def || day.isHoliday) return false;
+  if (day.weekday === 5) return def.onFriday !== false;
+  if (day.weekday === 6) return !!def.onSaturday;
+  if (day.weekday === 0) return !!def.onSunday;
+  return true;
+}
+
 function generateSchedule(staffList, year, monthIdx, holidaySet, shiftHours, shiftLabels, dayShiftDefs, perShiftCount, leaveMap, carryOver, wishes) {
   carryOver = carryOver || {};
   wishes = wishes || [];
   dayShiftDefs = dayShiftDefs || [];
   const total = daysInMonth(year, monthIdx);
   const dailyKeys = dayShiftDefs.filter((d) => d.frequency !== "quota").map((d) => d.key);
+  const extraDefByKey = {}; dayShiftDefs.forEach((d) => { extraDefByKey[d.key] = d; });
   const quotaDefs = dayShiftDefs.filter((d) => d.frequency === "quota");
   const allKeys = ["F", ...dayShiftDefs.map((d) => d.key), "S", "N"];
 
@@ -115,7 +126,7 @@ function generateSchedule(staffList, year, monthIdx, holidaySet, shiftHours, shi
     if (!ids.includes(w.staffId) || !shiftHours[w.shiftType] || w.day < 1 || w.day > total) return;
     if (isOnLeave(w.staffId, w.day)) { droppedWishCount++; return; }
     const wDay = days[w.day - 1];
-    if (wDay && (wDay.isHoliday || wDay.isWeekend) && dailyKeys.includes(w.shiftType)) { droppedWishCount++; return; }
+    if (wDay && dailyKeys.includes(w.shiftType) && !extraShiftRuns(extraDefByKey[w.shiftType], wDay)) { droppedWishCount++; return; }
     validWishes.push(w);
   });
   if (droppedWishCount > 0) notes.push(`${droppedWishCount} Schichtwunsch/-wünsche wurden wegen Urlaub/Krankheit oder Feiertagsregel ignoriert`);
@@ -337,7 +348,7 @@ function generateSchedule(staffList, year, monthIdx, holidaySet, shiftHours, shi
     const candidateDays = [];
     for (let d = 1; d <= total; d++) {
       const wd = new Date(year, monthIdx, d).getDay();
-      if (wd !== 0 && wd !== 6 && !holidaySet.has(d)) candidateDays.push(d);
+      if (extraShiftRuns(qd, { weekday: wd, isHoliday: holidaySet.has(d) })) candidateDays.push(d);
     }
     const targetDays = new Set();
     const qCount = Math.max(1, qd.quotaCount || 9);
@@ -363,9 +374,9 @@ function generateSchedule(staffList, year, monthIdx, holidaySet, shiftHours, shi
     const todayAssigned = new Set(allKeys.flatMap((k) => day.shifts[k]));
     const prevDay = d > 0 ? days[d - 1] : null;
     const prevDayS = prevDay ? new Set(prevDay.shifts.S || []) : new Set();
-    // Daily "middle" shifts (Mitteldienst and any others) only run on regular workdays — on
-    // holidays AND weekends, only the three core shifts (Frühdienst/Spätdienst/Nachtdienst) run.
-    const neededShifts = (day.isHoliday || day.isWeekend) ? ["F", "S"] : ["F", ...dailyKeys, "S"];
+    // Daily extra shifts (Mitteldienst and others): Monday-Thursday, and Friday / Saturday / Sunday
+    // only if switched on for that shift; never on holidays. F/S/N run every day.
+    const neededShifts = ["F", ...dailyKeys.filter((k) => extraShiftRuns(extraDefByKey[k], day)), "S"];
     if (day.weekday === 6) weekendPairPick = {};
 
     quotaDefs.forEach((qd) => {
@@ -430,7 +441,7 @@ function generateSchedule(staffList, year, monthIdx, holidaySet, shiftHours, shi
         }
         if (pool.length === 0) break;
         // Saturday: prefer people who can also do the SAME shift on Sunday (weekend pairs stay together)
-        if (day.weekday === 6 && d + 1 < total && days[d + 1].weekday === 0) {
+        if (day.weekday === 6 && d + 1 < total && days[d + 1].weekday === 0 && (!extraDefByKey[shiftType] || extraShiftRuns(extraDefByKey[shiftType], days[d + 1]))) {
           const sun = days[d + 1];
           const sunOk = pool.filter((id) => !isOnLeave(id, sun.day) && !forcedRest[id].has(d + 1) && (consecutiveWorkDays[id] || 0) + 1 < MAX_CONSECUTIVE_WORKDAYS && !allKeys.some((k) => (sun.shifts[k] || []).includes(id)) && hours[id] + 2 * shiftHours[shiftType] <= hardCapFor(id));
           if (sunOk.length > 0) pool = sunOk;
@@ -827,7 +838,7 @@ function buildScheduleXlsx(input) {
     input.columns.forEach((col, i) => {
       const s = shiftByKey[col.key];
       const id = (d.shifts[col.key] || [])[col.slotIndex];
-      if (reduced && (input.skipKeys.has(col.key) || col.slotIndex >= 1)) xlsxSet(ws1, r, 3 + i, "–", sSkip); // weekends/holidays: 1 person per shift
+      if ((d.skipKeys ? d.skipKeys.includes(col.key) : reduced && input.skipKeys.has(col.key)) || (reduced && col.slotIndex >= 1)) xlsxSet(ws1, r, 3 + i, "–", sSkip); // extra shift not that day / weekends: 1 person per shift
       else if (id) xlsxSet(ws1, r, 3 + i, input.nameOf[id] || "", shiftCell(s));
       else if (input.quotaKeys && input.quotaKeys.has(col.key)) xlsxSet(ws1, r, 3 + i, "–", sSkip); // monthly-quota shift: most days are simply not needed
       else xlsxSet(ws1, r, 3 + i, "unbesetzt", sOpen);
@@ -1041,8 +1052,8 @@ function LabShiftSchedulerInner() {
   // "daily" (needed every non-holiday day) or "quota" (needed only N times a month, optionally
   // preferring the Leitende MTLA). Starts out matching the original Mitteldienst + Büro.
   const [dayShiftDefs, setDayShiftDefs] = useState([
-    { key: "M", label: "Mitteldienst", time: "08:00-16:30", frequency: "daily" },
-    { key: "B", label: "Büro", time: "08:00-16:00", frequency: "quota", quotaCount: 9, preferLead: true },
+    { key: "M", label: "Mitteldienst", time: "08:00-16:30", frequency: "daily", onFriday: true, onSaturday: false, onSunday: false },
+    { key: "B", label: "Büro", time: "08:00-16:00", frequency: "quota", quotaCount: 9, preferLead: true, onFriday: true, onSaturday: false, onSunday: false },
   ]);
   const [holidays, setHolidays] = useState([]); // array of day numbers
   const [editMode, setEditMode] = useState(false); // true only after a saved month was opened with "Plan bearbeiten"
@@ -1284,7 +1295,8 @@ function LabShiftSchedulerInner() {
     return {
       key: k, label: shiftMeta[k].label, time: shiftMeta[k].time,
       frequency: def ? def.frequency : "daily", quotaCount: def ? def.quotaCount : null, preferLead: def ? !!def.preferLead : false,
-      requiresRestAfter: k === "N", runsOnWeekends: !dailyDayShiftKeys.has(k),
+      requiresRestAfter: k === "N", runsOnWeekends: !dailyDayShiftKeys.has(k) || !!(def && (def.onSaturday || def.onSunday)),
+      onFriday: def ? def.onFriday !== false : true, onSaturday: def ? !!def.onSaturday : true, onSunday: def ? !!def.onSunday : true,
     };
   });
   const loadStaffFromDb = (rows) => {
@@ -1325,6 +1337,7 @@ function LabShiftSchedulerInner() {
       setDayShiftDefs(defs.filter((d) => !["F", "S", "N"].includes(d.key)).map((d) => ({
         key: d.key, label: d.label, time: `${hh(d.start_time)}-${hh(d.end_time)}`, frequency: d.frequency === "quota" ? "quota" : "daily",
         ...(d.frequency === "quota" ? { quotaCount: d.quota_per_month || 9 } : {}), preferLead: !!d.prefer_team_lead,
+        onFriday: d.on_friday !== false, onSaturday: !!d.on_saturday, onSunday: !!d.on_sunday,
       })));
     }
     const people = staffRows.map((r) => ({
@@ -1572,11 +1585,9 @@ function LabShiftSchedulerInner() {
     schedule.days.forEach((d) => {
       const reduced = d.isWeekend || d.isHoliday;
       totalDemandHours += shiftHours.F * (reduced ? 1 : perShiftCount.F) + shiftHours.S * (reduced ? 1 : perShiftCount.S) + shiftHours.N * (reduced ? 1 : perShiftCount.N);
-      if (!d.isHoliday && !d.isWeekend) {
-        dayShiftDefs.forEach((def) => {
-          if (def.frequency !== "quota") totalDemandHours += (shiftHours[def.key] || 0) * (perShiftCount[def.key] || 1);
-        });
-      }
+      dayShiftDefs.forEach((def) => {
+        if (def.frequency !== "quota" && extraShiftRuns(def, d)) totalDemandHours += (shiftHours[def.key] || 0) * (d.isWeekend ? 1 : perShiftCount[def.key] || 1);
+      });
     });
     dayShiftDefs.forEach((def) => {
       if (def.frequency === "quota") totalDemandHours += (shiftHours[def.key] || 0) * (def.quotaCount || 9);
@@ -1611,7 +1622,7 @@ function LabShiftSchedulerInner() {
       schedule.days.forEach((d) => {
         const row = [d.day, WEEKDAY_DE[d.weekday]];
         columnPlan.forEach((col) => {
-          const isSkippedOnHoliday = dailyDayShiftKeys.has(col.shiftType) && (d.isHoliday || d.isWeekend);
+          const isSkippedOnHoliday = dailyDayShiftKeys.has(col.shiftType) && !extraShiftRuns(dayShiftDefs.find((x) => x.key === col.shiftType), d);
           const id = (d.shifts[col.shiftType] || [])[col.slotIndex];
           row.push(isSkippedOnHoliday ? "" : (staffMap[id] || ""));
         });
@@ -1638,7 +1649,7 @@ function LabShiftSchedulerInner() {
       weekdayNames: WEEKDAY_DE,
       weekdayShort: WEEKDAY_DE.map((x) => x.slice(0, 2)),
       staff: staffList.map((s) => ({ id: s.id, name: s.name })),
-      days: schedule.days,
+      days: schedule.days.map((d) => ({ ...d, skipKeys: dayShiftDefs.filter((x) => x.frequency !== "quota" && !extraShiftRuns(x, d)).map((x) => x.key) })),
       columns,
       shifts,
       skipKeys: dailyDayShiftKeys,
@@ -1929,11 +1940,22 @@ function LabShiftSchedulerInner() {
                   <button onClick={() => setDayShiftDefs((prev) => prev.filter((_, i) => i !== idx))} className="justify-self-end text-slate-400 hover:text-rose-600 p-1.5 rounded-lg hover:bg-rose-50" aria-label="Entfernen">
                     <Trash2 size={15} />
                   </button>
+                  <div className="sm:col-span-5 flex flex-wrap items-center gap-3 text-xs text-slate-600 pl-0.5">
+                    <span className="text-slate-500">Mo–Do immer, außerdem:</span>
+                    {[["onFriday", "Freitag", true], ["onSaturday", "Samstag", false], ["onSunday", "Sonntag", false]].map(([field, word, dflt]) => (
+                      <label key={field} className="flex items-center gap-1.5">
+                        <input type="checkbox" checked={def[field] === undefined ? dflt : !!def[field]}
+                          onChange={(e) => setDayShiftDefs((prev) => prev.map((d, i) => (i === idx ? { ...d, [field]: e.target.checked } : d)))} />
+                        {word}
+                      </label>
+                    ))}
+                    <span className="text-slate-400">(nie an Feiertagen)</span>
+                  </div>
                 </div>
               ))}
             </div>
             <button
-              onClick={() => setDayShiftDefs((prev) => [...prev, { key: `custom${Date.now()}`, label: "Neue Schicht", time: "08:00-16:00", frequency: "daily" }])}
+              onClick={() => setDayShiftDefs((prev) => [...prev, { key: `custom${Date.now()}`, label: "Neue Schicht", time: "08:00-16:00", frequency: "daily", onFriday: true, onSaturday: false, onSunday: false }])}
               className="mt-2 inline-flex items-center gap-1 text-sm text-teal-700 hover:text-teal-800 font-medium"
             >
               <Plus size={15} /> Schicht hinzufügen
@@ -2408,7 +2430,7 @@ function LabShiftSchedulerInner() {
                         </td>
                         {columnPlan.map((col, ci) => {
                           const { shiftType: st, slotIndex } = col;
-                          const isSkippedOnHoliday = dailyDayShiftKeys.has(st) && (d.isHoliday || d.isWeekend);
+                          const isSkippedOnHoliday = dailyDayShiftKeys.has(st) && !extraShiftRuns(dayShiftDefs.find((x) => x.key === st), d);
                           const val = (d.shifts[st] || [])[slotIndex];
                           // marks versus the published version (only when a saved month was opened for editing)
                           const baseIds = baseline ? (baseline[`${d.day}|${st}`] || []) : null;

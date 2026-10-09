@@ -90,6 +90,7 @@ export default function PublishPanel({ schedule, staffList, year, monthIdx, shif
       org_id: org.orgId, key: s.key, label: s.label, start_time: times[s.key].start, end_time: times[s.key].end,
       frequency: s.frequency === "quota" ? "quota" : "daily", quota_per_month: s.frequency === "quota" ? (s.quotaCount || null) : null,
       prefer_team_lead: !!s.preferLead, requires_rest_after: !!s.requiresRestAfter, runs_on_weekends: !!s.runsOnWeekends, sort_order: i, active: true,
+      ...(s.onFriday !== undefined ? { on_friday: s.onFriday !== false, on_saturday: !!s.onSaturday, on_sunday: !!s.onSunday } : {}),
     }));
     r = await sb.from("shift_definitions").upsert(defRows, { onConflict: "org_id,key" });
     if (r.error) throw r.error;
