@@ -1,3 +1,42 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* ===== Erscheinungsbild „Klares Blau“ =====
+   One place for the look of the planners (Tailwind pages). Colours only; layout is unchanged.
+   The employee app, /freigaben, /konto, /profil and /admin use the same colours via their PAPER/PRIMARY constants. */
+:root {
+  --kb-page: #E9EEF8;   /* page background */
+  --kb-ink: #243B6B;    /* header bands, headings */
+  --kb-accent: #185FA5; /* main buttons */
+  --kb-accent-dark: #0C447C;
+  --kb-line: #CBD8EE;   /* card borders */
+  --kb-tint: #E6F1FB;   /* light blue fills */
+}
+html, body { background: var(--kb-page); }
+.min-h-screen.bg-slate-50 { background-color: var(--kb-page) !important; }
+
+/* page title of the planners as a blue band */
+.max-w-5xl > header:first-child { background: var(--kb-ink); color: #fff; border-radius: 14px; padding: 14px 18px; }
+.max-w-5xl > header:first-child h1, .max-w-5xl > header:first-child .text-teal-700 { color: #fff !important; }
+.max-w-5xl > header:first-child p { color: #C9D6EE !important; }
+
+/* cards: blue top band, blue-grey border, soft depth */
+section.bg-white.rounded-2xl {
+  border-color: var(--kb-line) !important;
+  border-top: 5px solid var(--kb-ink) !important;
+  box-shadow: 0 1px 2px rgba(36, 59, 107, 0.06), 0 8px 20px -10px rgba(36, 59, 107, 0.25) !important;
+}
+section.bg-white.rounded-2xl h2 { color: var(--kb-ink) !important; }
+.rounded-xl.border.bg-white { border-color: var(--kb-line) !important; box-shadow: 0 1px 2px rgba(36, 59, 107, 0.06); }
+
+/* accent colour: the former teal becomes blue everywhere */
+.bg-teal-600, .bg-teal-700 { background-color: var(--kb-accent) !important; }
+.hover\:bg-teal-700:hover, .hover\:bg-teal-800:hover { background-color: var(--kb-accent-dark) !important; }
+.text-teal-600, .text-teal-700 { color: var(--kb-accent) !important; }
+.text-teal-800, .text-teal-900, .hover\:text-teal-800:hover { color: var(--kb-accent-dark) !important; }
+.bg-teal-50 { background-color: var(--kb-tint) !important; }
+.bg-teal-100, .hover\:bg-teal-100:hover { background-color: #D5E6F8 !important; }
+.border-teal-200, .border-teal-300, .border-teal-600 { border-color: #B5D4F4 !important; }
+.focus\:ring-teal-500:focus { --tw-ring-color: #378ADD !important; }
+.bg-teal-600.border-teal-600 { border-color: var(--kb-accent) !important; }

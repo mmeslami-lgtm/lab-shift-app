@@ -8,7 +8,7 @@ import { computeChanges } from "../lib/planDiff";
 
 const INK = "#1B2433";
 const PRIMARY = "#243B6B";
-const PAPER = "#F4F6F9";
+const PAPER = "#E9EEF8";
 const MUTED = "#6B7588";
 const LINE = "#D9DEE7";
 const MONTHS = ["Januar", "Februar", "März", "April", "Mai", "Juni", "Juli", "August", "September", "Oktober", "November", "Dezember"];

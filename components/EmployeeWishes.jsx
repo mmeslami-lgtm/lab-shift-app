@@ -4,7 +4,7 @@ import React, { useCallback, useEffect, useState } from "react";
 
 const INK = "#1B2433";
 const PRIMARY = "#243B6B";
-const PAPER = "#F4F6F9";
+const PAPER = "#E9EEF8";
 const MUTED = "#6B7588";
 const LINE = "#D9DEE7";
 const WD = ["So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"];
@@ -14,7 +14,7 @@ const parseIso = (s) => { const [y, m, d] = String(s).slice(0, 10).split("-").ma
 const fmt = (s) => { const d = parseIso(s); return `${WD[d.getDay()]} ${pad(d.getDate())}.${pad(d.getMonth() + 1)}.`; };
 const range = (w) => (w.date_from === w.date_to ? fmt(w.date_from) : `${fmt(w.date_from)} – ${fmt(w.date_to)}`);
 
-const card = { background: "#fff", borderRadius: 20, padding: 16, marginBottom: 12 };
+const card = { background: "#fff", borderRadius: 20, padding: 16, marginBottom: 12, border: "1px solid #CBD8EE", boxShadow: "0 6px 18px -12px rgba(36,59,107,.35)" };
 const fld = { display: "block", width: "100%", boxSizing: "border-box", marginTop: 4, border: `1px solid ${LINE}`, borderRadius: 12, padding: "10px 12px", fontSize: 16, background: "#fff", color: INK };
 const lab = { display: "block", fontSize: 12, color: MUTED, marginBottom: 10 };
 const btn = { border: 0, borderRadius: 14, background: PRIMARY, color: "#fff", fontSize: 15, fontWeight: 650, padding: "12px 14px", cursor: "pointer", width: "100%" };

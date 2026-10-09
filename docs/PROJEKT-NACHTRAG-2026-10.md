@@ -24,7 +24,23 @@
 - روزهای بسته: هیچ شیفتی، روی جدول/چاپ/Excel «geschlossen»؛ هدف ساعت = ساعت هفتگی ÷ تعداد روزهای باز هفته × روزهای باز ماه (بدون مرخصی). با ۷ روز باز دقیقاً فرمول قبلی. قانون «۲ شنبه/۲ یکشنبه» فقط وقتی آخر هفته باز است.
 - اپ کارمند: روزهای Betriebsschließung با «zu» و متن «Der Betrieb ist an diesem Tag geschlossen.»
 - Dienstplaner Labor تغییری نکرده (آزمایشگاه همیشه باز).
+- باگ رفع‌شده: در allgemein هدف ماهانهٔ تمام‌وقت‌ها با سقف ۱۶۰ ساعت بریده می‌شد؛ در ماه با ۲۲ روز کاری (۱۶۵ ساعت لازم) روزهای آخر ماه (مثلاً جمعه ۳۰ اکتبر) فقط ۱ نفر در هر شیفت می‌ماند. حالا تمام‌وقت تا سقف ۱۹۰ (`FULLTIME_MONTHLY_CEILING`)، پاره‌وقت همچنان ۱۶۰. شبیه‌سازی کلینیک ۹ نفره Mo–Fr: روزهای کم‌نیرو از ۲۰ به ۰.
 - دیتابیس: `docs/sql/10-opening-days-schema.sql` — **روی Supabase واقعی با Connector اجرا شده** و با نقش‌های واقعی در تراکنش برگشت‌خورده تست شد (۱۰ بررسی: Leitung می‌نویسد، شرکت دیگر نه، کارمند فقط می‌خواند، anon هیچ). ستون‌ها: `organizations.open_weekdays`، `organizations.closed_on_holidays`؛ جدول `month_closures`؛ توابع `set_opening_days`، `set_month_closed_days`.
+
+### ساعت کاری، اضافه‌کاری و Saldo (**عمداً فقط Dienstplaner allgemein** — تصمیم کاربر)
+- **Ziel** = ساعت قرارداد همان ماه: ساعت هفتگی ÷ روزهای باز هفته × روزهای باز ماه (بدون مرخصی) **± Saldo ماه‌های قبل** (اضافه‌کاری قبلی → Ziel کمتر = جبران؛ کم‌کاری قبلی → Ziel بیشتر). سقف: تمام‌وقت ۱۹۰.
+- **پخش روزهای آزاد:** کسی که ساعتش برای «هر روز» کافی نیست، روزهای آزادش در کل ماه پخش می‌شود (نه همه در آخر ماه).
+- **اضافه‌کاری فقط وقتی لازم است** تا تعداد خواستهٔ هر شیفت پر شود: اول تمام‌وقت‌ها (تا ۱۹۰)، بعد پاره‌وقت‌ها (حداکثر ۲۵٪ بالای Ziel)، Minijob هرگز. یادداشت در Hinweise.
+- **Saldo در دیتابیس:** «Monat abschließen & archivieren» برای هر نفر یک ردیف در `staff_month_balance` می‌نویسد (ساعت قرارداد، ساعت پلن، کمبود شنبه/یکشنبه/شب). دوباره زدن همان ماه را بازنویسی می‌کند (دوبار شمرده نمی‌شود). Saldo هر ماه = جمع ماه‌های قبل. دکمهٔ «Alle Salden löschen» با ورود شرکت نیست (چیزی پاک نمی‌شود). بدون ورود شرکت مثل قبل در مرورگر.
+- نمایش: ستون «Saldo Vormonat»: `+` = اضافه‌کاری (Ziel کمتر)، `−` = کم‌کاری. Saldo بر اساس ساعت **پلن** است، نه ساعت واقعی کار (بعداً با Zeiterfassung).
+- دیتابیس: `docs/sql/12-hour-balance-schema.sql` — روی Supabase واقعی اجرا و با نقش‌های واقعی تست شد (۶ بررسی). تابع `save_month_balances(p_org, p_year, p_month, p_rows)`.
+- Dienstplaner Labor عمداً بدون تغییر است (Saldo در مرورگر، Ziel با سقف ۱۶۰). به Labor منتقل نشود مگر کاربر بخواهد.
+
+### Spätdienst اختیاری (فقط Dienstplaner allgemein)
+- در allgemein فقط «Frühdienst» از پیش هست. «+ Spätdienst hinzufügen» در «Schichtzeiten» آن را اضافه می‌کند (با سطل زباله برداشته می‌شود). پلن ذخیره‌شده‌ای که Spätdienst دارد، هنگام باز شدن آن را خودش روشن می‌کند. Labor بدون تغییر (F/S/N ثابت).
+
+### ظاهر «Klares Blau» (همهٔ صفحه‌ها)
+- انتخاب کاربر از سه نمونه. Dienstplanerها: کل ظاهر در `app/globals.css` (بخش «Erscheinungsbild Klares Blau»): زمینهٔ آبی ملایم `#E9EEF8`، عنوان صفحه نوار آبی تیره `#243B6B`، کارت‌ها با نوار بالایی آبی و سایهٔ نرم، رنگ teal قبلی همه‌جا آبی `#185FA5`. صفحه‌های با استایل درون‌خطی (اپ کارمند، /freigaben، /konto، /profil، /admin، دمو): ثابت `PAPER` = `#E9EEF8`، کارت‌های اپ کارمند با حاشیهٔ `#CBD8EE`. برگهٔ چاپ تغییر نکرد.
 
 ### دکمهٔ ساخت پلن (هر دو Dienstplaner)
 - «Dienstplan erstellen» / «Neu generieren» حالا واکنش می‌دهد: «Moment …» با آیکون چرخان، بعد پیام «Plan erstellt um HH:MM:SS Uhr» یا «Neu erstellt … – N Einträge anders als vorher» (یا «gleiches Ergebnis …» اگر توزیع دیگری ممکن نیست).
@@ -39,7 +55,7 @@
 - اسکریپت SQL جدول `first_login_flags` و توابع `flag_first_login` / `clear_first_login` در دیتابیس هست ولی در `docs/sql` نیست → بعداً از دیتابیس به فایل منتقل شود.
 
 ### تست‌ها
-تست‌های جدید در `dev-tests` (جدا از پروژه): `print_test`، `wake_test`، `opening_test`، `closed_emp_test`، `wishes_test`، `genbtn_test`، و شبیه‌سازی تولید پلن. `edit_test` و `approval_test` قدیمی هستند (مدل نقش قبلی «Zur Freigabe einreichen») و باید به‌روز شوند.
+تست‌های جدید در `dev-tests` (جدا از پروژه): `print_test`، `wake_test`، `opening_test`، `closed_emp_test`، `wishes_test`، `genbtn_test`، `saldo_test`، `late_test`، و شبیه‌سازی تولید پلن. `edit_test` و `approval_test` قدیمی هستند (مدل نقش قبلی «Zur Freigabe einreichen») و باید به‌روز شوند.
 
 ## ۱۲. کارهای باز (به‌روز)
 1. دکمهٔ «Zugänge» برای Leitung: ساخت ورود کارمند و رمز جدید بدون ادمین (در یک چت قبلی ساخته و تست شده بود، روی نسخهٔ جدید منتقل نشده).

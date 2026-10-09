@@ -5,7 +5,7 @@ import { supabase, supabaseConfigured } from "../lib/supabaseClient";
 import { OrgContext } from "../lib/orgContext";
 import LoginForm from "./LoginForm";
 
-const PAPER = "#F4F6F9";
+const PAPER = "#E9EEF8";
 const INK = "#1B2433";
 const MUTED = "#6B7588";
 const PRIMARY = "#243B6B";

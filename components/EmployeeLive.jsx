@@ -14,7 +14,7 @@ import EmployeeWishes from "./EmployeeWishes";
 
 const INK = "#1B2433";
 const PRIMARY = "#243B6B";
-const PAPER = "#F4F6F9";
+const PAPER = "#E9EEF8";
 const MUTED = "#6B7588";
 const LINE = "#D9DEE7";
 const MONTH_DE = ["Januar", "Februar", "März", "April", "Mai", "Juni", "Juli", "August", "September", "Oktober", "November", "Dezember"];
@@ -65,7 +65,7 @@ function makeCodes(defs) {
 }
 
 const navBtn = { width: 34, height: 34, borderRadius: 12, border: `1px solid ${LINE}`, background: "#fff", display: "grid", placeItems: "center", color: INK, cursor: "pointer", padding: 0 };
-const Card = ({ children, style }) => <div style={{ background: "#fff", borderRadius: 20, padding: 16, ...style }}>{children}</div>;
+const Card = ({ children, style }) => <div style={{ background: "#fff", borderRadius: 20, padding: 16, border: "1px solid #CBD8EE", boxShadow: "0 6px 18px -12px rgba(36,59,107,.35)", ...style }}>{children}</div>;
 
 export default function EmployeeLive() {
   const org = useContext(OrgContext);

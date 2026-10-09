@@ -6,7 +6,7 @@ import LoginForm from "./LoginForm";
 
 const INK = "#1B2433";
 const PRIMARY = "#243B6B";
-const PAPER = "#F4F6F9";
+const PAPER = "#E9EEF8";
 const MUTED = "#6B7588";
 const LINE = "#D9DEE7";
 

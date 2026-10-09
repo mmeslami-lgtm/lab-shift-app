@@ -5,7 +5,7 @@ import { createClient } from "@supabase/supabase-js";
 import { supabase, supabaseConfigured } from "../lib/supabaseClient";
 import LoginForm from "./LoginForm";
 
-const INK = "#1B2433", PRIMARY = "#243B6B", PAPER = "#F4F6F9", MUTED = "#6B7588", LINE = "#D9DEE7";
+const INK = "#1B2433", PRIMARY = "#243B6B", PAPER = "#E9EEF8", MUTED = "#6B7588", LINE = "#D9DEE7";
 const ROLE_LABEL = { owner: "Inhaber", supervisor: "Leitung", planner: "Schichtplaner", employee: "Mitarbeitende" };
 // the three modules: Labor / Allgemein / Personnel
 const MODULES = [

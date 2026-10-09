@@ -78,7 +78,8 @@ function daysInMonth(year, monthIdx) {
 // now ANY shift (named whatever the supervisor wants) can be flagged this way, there can be
 // zero, one, or several such shifts, and the 2-4 day block + mandatory 2-day rest + cooldown +
 // Sat/Sun continuity logic runs independently for each one that's flagged.
-function generateSchedule(staffList, year, monthIdx, holidaySet, shiftHours, shiftLabels, dayShiftDefs, perShiftCount, leaveMap, carryOver, wishes, closedSet, openCount) {
+function generateSchedule(staffList, year, monthIdx, holidaySet, shiftHours, shiftLabels, dayShiftDefs, perShiftCount, leaveMap, carryOver, wishes, closedSet, openCount, lateOn) {
+  const lateKeys = lateOn === false ? [] : ["S"]; // Spätdienst is optional in this planner (many practices have none)
   carryOver = carryOver || {};
   closedSet = closedSet || new Set(); // days the company is closed (closed weekday, closed holiday, Betriebsschließung)
   openCount = openCount || 7;         // open weekdays per week (for the monthly hour target)
@@ -106,7 +107,7 @@ function generateSchedule(staffList, year, monthIdx, holidaySet, shiftHours, shi
   const MAX_CONSECUTIVE_WORKDAYS = 6;
   const REST_COOLDOWN_EXTRA_DAYS = 2;
   ids.forEach((id) => { hours[id] = 0; satCount[id] = 0; sunCount[id] = 0; forcedRest[id] = new Set(); consecutiveWorkDays[id] = 0; restCooldown[id] = new Set(); shiftCount[id] = 0; restShiftCountSoFar[id] = 0; });
-  staffList.forEach((s) => { targetOf[s.id] = monthTarget(s, total, leaveMap, closedSet, openCount); });
+  staffList.forEach((s) => { targetOf[s.id] = adjustedTarget(s, monthTarget(s, total, leaveMap, closedSet, openCount), carryOver[s.id]); });
   const warnings = [];
   const notes = [];
   const isOnLeave = (id, dayNum) => leaveMap[id] && leaveMap[id].has(dayNum);
@@ -352,7 +353,7 @@ function generateSchedule(staffList, year, monthIdx, holidaySet, shiftHours, shi
       const t = targetOf[id] > 0 ? targetOf[id] : 1;
       const carry = carryOver[id] || {};
       const expectedByNow = t * (day.day / total);
-      const actualSoFar = hours[id] - (carry.hours || 0);
+      const actualSoFar = hours[id]; // the saldo from earlier months is already in targetOf (adjustedTarget)
       let score = (actualSoFar - expectedByNow) / t;
       score += (consecutiveWorkDays[id] || 0) * 0.05;
       if (fullTimeSet.has(id)) score += (shiftCount[id] || 0) * 0.01;
@@ -394,13 +395,27 @@ function generateSchedule(staffList, year, monthIdx, holidaySet, shiftHours, shi
   }
 
   let weekendPairPick = {};
+  let overtimeSlots = 0; // places filled above someone's monthly goal (Überstunden, remembered via the saldo)
+  const miniSet = new Set(staffList.filter((s) => s.employmentType === "mini" || (s.weeklyHours || 0) < 12).map((s) => s.id));
+  // Pacing: someone whose monthly target is smaller than "every open day" (part-time, or a month with
+  // many workdays) must have their free days SPREAD over the month, not all at the end. So nobody gets
+  // more than their share up to that day (+ one shift of slack). availUpTo[id][d] = open days the
+  // person is available on, from day 1 up to and including day d+1.
+  const maxShiftH = Math.max(...Object.values(shiftHours).map(Number).filter((x) => x > 0), 8);
+  const availUpTo = {}, availTotal = {};
+  ids.forEach((id) => {
+    let n = 0; availUpTo[id] = [];
+    for (let i = 0; i < total; i++) { if (!closedSet.has(i + 1) && !isOnLeave(id, i + 1)) n++; availUpTo[id].push(n); }
+    availTotal[id] = n || 1;
+  });
+  const paceOk = (id, d, h) => hours[id] + h <= targetOf[id] * (availUpTo[id][d] / availTotal[id]) + maxShiftH;
 
   for (let d = 0; d < total; d++) {
     const day = days[d];
     const todayAssigned = new Set(allKeys.flatMap((k) => day.shifts[k]));
     const prevDay = d > 0 ? days[d - 1] : null;
     const prevDayS = prevDay ? new Set(prevDay.shifts.S || []) : new Set();
-    const neededShifts = day.isClosed ? [] : (day.isHoliday || day.isWeekend) ? ["F", "S"] : ["F", ...dailyKeys, "S"];
+    const neededShifts = day.isClosed ? [] : (day.isHoliday || day.isWeekend) ? ["F", ...lateKeys] : ["F", ...dailyKeys, ...lateKeys];
     if (day.weekday === 6) weekendPairPick = {};
 
     quotaDefs.forEach((qd) => {
@@ -447,6 +462,7 @@ function generateSchedule(staffList, year, monthIdx, holidaySet, shiftHours, shi
           if (isOnLeave(id, day.day)) return false;
           if (shiftType === "F" && prevDayS.has(id)) return false;
           if (hours[id] + shiftHours[shiftType] > targetOf[id]) return false;
+          if (!paceOk(id, d, shiftHours[shiftType])) return false; // keep free days spread over the month
           return true;
         });
         let relaxedNote = null;
@@ -459,6 +475,18 @@ function generateSchedule(staffList, year, monthIdx, holidaySet, shiftHours, shi
           const fullTimeFirst = overTargetPool.filter((id) => fullTimeSet.has(id));
           pool = fullTimeFirst.length > 0 ? fullTimeFirst : overTargetPool;
           if (pool.length > 0) relaxedNote = "Das persönliche Stundenziel wurde überschritten (nur bei Vollzeit-Personal), da niemand anders verfügbar war";
+        }
+        // Still short of the wanted number of people: full-time staff may go above their target, up to
+        // the full-time ceiling (190 h) — otherwise the LAST days of the month stay short-staffed when the
+        // contract hours are a little below the need. Part-time/Minijob never. Counted in the notes.
+        if (pool.length === 0 && k >= minRequired) {
+          pool = ids.filter((id) => fullTimeSet.has(id) && !todayAssigned.has(id) && !forcedRest[id].has(d) && !isOnLeave(id, day.day) &&
+            !(shiftType === "F" && prevDayS.has(id)) && hours[id] + shiftHours[shiftType] <= hardCapFor(id));
+          if (pool.length === 0) { // then part-time staff (never Minijob), at most 25 % above their goal
+            pool = ids.filter((id) => !fullTimeSet.has(id) && !miniSet.has(id) && !todayAssigned.has(id) && !forcedRest[id].has(d) && !isOnLeave(id, day.day) &&
+              !(shiftType === "F" && prevDayS.has(id)) && hours[id] + shiftHours[shiftType] <= targetOf[id] * 1.25);
+          }
+          if (pool.length > 0) overtimeSlots++;
         }
         if (pool.length === 0) break;
         // Saturday: prefer people who can also do the SAME shift on Sunday (weekend pairs stay together)
@@ -502,6 +530,7 @@ function generateSchedule(staffList, year, monthIdx, holidaySet, shiftHours, shi
     }
   }
 
+  if (overtimeSlots > 0) notes.push(`${overtimeSlots} Schicht(en) wurden mit Überstunden besetzt, weil die Vertragsstunden für die gewünschte Besetzung nicht ganz reichen. Sie stehen in der Zusammenfassung unter „Differenz“ und werden nach „Monat abschließen“ im nächsten Monat ausgeglichen.`);
   return { days, hours, satCount, sunCount, targetOf, warnings, notes };
 }
 
@@ -517,8 +546,17 @@ function monthTarget(s, total, leaveMap, closedSet, openCount) {
   return Math.min((s.weeklyHours || 38.5) * (n / (openCount || 7)), fullTime ? FULLTIME_MONTHLY_CEILING : MONTHLY_HOUR_CAP);
 }
 
-function computeStatsAndWarnings(days, staffList, leaveMap, shiftHours, allKeys, restKeysList, shiftLabels, closedSet, openCount) {
+// Goal of this month = contract hours of this month + saldo from earlier months
+// (carry.hours > 0: worked less before, catch up; < 0: Überstunden before, given back now).
+function adjustedTarget(s, contract, carry) {
+  const owed = carry && Number(carry.hours) ? Number(carry.hours) : 0;
+  const fullTime = (s.weeklyHours || 38.5) >= 35;
+  return Math.max(0, Math.min(contract + owed, fullTime ? FULLTIME_MONTHLY_CEILING : Math.max(contract, MONTHLY_HOUR_CAP)));
+}
+
+function computeStatsAndWarnings(days, staffList, leaveMap, shiftHours, allKeys, restKeysList, shiftLabels, closedSet, openCount, carryOver) {
   leaveMap = leaveMap || {};
+  carryOver = carryOver || {};
   closedSet = closedSet || new Set();
   openCount = openCount || 7;
   shiftLabels = shiftLabels || {};
@@ -539,7 +577,7 @@ function computeStatsAndWarnings(days, staffList, leaveMap, shiftHours, allKeys,
   });
   const total = days.length;
   const targetOf = {};
-  staffList.forEach((s) => { targetOf[s.id] = monthTarget(s, total, leaveMap, closedSet, openCount); });
+  staffList.forEach((s) => { targetOf[s.id] = adjustedTarget(s, monthTarget(s, total, leaveMap, closedSet, openCount), carryOver[s.id]); });
   const warnings = [];
   const openSat = days.filter((d) => d.weekday === 6 && !closedSet.has(d.day)).length;
   const openSun = days.filter((d) => d.weekday === 0 && !closedSet.has(d.day)).length;
@@ -1100,6 +1138,9 @@ function LabShiftSchedulerInner() {
   // F/S keep one special built-in rule between them (no Frühdienst the morning right after a
   // Spätdienst) — label/time fully editable, but the key/role stays fixed so that rule keeps
   // working. Night rotation is NOT tied to a fixed key anymore — see dayShiftDefs below.
+  // Spätdienst is NOT preset in the general planner (many practices only have one shift);
+  // "+ Spätdienst" switches it on, a saved plan that has one switches it on by itself.
+  const [useLate, setUseLate] = useState(false);
   const [specialShifts, setSpecialShifts] = useState({
     F: { label: "Frühdienst", time: "06:00-14:00" },
     S: { label: "Spätdienst", time: "13:30-22:00" },
@@ -1131,6 +1172,8 @@ function LabShiftSchedulerInner() {
   const [emailTableState, setEmailTableState] = useState("idle"); // idle | copied
   const [balances, setBalances] = useState({}); // name(trimmed) -> { hours, satDeficit, sunDeficit, nightDeficit }
   const [balancesLoaded, setBalancesLoaded] = useState(false);
+  const dbBalanceRef = useRef(false); // true when the saldo comes from the database (company login)
+  const [balanceBump, setBalanceBump] = useState(0);
   const [saveState, setSaveState] = useState("idle"); // idle | saving | saved | error
   const [saveErrorMsg, setSaveErrorMsg] = useState("");
   const [archiveList, setArchiveList] = useState([]); // [{monthValue, staffCount, savedAt}]
@@ -1179,7 +1222,7 @@ function LabShiftSchedulerInner() {
             }
           } catch (_) { /* skip unreadable key */ }
         }
-        if (!cancelled) { setBalances(map); setBalancesLoaded(true); }
+        if (!cancelled && !dbBalanceRef.current) { setBalances(map); setBalancesLoaded(true); }
       } catch (_) {
         if (!cancelled) setBalancesLoaded(true);
       }
@@ -1221,14 +1264,39 @@ function LabShiftSchedulerInner() {
       });
       const avgNightCount = nightEligible.length > 0 ? nightEligible.reduce((sum, s) => sum + nightCountOf[s.id], 0) / nightEligible.length : 0;
 
+      // contract hours of THIS month (without the saldo, which is already part of targetOf)
+      const lm = buildLeaveMap();
+      const contractOf = (x) => monthTarget(x, totalDays, lm, closedSet, openCount);
+      const openSat = schedule.days.filter((d) => d.weekday === 6 && !closedSet.has(d.day)).length;
+      const openSun = schedule.days.filter((d) => d.weekday === 0 && !closedSet.has(d.day)).length;
+
+      if (orgCtx) {
+        // company login: one row per person and month in the database (pressing again overwrites the month)
+        const rows = staffList.filter((x) => /^[0-9a-f-]{36}$/i.test(String(x.id))).map((x) => ({ // only people saved in the database
+          staff_id: x.id,
+          contract_hours: Math.round(contractOf(x) * 100) / 100,
+          planned_hours: Math.round((schedule.hours[x.id] || 0) * 100) / 100,
+          sat_short: x.weekendExempt || openSat < 2 ? 0 : Math.max(0, 2 - (schedule.satCount[x.id] || 0)),
+          sun_short: x.weekendExempt || openSun < 2 ? 0 : Math.max(0, 2 - (schedule.sunCount[x.id] || 0)),
+          night_short: x.nightExempt ? 0 : Math.round(Math.max(0, avgNightCount - nightCountOf[x.id]) * 100) / 100,
+        }));
+        const { error: balErr } = await orgCtx.supabase.rpc("save_month_balances", { p_org: orgCtx.orgId, p_year: year, p_month: monthIdx + 1, p_rows: rows });
+        if (balErr) throw new Error("Saldo nicht gespeichert: " + balErr.message);
+        setBalanceBump((b) => b + 1);
+        setArchiveState("saved");
+        setSaveState("saved");
+        setTimeout(() => { setArchiveState("idle"); setSaveState("idle"); }, 2500);
+        return;
+      }
+
       const updated = { ...balances };
       for (const s of staffList) {
         const name = s.name.trim();
         if (!name) continue;
         const actual = schedule.hours[s.id] || 0;
-        const target = schedule.targetOf[s.id] || 0;
+        const target = contractOf(s);
         const prev = balances[name] || { hours: 0, satDeficit: 0, sunDeficit: 0, nightDeficit: 0 };
-        const newHours = prev.hours + (target - actual); // positive = worked less than target, owed hours
+        const newHours = prev.hours + (target - actual); // positive = worked less than the contract, owed hours
         const newSatDeficit = s.weekendExempt ? 0 : prev.satDeficit + Math.max(0, 2 - (schedule.satCount[s.id] || 0));
         const newSunDeficit = s.weekendExempt ? 0 : prev.sunDeficit + Math.max(0, 2 - (schedule.sunCount[s.id] || 0));
         const newNightDeficit = s.nightExempt ? 0 : prev.nightDeficit + Math.max(0, avgNightCount - nightCountOf[s.id]);
@@ -1282,6 +1350,38 @@ function LabShiftSchedulerInner() {
   const holidaySet = useMemo(() => new Set(holidays.filter((h) => h <= totalDays)), [holidays, totalDays]);
 
   const orgCtx = React.useContext(OrgContext);
+  dbBalanceRef.current = !!orgCtx;
+  // saldo of each person (by id) for the generator and the summary
+  function carryMap() {
+    const m = {};
+    staffList.forEach((s) => { m[s.id] = balances[s.name.trim()] || { hours: 0, satDeficit: 0, sunDeficit: 0, nightDeficit: 0 }; });
+    return m;
+  }
+  // With a company login the saldo comes from the database (staff_month_balance, script 12):
+  // sum of all months BEFORE the month on screen. Without the script it falls back to "no saldo".
+  const staffIdKey = staffList.map((s) => s.id + ":" + s.name).join("|");
+  useEffect(() => {
+    if (!orgCtx) return undefined;
+    let cancelled = false;
+    (async () => {
+      let rows = [];
+      try { rows = await fetchAll(() => orgCtx.supabase.from("staff_month_balance").select("staff_id, year, month, contract_hours, planned_hours, sat_short, sun_short, night_short").eq("org_id", orgCtx.orgId)); }
+      catch (_) { rows = []; } // script 12 not run yet: no saldo
+      if (cancelled) return;
+      const nowKey = year * 12 + monthIdx;
+      const byId = {};
+      rows.forEach((x) => {
+        if (x.year * 12 + (x.month - 1) >= nowKey) return; // only earlier months
+        const b = byId[x.staff_id] || (byId[x.staff_id] = { hours: 0, satDeficit: 0, sunDeficit: 0, nightDeficit: 0 });
+        b.hours += Number(x.contract_hours) - Number(x.planned_hours);
+        b.satDeficit += Number(x.sat_short) || 0; b.sunDeficit += Number(x.sun_short) || 0; b.nightDeficit += Number(x.night_short) || 0;
+      });
+      const byName = {};
+      staffList.forEach((s) => { if (byId[s.id]) byName[s.name.trim()] = byId[s.id]; });
+      setBalances(byName); setBalancesLoaded(true);
+    })();
+    return () => { cancelled = true; };
+  }, [orgCtx, year, monthIdx, staffIdKey, balanceBump]); // eslint-disable-line react-hooks/exhaustive-deps
   // ---- Öffnungstage & Betriebsschließung ----
   // open weekdays + "closed on holidays" belong to the company (database: organizations), the closed
   // days of one month (e.g. Betriebsurlaub 24-31) to that month (database: month_closures).
@@ -1389,8 +1489,8 @@ function LabShiftSchedulerInner() {
   // on a printed roster; every other custom shift sits between Früh and Spät.
   const restRequiringKeys = useMemo(() => dayShiftDefs.filter((d) => d.requiresRestAfter && d.frequency !== "quota").map((d) => d.key), [dayShiftDefs]);
   const dayOrderedKeys = useMemo(
-    () => ["F", ...dayShiftDefs.filter((d) => !restRequiringKeys.includes(d.key)).map((d) => d.key), "S", ...restRequiringKeys],
-    [dayShiftDefs, restRequiringKeys]
+    () => ["F", ...dayShiftDefs.filter((d) => !restRequiringKeys.includes(d.key)).map((d) => d.key), ...(useLate ? ["S"] : []), ...restRequiringKeys],
+    [dayShiftDefs, restRequiringKeys, useLate]
   );
   // Short, unique display code per shift for the compact "nach Mitarbeiter" grid (F and S keep
   // their letters; custom shifts get a code derived from their name instead of their internal key).
@@ -1475,8 +1575,11 @@ function LabShiftSchedulerInner() {
   const applyLoadedPlan = ({ year: y, month: m, rows, holidays: hol, defs, staffRows, baselineRows }) => {
     const hh = (t) => String(t).slice(0, 5);
     const hasKeys = (...ks) => ks.every((k) => defs.some((d) => d.key === k));
-    const restore = defs.length > 0 && hasKeys("F", "S");
-    const keysOrdered = restore ? defs.map((d) => d.key) : dayOrderedKeys;
+    const restore = defs.length > 0 && hasKeys("F");
+    const hasLate = rows.some((r) => r.shift_key === "S") || (restore && hasKeys("S"));
+    setUseLate(hasLate); // a saved plan with Spätdienst brings it back, one without keeps it off
+    const fallbackKeys = hasLate && !dayOrderedKeys.includes("S") ? [...dayOrderedKeys, "S"] : dayOrderedKeys;
+    const keysOrdered = restore ? defs.map((d) => d.key) : fallbackKeys;
     const unknown = rows.filter((r) => !keysOrdered.includes(r.shift_key));
     if (unknown.length) {
       return { ok: false, message: `Der gespeicherte Plan enthält Schichtarten (${[...new Set(unknown.map((r) => r.shift_key))].join(", ")}), die zu den aktuellen Einstellungen dieses Dienstplaners nicht passen. Bitte im passenden Dienstplaner öffnen.` };
@@ -1515,7 +1618,7 @@ function LabShiftSchedulerInner() {
     const leaveMap = {}; people.forEach((p) => { leaveMap[p.id] = new Set(); });
     const restKeys = restore ? defs.filter((d) => d.requires_rest_after && d.frequency !== "quota").map((d) => d.key) : restRequiringKeys;
     const labelsByKey = restore ? Object.fromEntries(defs.map((d) => [d.key, d.label])) : shiftLabels;
-    const stats = computeStatsAndWarnings(days, people, leaveMap, useHours, keysOrdered, restKeys, labelsByKey, closedSet, openCount);
+    const stats = computeStatsAndWarnings(days, people, leaveMap, useHours, keysOrdered, restKeys, labelsByKey, closedSet, openCount, carryMap());
     setSchedule({ days, hours: stats.hours, satCount: stats.satCount, sunCount: stats.sunCount, targetOf: stats.targetOf, warnings: stats.warnings, notes: [] });
     // what the employees currently see (published version) — used to mark every manual change
     if (baselineRows && baselineRows.length) {
@@ -1685,18 +1788,17 @@ function LabShiftSchedulerInner() {
         if (!freiWishDays[e.staffId]) freiWishDays[e.staffId] = new Set();
         parseDayList(e.days, totalDays).forEach((d) => freiWishDays[e.staffId].add(d));
       });
-      const carryOver = {};
-      staffList.forEach((s) => { carryOver[s.id] = balances[s.name.trim()] || { hours: 0, satDeficit: 0, sunDeficit: 0, nightDeficit: 0 }; });
+      const carryOver = carryMap();
       const wishes = [];
       wishEntries.forEach((e) => {
         if (e.shiftType === "Frei") return; // handled above via leaveMap, not a real shift wish
         parseDayList(e.days, totalDays).forEach((d) => wishes.push({ staffId: e.staffId, day: d, shiftType: e.shiftType }));
       });
-      const result = generateSchedule(staffList, year, monthIdx, holidaySet, shiftHours, shiftLabels, dayShiftDefs, perShiftCount, leaveMap, carryOver, wishes, closedSet, openCount);
+      const result = generateSchedule(staffList, year, monthIdx, holidaySet, shiftHours, shiftLabels, dayShiftDefs, perShiftCount, leaveMap, carryOver, wishes, closedSet, openCount, useLate);
       // Recompute + validate from the final `days` (same pass used after manual edits) so any
       // rule the generator couldn't fully guarantee up front (e.g. a rare consecutive-workday
       // overrun caused by an already-fixed night block) still surfaces as a warning immediately.
-      const stats = computeStatsAndWarnings(result.days, staffList, leaveMap, shiftHours, dayOrderedKeys, restRequiringKeys, shiftLabels, closedSet, openCount);
+      const stats = computeStatsAndWarnings(result.days, staffList, leaveMap, shiftHours, dayOrderedKeys, restRequiringKeys, shiftLabels, closedSet, openCount, carryMap());
       // how much differs from the plan that was on the screen before (so the button visibly does something)
       let changed = 0;
       if (schedule && schedule.days) {
@@ -1731,7 +1833,7 @@ function LabShiftSchedulerInner() {
         arr[slotIndex] = newId; // keep position stable — columns are now fixed, so never splice/shift
         return { ...d, shifts: { ...d.shifts, [shiftType]: arr } };
       });
-      const stats = computeStatsAndWarnings(days, staffList, buildLeaveMap(), shiftHours, dayOrderedKeys, restRequiringKeys, shiftLabels, closedSet, openCount);
+      const stats = computeStatsAndWarnings(days, staffList, buildLeaveMap(), shiftHours, dayOrderedKeys, restRequiringKeys, shiftLabels, closedSet, openCount, carryMap());
       return { days, ...stats };
     });
   }
@@ -1742,7 +1844,7 @@ function LabShiftSchedulerInner() {
     schedule.days.forEach((d) => {
       if (closedSet.has(d.day)) return; // company closed: no demand
       const reduced = d.isWeekend || d.isHoliday;
-      totalDemandHours += shiftHours.F * (reduced ? 1 : perShiftCount.F || 1) + shiftHours.S * (reduced ? 1 : perShiftCount.S || 1);
+      totalDemandHours += shiftHours.F * (reduced ? 1 : perShiftCount.F || 1) + (useLate ? shiftHours.S * (reduced ? 1 : perShiftCount.S || 1) : 0);
       dayShiftDefs.forEach((def) => {
         if (def.frequency === "quota") return;
         // Rest-requiring (night-style) shifts run every day, including weekends/holidays (1 person
@@ -1762,7 +1864,7 @@ function LabShiftSchedulerInner() {
       : 0;
     const suggestedStaff = avgTarget > 0 ? Math.round(totalDemandHours / avgTarget) : 0;
     return { totalDemandHours, avgActual, avgTarget, suggestedStaff };
-  }, [schedule, staffList, perShiftCount, shiftHours, dayShiftDefs, closedSet]);
+  }, [schedule, staffList, perShiftCount, shiftHours, dayShiftDefs, closedSet, useLate]);
 
   function buildScheduleText() {
     if (!schedule) return "";
@@ -2010,7 +2112,7 @@ function LabShiftSchedulerInner() {
             <div>
               <label className="text-sm font-medium text-slate-700 mb-1.5 block">Benötigte Personen je Schicht (gleichzeitig)</label>
               <div className="grid grid-cols-4 gap-2">
-                {["F", ...dayShiftDefs.filter((d) => d.frequency !== "quota").map((d) => d.key), "S"].map((st) => (
+                {["F", ...dayShiftDefs.filter((d) => d.frequency !== "quota").map((d) => d.key), ...(useLate ? ["S"] : [])].map((st) => (
                   <div key={st} className="text-center">
                     <div className={`text-[11px] mb-1 ${shiftMeta[st].text}`}>{shiftMeta[st].label}</div>
                     <input
@@ -2039,8 +2141,8 @@ function LabShiftSchedulerInner() {
           <div>
             <label className="text-sm font-medium text-slate-700 mb-2 block">Schichtzeiten</label>
             <div className="space-y-2">
-              {["F", "S"].map((key) => (
-                <div key={key} className="grid grid-cols-[auto,1fr,1fr,auto] gap-1.5 items-center bg-slate-50/60 rounded-lg p-2">
+              {["F", ...(useLate ? ["S"] : [])].map((key) => (
+                <div key={key} className="grid grid-cols-[auto,1fr,1fr,auto,auto] gap-1.5 items-center bg-slate-50/60 rounded-lg p-2">
                   <span className={`text-[11px] font-medium px-1.5 ${shiftMeta[key].text}`}>{key}</span>
                   <input
                     value={specialShifts[key].label}
@@ -2054,8 +2156,16 @@ function LabShiftSchedulerInner() {
                     className="border border-slate-300 rounded-lg px-2.5 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-teal-500"
                   />
                   <span className="text-[11px] text-slate-400 font-mono whitespace-nowrap">{shiftMeta[key].hours.toFixed(1)} Std.</span>
+                  {key === "S" ? (
+                    <button type="button" onClick={() => setUseLate(false)} title="Spätdienst entfernen" aria-label="Spätdienst entfernen" className="text-slate-400 hover:text-rose-600 p-1 active:translate-y-px"><Trash2 size={14} /></button>
+                  ) : <span />}
                 </div>
               ))}
+              {!useLate && (
+                <button type="button" onClick={() => setUseLate(true)} className="inline-flex items-center gap-1 text-sm text-teal-700 hover:text-teal-800 font-medium px-2 py-1.5 rounded-lg border border-dashed border-teal-300 active:translate-y-px">
+                  <Plus size={15} /> Spätdienst hinzufügen
+                </button>
+              )}
               {dayShiftDefs.map((def, idx) => {
                 const guessedNight = /nacht|night|graveyard/i.test(def.label || "") || (() => {
                   const t = parseTimeRange(def.time);
@@ -2419,7 +2529,7 @@ function LabShiftSchedulerInner() {
                   .filter(([, v]) => Math.abs(v.hours || 0) > 0.05 || (v.satDeficit || 0) > 0 || (v.sunDeficit || 0) > 0 || (v.nightDeficit || 0) > 0)
                   .map(([name, v]) => {
                     const parts = [];
-                    if (Math.abs(v.hours || 0) > 0.05) parts.push(`${v.hours > 0 ? "+" : ""}${v.hours.toFixed(1)} Std.`);
+                    if (Math.abs(v.hours || 0) > 0.05) parts.push(v.hours < 0 ? `${(-v.hours).toFixed(1)} Überstunden (Ziel kleiner)` : `${v.hours.toFixed(1)} Minusstunden (Ziel größer)`);
                     if ((v.satDeficit || 0) > 0) parts.push(`${v.satDeficit.toFixed(1)} Sa offen`);
                     if ((v.sunDeficit || 0) > 0) parts.push(`${v.sunDeficit.toFixed(1)} So offen`);
                     if ((v.nightDeficit || 0) > 0) parts.push(`${v.nightDeficit.toFixed(1)} Nächte offen`);
@@ -2430,7 +2540,7 @@ function LabShiftSchedulerInner() {
                     );
                   })}
               </div>
-              <button onClick={resetBalances} className="mt-2 text-violet-500 hover:text-rose-600 underline">Alle Salden löschen</button>
+              {!orgCtx && <button onClick={resetBalances} className="mt-2 text-violet-500 hover:text-rose-600 underline">Alle Salden löschen</button>}
             </div>
           )}
 
@@ -2688,9 +2798,9 @@ function LabShiftSchedulerInner() {
                   <thead>
                     <tr className="text-slate-500 border-b border-slate-100">
                       <th className="px-2 py-2 text-left font-medium">Name</th>
-                      <th className="px-2 py-2 text-left font-medium">Saldo Vormonat</th>
+                      <th className="px-2 py-2 text-left font-medium" title="+ = Überstunden aus Vormonaten (werden jetzt ausgeglichen), − = Minusstunden">Saldo Vormonat</th>
                       <th className="px-2 py-2 text-left font-medium">Geleistete Std.</th>
-                      <th className="px-2 py-2 text-left font-medium">Ziel</th>
+                      <th className="px-2 py-2 text-left font-medium" title="Vertragsstunden dieses Monats (Wochenstunden ÷ Öffnungstage pro Woche × offene Tage, ohne Urlaub) ± Saldo aus Vormonaten">Ziel</th>
                       <th className="px-2 py-2 text-left font-medium">Differenz</th>
                       <th className="px-2 py-2 text-left font-medium">Samstage</th>
                       <th className="px-2 py-2 text-left font-medium">Sonntage</th>
@@ -2710,8 +2820,8 @@ function LabShiftSchedulerInner() {
                       return (
                         <tr key={s.id} className="border-b border-slate-50">
                           <td className="px-2 py-2 font-medium">{s.name}</td>
-                          <td className={`px-2 py-2 font-mono ${Math.abs(carriedHours) > 0.05 ? (carriedHours > 0 ? "text-emerald-700" : "text-rose-700") : "text-slate-300"}`}>
-                            {Math.abs(carriedHours) > 0.05 ? `${carriedHours > 0 ? "+" : ""}${carriedHours.toFixed(1)}` : "—"}
+                          <td className={`px-2 py-2 font-mono ${Math.abs(carriedHours) > 0.05 ? (carriedHours < 0 ? "text-amber-700" : "text-sky-700") : "text-slate-300"}`} title={Math.abs(carriedHours) > 0.05 ? (carriedHours < 0 ? "Überstunden aus Vormonaten – das Ziel ist darum kleiner" : "Minusstunden aus Vormonaten – das Ziel ist darum größer") : ""}>
+                            {Math.abs(carriedHours) > 0.05 ? `${carriedHours < 0 ? "+" : "−"}${Math.abs(carriedHours).toFixed(1)}` : "—"}
                           </td>
                           <td className={`px-2 py-2 font-mono ${bigDev ? "text-amber-700 font-semibold" : ""}`}>{h.toFixed(1)}</td>
                           <td className="px-2 py-2 font-mono text-slate-400">{t.toFixed(1)}</td>
