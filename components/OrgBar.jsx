@@ -30,6 +30,22 @@ export default function OrgBar({ onLoadStaff, staffList, toDb, onIdsChanged, yea
   const [versions, setVersions] = useState([]);
   const [openJumps, setOpenJumps] = useState(0); // Einspringer entries the Leitung has not looked at yet
   const [wishesOpen, setWishesOpen] = useState(false); // popup "Wünsche"
+  // plans sent by the Schichtplaner, waiting for Leitung/Inhaber (checked every minute and when the window gets focus)
+  const isLeader = org && (org.role === "owner" || org.role === "supervisor");
+  const [pendingMonths, setPendingMonths] = useState([]);
+  useEffect(() => {
+    if (!org || !isLeader) return undefined;
+    let alive = true;
+    const check = async () => {
+      const r = await org.supabase.from("schedule_months").select("year, month, status").eq("org_id", org.orgId).eq("status", "pending");
+      if (alive && !r.error) setPendingMonths([...r.data].sort((a, b) => a.year - b.year || a.month - b.month));
+    };
+    check();
+    const t = setInterval(check, 60000);
+    const onFocus = () => check();
+    window.addEventListener("focus", onFocus);
+    return () => { alive = false; clearInterval(t); window.removeEventListener("focus", onFocus); };
+  }, [org, isLeader, bump]);
   const [openWishes, setOpenWishes] = useState(0);     // wishes sent by employees, not decided yet
   const [wishBump, setWishBump] = useState(0);
   useEffect(() => {
@@ -215,6 +231,12 @@ export default function OrgBar({ onLoadStaff, staffList, toDb, onIdsChanged, yea
             ))}
           </div>
         </div>
+      {isLeader && pendingMonths.length > 0 && (
+        <a href="/freigaben" role="status" className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-rose-300 bg-rose-50 px-3 py-2 text-sm font-medium text-rose-800 hover:bg-rose-100">
+          <span>● {pendingMonths.length === 1 ? "Ein Plan wartet" : `${pendingMonths.length} Pläne warten`} auf deine Freigabe: {pendingMonths.map((m) => `${MONTHS[m.month - 1]} ${m.year}`).join(", ")}</span>
+          <span className="rounded-md bg-rose-700 px-2.5 py-1 text-xs font-semibold text-white">Jetzt prüfen</span>
+        </a>
+      )}
       {/* buttons in one row ("Abmelden" is at the very top of the page, next to the title band) */}
       <div className="mt-3 flex flex-wrap items-center gap-2">
           <button onClick={load} disabled={!!busy} className="rounded-lg border border-teal-200 bg-teal-50 px-3 py-2 text-sm text-teal-800 hover:bg-teal-100 disabled:opacity-60">

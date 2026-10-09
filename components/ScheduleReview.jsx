@@ -296,6 +296,11 @@ export default function ScheduleReview() {
           </div>
         </div>
 
+        {isLeader && months && months.some((x) => x.status === "pending") && (
+          <div role="status" style={{ ...card, background: "#FFF1D2", color: "#7A4E00", fontSize: 14, fontWeight: 600 }}>
+            ● Wartet auf deine Freigabe: {months.filter((x) => x.status === "pending").map((x) => `${MONTHS[x.month - 1]} ${x.year}`).join(", ")}. Unten auswählen, prüfen und „Freigeben“ oder „Zurückweisen“.
+          </div>
+        )}
         {err && <div role="alert" style={{ ...card, background: "#FCE5EA", color: "#8A2A3E", fontSize: 14 }}>{err}</div>}
         {msg && <div style={{ ...card, background: "#DDF2E8", color: "#1F6347", fontSize: 14 }}>{msg}</div>}
 

@@ -45,6 +45,10 @@
 - برای هر شیفت اضافه (Mitteldienst، Büro، شیفت‌های خود کاربر) در Dienstplaner Labor سه تیک: «Freitag» (پیش‌فرض روشن)، «Samstag»، «Sonntag» (پیش‌فرض خاموش). دوشنبه تا پنجشنبه همیشه، تعطیلات رسمی هرگز. برای «Täglich» و «Kontingent/Monat». شنبه و یکشنبه هم همان نفر (قانون جفت آخر هفته).
 - ذخیره با انتشار در `shift_definitions` (`on_friday`, `on_saturday`, `on_sunday`) و بازگشت با «Plan bearbeiten». دیتابیس: `docs/sql/14-middle-shift-days-schema.sql` (روی Supabase واقعی اجرا شد؛ فقط ستون جدید با مقدار پیش‌فرض رفتار قبلی).
 
+### اعلان «Plan wartet auf Freigabe» (داخل برنامه)
+- وقتی Schichtplaner پلنی را «Zur Freigabe einreichen» می‌کند، Leitung و Inhaber در نوار بالای Dienstplaner یک نوار قرمز می‌بینند («Ein Plan wartet auf deine Freigabe: November 2026 · Jetzt prüfen» → `/freigaben`) و در `/freigaben` هم یک نوار. هر ۶۰ ثانیه و هنگام برگشت به پنجره خودکار چک می‌شود. Schichtplaner و کارمندان آن را نمی‌بینند.
+- **ایمیل هنوز نیست:** نیاز به دامنهٔ اختصاصی + سرویس ایمیل (Brevo/Mailjet/Resend، کلید فقط در Vercel، AVV). کار باز بعد از انتخاب نام و دامنه.
+
 ### /admin: نام شرکت و E-Mail
 - «Umbenennen» کنار نام هر شرکت (نام تکراری رد می‌شود)؛ «E-Mail ändern» کنار هر حساب (بدون ایمیل تأیید، رمز همان می‌ماند؛ ایمیل تکراری رد؛ ایمیل ادمین دیگر محافظت‌شده). هر دو در `admin_log`.
 
@@ -68,7 +72,7 @@
 - اسکریپت SQL جدول `first_login_flags` و توابع `flag_first_login` / `clear_first_login` در دیتابیس هست ولی در `docs/sql` نیست → بعداً از دیتابیس به فایل منتقل شود.
 
 ### تست‌ها
-تست‌های جدید در `dev-tests` (جدا از پروژه): `print_test`، `wake_test`، `opening_test`، `closed_emp_test`، `wishes_test`، `genbtn_test`، `saldo_test`، `late_test`، `opening_test` (نیم‌روز)، `admin_test`، `mid_ui_test`، و شبیه‌سازی تولید پلن. `edit_test` و `approval_test` قدیمی هستند (مدل نقش قبلی «Zur Freigabe einreichen») و باید به‌روز شوند.
+تست‌های جدید در `dev-tests` (جدا از پروژه): `print_test`، `wake_test`، `opening_test`، `closed_emp_test`، `wishes_test`، `genbtn_test`، `saldo_test`، `late_test`، `opening_test` (نیم‌روز)، `admin_test`، `mid_ui_test`، `pending_test`، و شبیه‌سازی تولید پلن. `edit_test` و `approval_test` قدیمی هستند (مدل نقش قبلی «Zur Freigabe einreichen») و باید به‌روز شوند.
 
 ## ۱۲. کارهای باز (به‌روز)
 1. دکمهٔ «Zugänge» برای Leitung: ساخت ورود کارمند و رمز جدید بدون ادمین (در یک چت قبلی ساخته و تست شده بود، روی نسخهٔ جدید منتقل نشده).
