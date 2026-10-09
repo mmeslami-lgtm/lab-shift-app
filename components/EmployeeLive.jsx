@@ -65,7 +65,7 @@ function makeCodes(defs) {
 }
 
 const navBtn = { width: 34, height: 34, borderRadius: 12, border: `1px solid ${LINE}`, background: "#fff", display: "grid", placeItems: "center", color: INK, cursor: "pointer", padding: 0 };
-const Card = ({ children, style }) => <div style={{ background: "#fff", borderRadius: 20, padding: 16, border: "1px solid #CBD8EE", boxShadow: "0 6px 18px -12px rgba(36,59,107,.35)", ...style }}>{children}</div>;
+const Card = ({ children, style }) => <div style={{ background: "#fff", borderRadius: 20, padding: 16, border: "1px solid #A9BBDA", boxShadow: "0 6px 18px -12px rgba(36,59,107,.35)", ...style }}>{children}</div>;
 
 export default function EmployeeLive() {
   const org = useContext(OrgContext);

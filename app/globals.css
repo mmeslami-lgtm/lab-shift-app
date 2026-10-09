@@ -10,16 +10,19 @@
   --kb-ink: #243B6B;    /* header bands, headings */
   --kb-accent: #185FA5; /* main buttons */
   --kb-accent-dark: #0C447C;
-  --kb-line: #CBD8EE;   /* card borders */
+  --kb-line: #A9BBDA;   /* card borders */
   --kb-tint: #E6F1FB;   /* light blue fills */
 }
 html, body { background: var(--kb-page); }
 .min-h-screen.bg-slate-50 { background-color: var(--kb-page) !important; }
 
 /* page title of the planners as a blue band */
-.max-w-5xl > header:first-child { background: var(--kb-ink); color: #fff; border-radius: 14px; padding: 14px 18px; }
-.max-w-5xl > header:first-child h1, .max-w-5xl > header:first-child .text-teal-700 { color: #fff !important; }
-.max-w-5xl > header:first-child p { color: #C9D6EE !important; }
+.kb-band { background: var(--kb-ink); color: #fff; border-radius: 14px; padding: 14px 18px; }
+.kb-band h1, .kb-band .text-teal-700 { color: #fff !important; }
+.kb-band p { color: #C9D6EE !important; }
+/* "Abmelden" at the very top, outside the band, in a strong colour */
+.kb-logout { background: #A32D2D; color: #fff; border: 1.5px solid #791F1F; box-shadow: 0 4px 12px -6px rgba(121, 31, 31, 0.6); }
+.kb-logout:hover { background: #791F1F; }
 
 /* cards: blue top band, blue-grey border, soft depth */
 section.bg-white.rounded-2xl {
@@ -51,3 +54,10 @@ button.border-emerald-200 { border-color: #6EE7B7 !important; }
 button.border-amber-300 { border-color: #FBBF24 !important; }
 button.text-xs, a.rounded-lg.text-xs { font-size: 0.8125rem !important; line-height: 1.25rem !important; }
 button.text-sm { font-size: 0.9375rem !important; }
+
+/* lines that were too pale (tables, setting boxes, inputs) */
+.border-slate-50 { border-color: #DCE4F2 !important; }
+.border-slate-100 { border-color: #C3D0E7 !important; }
+.border-slate-200 { border-color: #A9BBDA !important; }
+.border-slate-300, input.border, select.border, textarea.border { border-color: #8EA2C6 !important; }
+.divide-slate-50 > :not([hidden]) ~ :not([hidden]), .divide-slate-100 > :not([hidden]) ~ :not([hidden]) { border-color: #C3D0E7 !important; }
