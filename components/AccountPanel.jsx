@@ -18,8 +18,8 @@ const PRODUCT_LABEL = {
 const ROLE_LABEL = { owner: "Inhaber", supervisor: "Leitung", planner: "Schichtplaner", employee: "Mitarbeitende" };
 
 const card = { background: "#fff", borderRadius: 18, padding: 16, marginBottom: 12 };
-const btn = { border: 0, borderRadius: 14, background: PRIMARY, color: "#fff", fontSize: 16, fontWeight: 650, padding: "13px 16px", cursor: "pointer" };
-const btnGhost = { border: `1px solid ${LINE}`, borderRadius: 12, background: "#fff", color: INK, fontSize: 14, fontWeight: 600, padding: "10px 12px", cursor: "pointer" };
+const btn = { border: 0, borderRadius: 14, background: PRIMARY, color: "#fff", fontSize: 17, fontWeight: 650, padding: "13px 16px", cursor: "pointer" };
+const btnGhost = { border: "1.5px solid #9AAED0", borderRadius: 12, background: "#fff", color: INK, fontSize: 15, fontWeight: 600, padding: "10px 12px", cursor: "pointer" };
 
 export default function AccountPanel() {
   const [session, setSession] = useState(undefined); // undefined = still loading

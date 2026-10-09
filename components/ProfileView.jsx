@@ -15,8 +15,8 @@ const MODULES = [
 ];
 const card = { background: "#fff", borderRadius: 18, padding: 16, marginBottom: 12 };
 const fld = { display: "block", width: "100%", boxSizing: "border-box", border: `1px solid ${LINE}`, borderRadius: 12, padding: "12px 76px 12px 12px", fontSize: 16, background: "#fff", color: INK };
-const btn = { border: 0, borderRadius: 14, background: PRIMARY, color: "#fff", fontSize: 16, fontWeight: 650, padding: "13px 16px", cursor: "pointer", width: "100%" };
-const ghost = { border: `1px solid ${LINE}`, borderRadius: 12, background: "#fff", color: INK, fontSize: 14, fontWeight: 600, padding: "9px 12px", cursor: "pointer", textDecoration: "none", display: "inline-block" };
+const btn = { border: 0, borderRadius: 14, background: PRIMARY, color: "#fff", fontSize: 17, fontWeight: 650, padding: "13px 16px", cursor: "pointer", width: "100%" };
+const ghost = { border: "1.5px solid #9AAED0", borderRadius: 12, background: "#fff", color: INK, fontSize: 15, fontWeight: 600, padding: "9px 12px", cursor: "pointer", textDecoration: "none", display: "inline-block" };
 const CSS = `.prof button{transition:transform .08s ease,filter .15s ease,opacity .15s ease}.prof button:not(:disabled):hover{filter:brightness(.95)}.prof button:not(:disabled):active{transform:scale(.97);filter:brightness(.9)}.prof button:disabled{opacity:.55;cursor:not-allowed}.prof a:active{transform:scale(.97)}`;
 
 const fmt = (iso) => { try { return new Date(iso).toLocaleString("de-DE", { dateStyle: "medium", timeStyle: "short" }); } catch (e) { return ""; } };
@@ -207,10 +207,10 @@ export default function ProfileView({ forced = false }) {
         <div style={{ fontSize: 12, color: MUTED, marginTop: 10 }}>Tipp: Ein langer Satz aus mehreren Wörtern mit Zahl und Zeichen ist sicher und leicht zu merken. Nutze es nirgendwo sonst.</div>
       </form>
 
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
         {!forced && isAdmin && <a href="/admin" style={ghost}>Plattform-Verwaltung</a>}
         {!forced && <a href={homeFor()} style={ghost}>Zurück zum Programm</a>}
-        <button type="button" style={ghost} onClick={() => supabase.auth.signOut()}>Abmelden</button>
+        <button type="button" style={{ ...ghost, marginLeft: "auto" }} onClick={() => supabase.auth.signOut()}>Abmelden</button>
       </div>
     </>
   );

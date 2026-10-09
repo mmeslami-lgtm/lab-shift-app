@@ -8,8 +8,8 @@ const INK = "#1B2433", PRIMARY = "#243B6B", PAPER = "#E9EEF8", MUTED = "#6B7588"
 const PRODUCT_LABEL = { lab_planner: "Dienstplaner Labor", generic_planner: "Dienstplaner allgemein", employee_app: "Mitarbeiter-App" };
 const ROLE_LABEL = { owner: "Inhaber", supervisor: "Leitung", planner: "Schichtplaner", employee: "Mitarbeitende" };
 const card = { background: "#fff", borderRadius: 18, padding: 16, marginBottom: 12 };
-const btn = { border: 0, borderRadius: 12, background: PRIMARY, color: "#fff", fontSize: 14, fontWeight: 650, padding: "10px 14px", cursor: "pointer" };
-const ghost = { border: `1px solid ${LINE}`, borderRadius: 10, background: "#fff", color: INK, fontSize: 13, fontWeight: 600, padding: "7px 10px", cursor: "pointer" };
+const btn = { border: 0, borderRadius: 12, background: PRIMARY, color: "#fff", fontSize: 15, fontWeight: 650, padding: "10px 14px", cursor: "pointer" };
+const ghost = { border: "1.5px solid #9AAED0", borderRadius: 10, background: "#fff", color: INK, fontSize: 14, fontWeight: 600, padding: "7px 10px", cursor: "pointer" };
 const fld = { display: "block", width: "100%", boxSizing: "border-box", marginTop: 4, border: `1px solid ${LINE}`, borderRadius: 10, padding: "9px 10px", fontSize: 15, background: "#fff", color: INK };
 const errBox = { marginTop: 10, background: "#FCE5EA", color: "#8A2A3E", borderRadius: 10, padding: "8px 10px", fontSize: 14 };
 const fmt = (iso) => { try { return new Date(iso).toLocaleString("de-DE", { dateStyle: "short", timeStyle: "short" }); } catch (e) { return ""; } };

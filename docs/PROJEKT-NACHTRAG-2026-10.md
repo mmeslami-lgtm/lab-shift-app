@@ -41,6 +41,7 @@
 
 ### ظاهر «Klares Blau» (همهٔ صفحه‌ها)
 - انتخاب کاربر از سه نمونه. Dienstplanerها: کل ظاهر در `app/globals.css` (بخش «Erscheinungsbild Klares Blau»): زمینهٔ آبی ملایم `#E9EEF8`، عنوان صفحه نوار آبی تیره `#243B6B`، کارت‌ها با نوار بالایی آبی و سایهٔ نرم، رنگ teal قبلی همه‌جا آبی `#185FA5`. صفحه‌های با استایل درون‌خطی (اپ کارمند، /freigaben، /konto، /profil، /admin، دمو): ثابت `PAPER` = `#E9EEF8`، کارت‌های اپ کارمند با حاشیهٔ `#CBD8EE`. برگهٔ چاپ تغییر نکرد.
+- دکمه‌ها: حاشیهٔ پررنگ‌تر (۱٫۵px، `#93A7CB` / `#9AAED0`) و متن یک درجه بزرگ‌تر (در Dienstplanerها از `globals.css`، در بقیه از ثابت‌های `btn`/`ghost`). «Abmelden» همیشه جدا و سمت راست همان ردیف دکمه‌ها (OrgBar، /profil، /freigaben).
 
 ### دکمهٔ ساخت پلن (هر دو Dienstplaner)
 - «Dienstplan erstellen» / «Neu generieren» حالا واکنش می‌دهد: «Moment …» با آیکون چرخان، بعد پیام «Plan erstellt um HH:MM:SS Uhr» یا «Neu erstellt … – N Einträge anders als vorher» (یا «gleiches Ergebnis …» اگر توزیع دیگری ممکن نیست).

@@ -206,7 +206,7 @@ export default function EmployeeLive() {
             <div style={{ fontSize: 13, color: MUTED }}>{org.orgName}</div>
             <div style={{ fontSize: 22, fontWeight: 700, letterSpacing: -0.3 }}>{(people.find((p) => p.id === my) || {}).name || org.session.user.email}</div>
           </div>
-          <button onClick={() => sb.auth.signOut()} style={{ border: `1px solid ${LINE}`, borderRadius: 12, background: "#fff", color: INK, fontSize: 13, fontWeight: 600, padding: "8px 12px", cursor: "pointer" }}>Abmelden</button>
+          <button onClick={() => sb.auth.signOut()} style={{ border: "1.5px solid #9AAED0", borderRadius: 12, background: "#fff", color: INK, fontSize: 14, fontWeight: 600, padding: "9px 14px", cursor: "pointer" }}>Abmelden</button>
         </div>
 
         {error && <Card style={{ background: "#FCE5EA", color: "#8A2A3E", fontSize: 13, marginBottom: 12 }}>Fehler beim Laden: {error}</Card>}

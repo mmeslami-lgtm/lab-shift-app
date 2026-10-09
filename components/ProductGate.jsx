@@ -106,7 +106,7 @@ export default function ProductGate({ product, supervisorOnly = false, label, ch
             </div>
           )}
           <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
-            <button onClick={() => supabase.auth.signOut()} style={{ border: "1px solid #D9DEE7", borderRadius: 12, background: "#fff", color: INK, fontSize: 14, fontWeight: 600, padding: "10px 14px", cursor: "pointer" }}>Abmelden</button>
+            <button onClick={() => supabase.auth.signOut()} style={{ border: "1.5px solid #9AAED0", borderRadius: 12, background: "#fff", color: INK, fontSize: 15, fontWeight: 600, padding: "10px 14px", cursor: "pointer" }}>Abmelden</button>
             <a href="/konto" style={{ border: 0, borderRadius: 12, background: PRIMARY, color: "#fff", fontSize: 14, fontWeight: 600, padding: "10px 14px", textDecoration: "none" }}>Zum Konto</a>
           </div>
         </div>

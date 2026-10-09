@@ -17,8 +17,8 @@ const range = (w) => (w.date_from === w.date_to ? fmt(w.date_from) : `${fmt(w.da
 const card = { background: "#fff", borderRadius: 20, padding: 16, marginBottom: 12, border: "1px solid #CBD8EE", boxShadow: "0 6px 18px -12px rgba(36,59,107,.35)" };
 const fld = { display: "block", width: "100%", boxSizing: "border-box", marginTop: 4, border: `1px solid ${LINE}`, borderRadius: 12, padding: "10px 12px", fontSize: 16, background: "#fff", color: INK };
 const lab = { display: "block", fontSize: 12, color: MUTED, marginBottom: 10 };
-const btn = { border: 0, borderRadius: 14, background: PRIMARY, color: "#fff", fontSize: 15, fontWeight: 650, padding: "12px 14px", cursor: "pointer", width: "100%" };
-const btnLight = { border: `1px solid ${LINE}`, borderRadius: 12, background: "#fff", color: INK, fontSize: 13, fontWeight: 600, padding: "7px 10px", cursor: "pointer" };
+const btn = { border: 0, borderRadius: 14, background: PRIMARY, color: "#fff", fontSize: 16, fontWeight: 650, padding: "12px 14px", cursor: "pointer", width: "100%" };
+const btnLight = { border: "1.5px solid #9AAED0", borderRadius: 12, background: "#fff", color: INK, fontSize: 14, fontWeight: 600, padding: "7px 10px", cursor: "pointer" };
 
 // Tab "Wünsche" of the employee app. Wishes are collected as drafts (only the person sees them) and
 // sent with ONE button to the Leitung, who approves or rejects. A wish is never a promise.

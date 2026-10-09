@@ -205,7 +205,7 @@ export default function OrgBar({ onLoadStaff, staffList, toDb, onIdsChanged, yea
 
   return (
     <div className="rounded-xl border border-slate-200 bg-white p-3 text-sm">
-      <div className="flex flex-wrap items-center justify-between gap-2">
+      {/* company + role */}
         <div>
           <span className="font-semibold text-slate-800">{org.orgName}</span>
           <span className="text-slate-500"> · {ROLE_LABEL[org.role] || org.role}</span>
@@ -215,18 +215,19 @@ export default function OrgBar({ onLoadStaff, staffList, toDb, onIdsChanged, yea
             ))}
           </div>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <button onClick={load} disabled={!!busy} className="rounded-lg border border-teal-200 bg-teal-50 px-2.5 py-1.5 text-xs text-teal-800 hover:bg-teal-100 disabled:opacity-60">
+      {/* buttons in one row; "Abmelden" sits apart on the right */}
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+          <button onClick={load} disabled={!!busy} className="rounded-lg border border-teal-200 bg-teal-50 px-3 py-2 text-sm text-teal-800 hover:bg-teal-100 disabled:opacity-60">
             {busy === "load" ? "Lädt …" : "Personen aus Datenbank laden"}
           </button>
-          <button onClick={save} disabled={!!busy} className="rounded-lg border border-indigo-200 bg-indigo-50 px-2.5 py-1.5 text-xs text-indigo-800 hover:bg-indigo-100 disabled:opacity-60">
+          <button onClick={save} disabled={!!busy} className="rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-sm text-indigo-800 hover:bg-indigo-100 disabled:opacity-60">
             {busy === "save" ? "Speichert …" : "Personen in Datenbank speichern"}
           </button>
-          <button onClick={() => setWishesOpen(true)} className={`rounded-lg border px-2.5 py-1.5 text-xs active:translate-y-px ${openWishes > 0 ? "border-rose-200 bg-rose-50 font-medium text-rose-800 hover:bg-rose-100" : "border-slate-200 text-slate-700 hover:bg-slate-50"}`}>Wünsche{openWishes > 0 ? ` · ${openWishes} offen` : ""}</button>
-          <a href="/freigaben" className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs text-slate-700 hover:bg-slate-50">Freigaben &amp; Archiv{openJumps > 0 ? ` · ${openJumps} Einspringen offen` : ""}</a>
-          <button onClick={openEdit} disabled={!!busy} aria-expanded={editOpen} className="rounded-lg border border-amber-300 bg-amber-50 px-2.5 py-1.5 text-xs font-medium text-amber-900 hover:bg-amber-100 disabled:opacity-60">Plan bearbeiten</button>
-          <button onClick={() => sb.auth.signOut()} className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs text-slate-600 hover:bg-slate-50">Abmelden</button>
-        </div>
+          <button onClick={() => setWishesOpen(true)} className={`rounded-lg border px-3 py-2 text-sm active:translate-y-px ${openWishes > 0 ? "border-rose-200 bg-rose-50 font-medium text-rose-800 hover:bg-rose-100" : "border-slate-200 text-slate-700 hover:bg-slate-50"}`}>Wünsche{openWishes > 0 ? ` · ${openWishes} offen` : ""}</button>
+          <a href="/freigaben" className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">Freigaben &amp; Archiv{openJumps > 0 ? ` · ${openJumps} Einspringen offen` : ""}</a>
+          <button onClick={openEdit} disabled={!!busy} aria-expanded={editOpen} className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-900 hover:bg-amber-100 disabled:opacity-60">Plan bearbeiten</button>
+          <span className="flex-1 min-w-[1.5rem]" aria-hidden="true" />
+          <button onClick={() => sb.auth.signOut()} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 active:translate-y-px">Abmelden</button>
       </div>
       <div className="mt-2 text-[11px] text-slate-500">Neue oder geänderte Personen sind erst nach „Personen in Datenbank speichern“ in der Datenbank. Nur Personen aus der Datenbank können Pläne veröffentlicht bekommen.</div>
       {wishesOpen && <WishesDialog year={year} monthIdx={monthIdx} onImport={onImportWishes} onChanged={() => setWishBump((b) => b + 1)} onClose={() => { setWishesOpen(false); setWishBump((b) => b + 1); }} />}

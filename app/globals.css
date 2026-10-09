@@ -40,3 +40,14 @@ section.bg-white.rounded-2xl h2 { color: var(--kb-ink) !important; }
 .border-teal-200, .border-teal-300, .border-teal-600 { border-color: #B5D4F4 !important; }
 .focus\:ring-teal-500:focus { --tw-ring-color: #378ADD !important; }
 .bg-teal-600.border-teal-600 { border-color: var(--kb-accent) !important; }
+
+/* buttons in the planners: stronger outline and one step larger text */
+button.border, a.rounded-lg.border { border-width: 1.5px !important; }
+button.border-slate-200, button.border-slate-300, a.rounded-lg.border-slate-200 { border-color: #93A7CB !important; }
+button.border-teal-200 { border-color: #85B7EB !important; }
+button.border-indigo-200 { border-color: #A5B4FC !important; }
+button.border-rose-200 { border-color: #FDA4AF !important; }
+button.border-emerald-200 { border-color: #6EE7B7 !important; }
+button.border-amber-300 { border-color: #FBBF24 !important; }
+button.text-xs, a.rounded-lg.text-xs { font-size: 0.8125rem !important; line-height: 1.25rem !important; }
+button.text-sm { font-size: 0.9375rem !important; }

@@ -9,7 +9,7 @@ const MUTED = "#6B7588";
 const LINE = "#D9DEE7";
 
 const fld = { display: "block", width: "100%", boxSizing: "border-box", marginTop: 4, border: `1px solid ${LINE}`, borderRadius: 12, padding: "12px 12px", fontSize: 16, background: "#fff", color: INK };
-const btn = { border: 0, borderRadius: 14, background: PRIMARY, color: "#fff", fontSize: 16, fontWeight: 650, padding: "13px 16px", cursor: "pointer" };
+const btn = { border: 0, borderRadius: 14, background: PRIMARY, color: "#fff", fontSize: 17, fontWeight: 650, padding: "13px 16px", cursor: "pointer" };
 
 export function translateAuthError(msg) {
   const m = String(msg || "").toLowerCase();
