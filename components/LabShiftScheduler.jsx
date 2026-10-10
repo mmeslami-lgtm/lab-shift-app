@@ -1090,7 +1090,11 @@ function LabShiftSchedulerInner() {
   const [copyState, setCopyState] = useState("idle");
   const [excelState, setExcelState] = useState("idle");
   const [genBusy, setGenBusy] = useState(false);
-  const [genInfo, setGenInfo] = useState(null); // { at, changed, first } shown under the generate button
+  const [genInfo, setGenInfo] = useState(null);
+  // "↶ Rückgängig": earlier states of the plan on the screen (only this browser tab, before publishing)
+  const undoRef = useRef([]);
+  const [undoCount, setUndoCount] = useState(0);
+  const [undoMsg, setUndoMsg] = useState(""); // { at, changed, first } shown under the generate button
   const [printState, setPrintState] = useState("idle"); // Drucken / PDF button
   const [emailTableState, setEmailTableState] = useState("idle"); // idle | copied
   const [balances, setBalances] = useState({}); // name(trimmed) -> { hours, satDeficit, sunDeficit, nightDeficit }
@@ -1338,6 +1342,7 @@ function LabShiftSchedulerInner() {
   };
   // Reopen a saved month (draft or published) exactly as stored, so it can be edited (e.g. sick leave)
   const applyLoadedPlan = ({ year: y, month: m, rows, holidays: hol, defs, staffRows, baselineRows }) => {
+    clearUndo();
     const hh = (t) => String(t).slice(0, 5);
     const hasKeys = (...ks) => ks.every((k) => defs.some((d) => d.key === k));
     const restore = defs.length > 0 && hasKeys("F", "S", "N");
@@ -1536,6 +1541,7 @@ function LabShiftSchedulerInner() {
   }
 
   function runGenerate() {
+    if (schedule) pushUndo("Neu generieren");
     if (staffList.length === 0) return;
     setGenerateError(null);
     try {
@@ -1587,6 +1593,7 @@ function LabShiftSchedulerInner() {
 
   // "Übernehmen" in the Krankmeldung popup: change exactly these cells, note the sickness (K)
   function applySickCover(option, sickId, from, to) {
+    pushUndo(`Krankmeldung: ${option.title}`);
     setSchedule((prev) => {
       if (!prev) return prev;
       const days = prev.days.map((d) => {
@@ -1605,7 +1612,50 @@ function LabShiftSchedulerInner() {
     setTimeout(() => setSickCoverMsg(""), 12000);
   }
 
+  function pushUndo(label) {
+    if (!schedule) return;
+    undoRef.current.push({ schedule, sick: sickEntries, label });
+    if (undoRef.current.length > 40) undoRef.current.shift();
+    setUndoCount(undoRef.current.length);
+  }
+  function clearUndo() { undoRef.current = []; setUndoCount(0); }
+  function undoLast() {
+    const snap = undoRef.current.pop();
+    setUndoCount(undoRef.current.length);
+    if (!snap) return;
+    setSchedule(snap.schedule);
+    if (snap.sick) setSickEntries(snap.sick);
+    setUndoMsg(`Rückgängig: ${snap.label}`);
+    setTimeout(() => setUndoMsg(""), 4000);
+  }
+  // back to the published version of this month (yellow marks disappear); can itself be undone
+  function discardChanges() {
+    if (!schedule || !baseline) return;
+    if (!window.confirm("Alle Änderungen verwerfen und den Plan wieder so zeigen, wie er veröffentlicht ist?\n\nDas kann mit „Rückgängig“ wieder aufgehoben werden.")) return;
+    pushUndo("Alle Änderungen verwerfen");
+    const days = schedule.days.map((d) => {
+      const shifts = {};
+      Object.keys(d.shifts).forEach((k) => { shifts[k] = [...(baseline[`${d.day}|${k}`] || [])]; });
+      Object.keys(baseline).forEach((bk) => { const [day, k] = bk.split("|"); if (Number(day) === d.day && !shifts[k]) shifts[k] = [...baseline[bk]]; });
+      return { ...d, shifts };
+    });
+    setSchedule({ days, ...computeStatsAndWarnings(days, staffList, buildLeaveMap(), shiftHours, dayOrderedKeys) });
+    setUndoMsg("Zurück zur veröffentlichten Fassung");
+    setTimeout(() => setUndoMsg(""), 4000);
+  }
+  useEffect(() => {
+    const onKey = (e) => {
+      if (!(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== "z" || e.shiftKey) return;
+      const t = e.target && e.target.tagName;
+      if (t === "INPUT" || t === "TEXTAREA" || t === "SELECT") return; // normal typing undo stays
+      if (undoRef.current.length) { e.preventDefault(); undoLast(); }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
+
   function updateSlot(dayIndex, shiftType, slotIndex, newId) {
+    pushUndo(`Tag ${dayIndex + 1}, ${shiftLabels[shiftType] || shiftType}`);
     setSchedule((prev) => {
       if (!prev) return prev;
       const days = prev.days.map((d, i) => {
@@ -2385,6 +2435,13 @@ function LabShiftSchedulerInner() {
                     {printState === "done" ? <Check size={14} /> : <Printer size={14} />}
                     {printState === "busy" ? "Moment …" : printState === "done" ? "Druckansicht geöffnet" : printState === "blocked" ? "Pop-up blockiert – bitte erlauben" : printState === "error" ? "Druckansicht fehlgeschlagen" : "Drucken / PDF (Aushang)"}
                   </button>
+                  <button onClick={undoLast} disabled={undoCount === 0} title="Letzte Änderung zurücknehmen (Strg+Z)" className="inline-flex items-center gap-1.5 text-xs text-slate-700 border border-slate-200 bg-white rounded-lg px-2.5 py-1.5 hover:bg-slate-50 active:translate-y-px disabled:opacity-40 disabled:cursor-not-allowed">
+                    ↶ Rückgängig
+                  </button>
+                  <button onClick={discardChanges} disabled={!baseline || changeCount === 0} title={!baseline ? "Für diesen Monat gibt es noch keine veröffentlichte Fassung" : "Plan wieder so zeigen, wie er veröffentlicht ist"} className="inline-flex items-center gap-1.5 text-xs text-slate-700 border border-slate-200 bg-white rounded-lg px-2.5 py-1.5 hover:bg-slate-50 active:translate-y-px disabled:opacity-40 disabled:cursor-not-allowed">
+                    Alle Änderungen verwerfen
+                  </button>
+                  {undoMsg && <span role="status" className="text-xs text-slate-600 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5">{undoMsg}</span>}
                   <button onClick={() => setSickCoverOpen(true)} className="inline-flex items-center gap-1.5 text-xs text-rose-800 border border-rose-200 bg-rose-50 rounded-lg px-2.5 py-1.5 hover:bg-rose-100 active:translate-y-px">
                     <AlertTriangle size={14} /> Krankmeldung / Ausfall
                   </button>

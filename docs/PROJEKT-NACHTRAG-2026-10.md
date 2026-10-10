@@ -81,6 +81,9 @@
 ### تست‌ها
 تست‌های جدید در `dev-tests` (جدا از پروژه): `print_test`، `wake_test`، `opening_test`، `closed_emp_test`، `wishes_test`، `genbtn_test`، `saldo_test`، `late_test`، `opening_test` (نیم‌روز)، `admin_test`، `mid_ui_test`، `pending_test`، `sick_ui_test`، شبیه‌سازی `sick_test`، و شبیه‌سازی تولید پلن. `edit_test` و `approval_test` قدیمی هستند (مدل نقش قبلی «Zur Freigabe einreichen») و باید به‌روز شوند.
 
+## ۱۱.۴ «↶ Rückgängig» و «Alle Änderungen verwerfen» (هر دو Dienstplaner)
+- کنار «Drucken / PDF»: «↶ Rückgängig» (بدون عدد، طبق خواست کاربر) آخرین تغییر را برمی‌گرداند (هر خانهٔ دستی، «Neu generieren»، و در Labor هر «Übernehmen» در Krankmeldung همراه با ثبت بیماری)؛ تا ۴۰ قدم؛ میان‌بر Strg+Z (نه داخل فیلدهای متن). «Alle Änderungen verwerfen» (با تأیید) پلن را به نسخهٔ منتشرشدهٔ همان ماه برمی‌گرداند و خودش هم با «Rückgängig» برگشت‌پذیر است؛ بدون نسخهٔ منتشرشده یا بدون تغییر غیرفعال. فقط روی صفحه، قبل از انتشار؛ «Plan laden» تاریخچه را پاک می‌کند. تست: `undo_test` (هر دو Planer) و `sick_ui_test`.
+
 ## ۱۱.۵ ممیزی امنیت و حقوقی (۱۰ اکتبر ۲۰۲۶)
 - **منطقه:** Supabase `eu-central-1` (Frankfurt) — بررسی با Connector؛ مهاجرت لازم نبود. توابع سرور Vercel با `vercel.json` → `"regions": ["fra1"]` (پیش‌فرض Vercel آمریکا `iad1` بود).
 - **رمزها:** همهٔ ۱۰ حساب bcrypt (`$2a$`). توکن ورود: supabase-js در **localStorage** (نه کوکی httpOnly). تغییر به کوکی httpOnly = بازنویسی بزرگ (`@supabase/ssr` + middleware برای همهٔ صفحه‌ها) → کار باز. به‌جایش اکنون: هدرهای امنیتی در `next.config.js` (CSP بدون اسکریپت خارجی، `connect-src` فقط خود سایت و `*.supabase.co`، `frame-ancestors 'none'`، HSTS، nosniff، Referrer-Policy، Permissions-Policy با دوربین فقط برای خود سایت).
