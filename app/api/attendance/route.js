@@ -71,9 +71,13 @@ export async function POST(request) {
       return Response.json({ error: "Gerät nicht autorisiert" }, { status: 401 });
     }
 
-    const when = scannedAt ? new Date(scannedAt) : new Date();
-    if (Number.isNaN(when.getTime())) {
-      return Response.json({ error: "scanned_at ist kein gültiges Datum" }, { status: 400 });
+    // Tamper-proof: the time of a stamp is ALWAYS the server time (UTC), never the device clock.
+    // A time sent by the device is only kept as information (raw_payload.device_scanned_at).
+    // The database enforces the same (trigger attendance_server_time, script 15).
+    const when = new Date();
+    const deviceTime = scannedAt ? new Date(scannedAt) : null;
+    if (deviceTime && !Number.isNaN(deviceTime.getTime())) {
+      rawPayload = { ...(rawPayload && typeof rawPayload === "object" ? rawPayload : { raw: rawPayload }), device_scanned_at: deviceTime.toISOString() };
     }
 
     const { data, error } = await supabaseAdmin

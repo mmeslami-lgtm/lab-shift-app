@@ -41,6 +41,13 @@
 - شیفت صبح/عصر: شروع قبل از ۱۲ = Vormittag، وگرنه Nachmittag؛ قابل انتخاب دستی («An halben Tagen gehört die Schicht zu …»). در نیم‌روز فقط شیفت‌های همان نیمه؛ در Ziel نیم‌روز = نصف روز. نمایش: جدول، چاپ («nur vorm./nachm.»)، Excel، اپ کارمند («½»).
 - دیتابیس: `docs/sql/13-half-days-schema.sql` — روی Supabase واقعی اجرا و تست شد (۶ بررسی). `organizations.half_day_config` (`weekdays`, `shifts`)، `month_closures.am_days/pm_days`؛ توابع `set_opening_days` و `set_month_closed_days` یک پارامتر اختیاری بیشتر دارند (فراخوانی قدیمی کار می‌کند).
 
+### Labor: Frühdienst یک‌نفره در کمبود نیرو (تصمیم کاربر)
+- تولید پلن در دو دور: ۱) هر شیفت نفر اولش را می‌گیرد (Spät/Nacht هیچ‌وقت به خاطر نفر دوم صبح خالی نمی‌ماند)، ۲) نفرات اضافه: اول Mitteldienst و شیفت‌های اضافه، **نفر دوم Frühdienst آخر**. در کمبود: «Frühdienst mit 1 Person (Personalmangel – erlaubt …)» در Hinweise، در جدول «— 1 Person (Mangel) —»، در چاپ/Excel «(1 Person)» به‌جای «unbesetzt» قرمز. هیچ قانونی شکسته نمی‌شود. شبیه‌سازی ۶ نفر: خالی‌ماندن Spätdienst از ۲۲۸ به ۱۷، «۲ نفر صبح ولی عصر خالی» از ۲۲۱ به ۰.
+
+### Labor: «Krankmeldung / Ausfall» با پیشنهاد جایگزین
+- دکمه کنار «Drucken / PDF» → شخص + روزها → حداکثر ۳ «Möglichkeit» از بهترین به بدترین (`lib/sickSuggest.js`, `components/SickCoverDialog.jsx`): یک نفر برای همه / پخش بین چند نفر / Umbesetzung همان روز (نفر دوم صبح یا Mitteldienst جابه‌جا، صبح یک‌نفره). قوانین سخت هرگز شکسته نمی‌شوند (مرخصی/بیماری/Frei، استراحت ۲ روز بعد از شب، بلوک شب ≤۴، ۱۱ ساعت، ≤۶ روز پشت‌سرهم، nightExempt/weekendExempt، سقف ساعت). رتبه‌بندی: Einspringen کمتر در این ماه (از `shift_changes`)، ساعت کمتر از Ziel، تغییر کمتر. برای شب، حذف شیفت‌های جایگزین در ۲ روز استراحت به‌صورت «zusätzlich … entfällt» صریح نشان داده می‌شود.
+- «Übernehmen» فقط همان خانه‌ها را عوض می‌کند (زرد) و بیماری را در فهرست Krankmeldungen ثبت می‌کند؛ نمایش به کارمندان فقط بعد از «Veröffentlichen» (در حالت «Plan bearbeiten» به‌عنوان Einspringen). اگر هیچ راهی بی‌قانون‌شکنی نبود: «Nur austragen». تست: ۶۷ حالت شبیه‌سازی بدون حتی یک قانون‌شکنی + تست مرورگر.
+
 ### Labor: شیفت‌های میانی جمعه/شنبه/یکشنبه
 - برای هر شیفت اضافه (Mitteldienst، Büro، شیفت‌های خود کاربر) در Dienstplaner Labor سه تیک: «Freitag» (پیش‌فرض روشن)، «Samstag»، «Sonntag» (پیش‌فرض خاموش). دوشنبه تا پنجشنبه همیشه، تعطیلات رسمی هرگز. برای «Täglich» و «Kontingent/Monat». شنبه و یکشنبه هم همان نفر (قانون جفت آخر هفته).
 - ذخیره با انتشار در `shift_definitions` (`on_friday`, `on_saturday`, `on_sunday`) و بازگشت با «Plan bearbeiten». دیتابیس: `docs/sql/14-middle-shift-days-schema.sql` (روی Supabase واقعی اجرا شد؛ فقط ستون جدید با مقدار پیش‌فرض رفتار قبلی).
@@ -72,7 +79,17 @@
 - اسکریپت SQL جدول `first_login_flags` و توابع `flag_first_login` / `clear_first_login` در دیتابیس هست ولی در `docs/sql` نیست → بعداً از دیتابیس به فایل منتقل شود.
 
 ### تست‌ها
-تست‌های جدید در `dev-tests` (جدا از پروژه): `print_test`، `wake_test`، `opening_test`، `closed_emp_test`، `wishes_test`، `genbtn_test`، `saldo_test`، `late_test`، `opening_test` (نیم‌روز)، `admin_test`، `mid_ui_test`، `pending_test`، و شبیه‌سازی تولید پلن. `edit_test` و `approval_test` قدیمی هستند (مدل نقش قبلی «Zur Freigabe einreichen») و باید به‌روز شوند.
+تست‌های جدید در `dev-tests` (جدا از پروژه): `print_test`، `wake_test`، `opening_test`، `closed_emp_test`، `wishes_test`، `genbtn_test`، `saldo_test`، `late_test`، `opening_test` (نیم‌روز)، `admin_test`، `mid_ui_test`، `pending_test`، `sick_ui_test`، شبیه‌سازی `sick_test`، و شبیه‌سازی تولید پلن. `edit_test` و `approval_test` قدیمی هستند (مدل نقش قبلی «Zur Freigabe einreichen») و باید به‌روز شوند.
+
+## ۱۱.۵ ممیزی امنیت و حقوقی (۱۰ اکتبر ۲۰۲۶)
+- **منطقه:** Supabase `eu-central-1` (Frankfurt) — بررسی با Connector؛ مهاجرت لازم نبود. توابع سرور Vercel با `vercel.json` → `"regions": ["fra1"]` (پیش‌فرض Vercel آمریکا `iad1` بود).
+- **رمزها:** همهٔ ۱۰ حساب bcrypt (`$2a$`). توکن ورود: supabase-js در **localStorage** (نه کوکی httpOnly). تغییر به کوکی httpOnly = بازنویسی بزرگ (`@supabase/ssr` + middleware برای همهٔ صفحه‌ها) → کار باز. به‌جایش اکنون: هدرهای امنیتی در `next.config.js` (CSP بدون اسکریپت خارجی، `connect-src` فقط خود سایت و `*.supabase.co`، `frame-ancestors 'none'`، HSTS، nosniff، Referrer-Policy، Permissions-Policy با دوربین فقط برای خود سایت).
+- **جدایی شرکت‌ها:** RLS روی **همهٔ** جدول‌ها؛ تست خودکار روی هر جدول دارای `org_id` با نقش‌های واقعی (B چیزی از A نمی‌بیند و برعکس) → سالم. «Middleware» در Next.js جای RLS را نمی‌گیرد (RLS در خود دیتابیس برای هر query اجباری است). سخت‌سازی: `anon` هیچ حق جدولی ندارد؛ `authenticated` بدون TRUNCATE/TRIGGER/REFERENCES. `search_path` برای ۶ تابع ثابت شد. دو view با SECURITY DEFINER (`my_shift_changes`, `team_directory`) عمدی و با فیلتر کاربر/شرکت.
+- **Zeiterfassung ضددستکاری:** زمان هر ثبت = **زمان سرور (UTC)** (هم در `/api/attendance` و هم trigger دیتابیس)؛ زمان دستگاه فقط در `raw_payload.device_scanned_at`. `attendance_events` و `attendance_corrections` **غیرقابل تغییر/حذف** (حتی برای service_role). `attendance_sessions` فقط از طریق `correct_attendance(session, field, new, reason)` (فقط Leitung/Inhaber، دلیل اجباری، قدیم/جدید/چه کسی در لاگ). تست: ۱۱ بررسی با نقش‌های واقعی، برگشت‌خورده. اسکریپت: `docs/sql/15-security-hardening.sql` (اجرا شده).
+- **حقوقی:** صفحه‌های `/impressum` و `/datenschutz` (الگو با جاهای خالی زرد برای آدرس لوبک؛ باید توسط مشاور بررسی شود)، لینک در پاورقی همهٔ صفحه‌ها (`components/SiteFooter.jsx`). Datenschutz صادقانه: پایگاه داده Frankfurt؛ Supabase و Vercel شرکت‌های آمریکایی‌اند → جملهٔ «هیچ انتقالی به خارج اتحادیه نیست» **نوشته نشد** چون درست نیست (SCC/DPF).
+- **SEO/دامنه:** متادیتای آلمانی در `app/layout.js` (عنوان فعلاً کوتاه «Dienstplaner»؛ عنوان تبلیغاتی پیشنهادی هوش مصنوعی دیگر «… für Gastronomie und KMU | Serverstandort Frankfurt» عمداً **برگردانده شد** تا با نام محصول، دامنه و صفحهٔ معرفی عمومی بیاید)، `app/robots.js`، `app/sitemap.js`؛ آدرس از متغیر `NEXT_PUBLIC_SITE_URL` (بعد از خرید دامنه در Vercel تنظیم شود؛ در Supabase → Authentication → URL Configuration هم آدرس جدید).
+- **ارزیابی:** این فهرست از یک هوش مصنوعی دیگر بود. لازم/مفید: ۴ (Zeiterfassung)، ۵ (صفحه‌های قانونی، بدون جملهٔ نادرست)، منطقهٔ Vercel، سخت‌سازی دیتابیس، هدرها. لازم نبود: bcrypt (از قبل)، Middleware (RLS قوی‌تر است). عقب‌افتاده: کوکی httpOnly.
+- **پیشنهادهای advisor باقی‌مانده:** «Leaked Password Protection» در Supabase Auth روشن شود (ممکن است پلن Pro بخواهد).
 
 ## ۱۲. کارهای باز (به‌روز)
 1. دکمهٔ «Zugänge» برای Leitung: ساخت ورود کارمند و رمز جدید بدون ادمین (در یک چت قبلی ساخته و تست شده بود، روی نسخهٔ جدید منتقل نشده).

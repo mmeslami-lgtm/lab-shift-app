@@ -3,6 +3,7 @@
 import React, { useState, useMemo, useRef, useEffect } from "react";
 import { OrgContext } from "../lib/orgContext";
 import OrgBar from "./OrgBar";
+import SickCoverDialog from "./SickCoverDialog";
 import PublishPanel from "./PublishPanel";
 import { fetchAll } from "../lib/fetchAll";
 import { computeChanges } from "../lib/planDiff";
@@ -397,11 +398,59 @@ function generateSchedule(staffList, year, monthIdx, holidaySet, shiftHours, shi
       }
     });
 
-    for (const shiftType of neededShifts) {
-      const desired = (day.isWeekend || day.isHoliday) ? 1 : Math.max(1, perShiftCount[shiftType] || 1);
-      const minRequired = 1;
+    // Two rounds so that a shortage hits the right shifts:
+    //  1) every shift gets its FIRST person (Spät- and Nachtdienst are never left empty for a 2nd Frühdienst)
+    //  2) extra people: Mitteldienst & other extra shifts first, the 2nd Frühdienst last —
+    //     when people are missing, Frühdienst runs with 1 person (allowed by the lab) and no rule is broken.
+    const desiredOf = (st) => ((day.isWeekend || day.isHoliday) ? 1 : Math.max(1, perShiftCount[st] || 1));
+    const minRequired = 1;
+    const fillUpTo = (shiftType, upto) => {
       let filled = day.shifts[shiftType].length;
-
+        for (let k = filled; k < upto; k++) {
+          let pool = ids.filter((id) => {
+            if (todayAssigned.has(id)) return false;
+            if (forcedRest[id].has(d)) return false;
+            if (isOnLeave(id, day.day)) return false;
+            if (shiftType === "F" && prevDayS.has(id)) return false;
+            if (hours[id] + shiftHours[shiftType] > targetOf[id]) return false;
+            return true;
+          });
+          let relaxedNote = null;
+          // The mandatory 2-day rest after a night block is a hard rule — never relaxed, even to
+          // guarantee minimum coverage. A shift running short-staffed is the correct outcome, not
+          // pulling someone out of their post-night rest.
+          if (pool.length === 0 && k < minRequired) {
+            pool = ids.filter((id) => !todayAssigned.has(id) && !forcedRest[id].has(d) && !isOnLeave(id, day.day) && hours[id] + shiftHours[shiftType] <= targetOf[id]);
+            if (pool.length > 0) relaxedNote = "Die Regel „nach Spätdienst kein Frühdienst am nächsten Tag\u201c wurde ignoriert";
+          }
+          if (pool.length === 0 && k < minRequired) {
+            const overTargetPool = ids.filter((id) => !todayAssigned.has(id) && !forcedRest[id].has(d) && !isOnLeave(id, day.day) && hours[id] + shiftHours[shiftType] <= hardCapFor(id));
+            const fullTimeFirst = overTargetPool.filter((id) => fullTimeSet.has(id));
+            pool = fullTimeFirst.length > 0 ? fullTimeFirst : overTargetPool;
+            if (pool.length > 0) relaxedNote = "Das persönliche Stundenziel wurde überschritten (nur bei Vollzeit-Personal), da niemand anders verfügbar war";
+          }
+          if (pool.length === 0) break;
+          // Saturday: prefer people who can also do the SAME shift on Sunday (weekend pairs stay together)
+          if (day.weekday === 6 && d + 1 < total && days[d + 1].weekday === 0 && (!extraDefByKey[shiftType] || extraShiftRuns(extraDefByKey[shiftType], days[d + 1]))) {
+            const sun = days[d + 1];
+            const sunOk = pool.filter((id) => !isOnLeave(id, sun.day) && !forcedRest[id].has(d + 1) && (consecutiveWorkDays[id] || 0) + 1 < MAX_CONSECUTIVE_WORKDAYS && !allKeys.some((k) => (sun.shifts[k] || []).includes(id)) && hours[id] + 2 * shiftHours[shiftType] <= hardCapFor(id));
+            if (sunOk.length > 0) pool = sunOk;
+          }
+          const chosen = pickBest(pool, day);
+          if (relaxedNote) warnings.push(`Tag ${d + 1} (${labelOf(shiftType)}): ${relaxedNote}`);
+          day.shifts[shiftType].push(chosen);
+          todayAssigned.add(chosen);
+          hours[chosen] += shiftHours[shiftType];
+          shiftCount[chosen]++;
+          if (day.weekday === 6) satCount[chosen]++;
+          if (day.weekday === 0) sunCount[chosen]++;
+          filled++;
+        }
+      return filled;
+    };
+    for (const shiftType of neededShifts) {
+      const desired = desiredOf(shiftType);
+      let filled = day.shifts[shiftType].length;
       if (day.weekday === 0 && filled < desired && weekendPairPick[shiftType]) {
         const carryId = weekendPairPick[shiftType];
         const carryOk = !todayAssigned.has(carryId) && !forcedRest[carryId].has(d) && !isOnLeave(carryId, day.day) &&
@@ -416,53 +465,21 @@ function generateSchedule(staffList, year, monthIdx, holidaySet, shiftHours, shi
         }
       }
 
-      for (let k = filled; k < desired; k++) {
-        let pool = ids.filter((id) => {
-          if (todayAssigned.has(id)) return false;
-          if (forcedRest[id].has(d)) return false;
-          if (isOnLeave(id, day.day)) return false;
-          if (shiftType === "F" && prevDayS.has(id)) return false;
-          if (hours[id] + shiftHours[shiftType] > targetOf[id]) return false;
-          return true;
-        });
-        let relaxedNote = null;
-        // The mandatory 2-day rest after a night block is a hard rule — never relaxed, even to
-        // guarantee minimum coverage. A shift running short-staffed is the correct outcome, not
-        // pulling someone out of their post-night rest.
-        if (pool.length === 0 && k < minRequired) {
-          pool = ids.filter((id) => !todayAssigned.has(id) && !forcedRest[id].has(d) && !isOnLeave(id, day.day) && hours[id] + shiftHours[shiftType] <= targetOf[id]);
-          if (pool.length > 0) relaxedNote = "Die Regel „nach Spätdienst kein Frühdienst am nächsten Tag\u201c wurde ignoriert";
-        }
-        if (pool.length === 0 && k < minRequired) {
-          const overTargetPool = ids.filter((id) => !todayAssigned.has(id) && !forcedRest[id].has(d) && !isOnLeave(id, day.day) && hours[id] + shiftHours[shiftType] <= hardCapFor(id));
-          const fullTimeFirst = overTargetPool.filter((id) => fullTimeSet.has(id));
-          pool = fullTimeFirst.length > 0 ? fullTimeFirst : overTargetPool;
-          if (pool.length > 0) relaxedNote = "Das persönliche Stundenziel wurde überschritten (nur bei Vollzeit-Personal), da niemand anders verfügbar war";
-        }
-        if (pool.length === 0) break;
-        // Saturday: prefer people who can also do the SAME shift on Sunday (weekend pairs stay together)
-        if (day.weekday === 6 && d + 1 < total && days[d + 1].weekday === 0 && (!extraDefByKey[shiftType] || extraShiftRuns(extraDefByKey[shiftType], days[d + 1]))) {
-          const sun = days[d + 1];
-          const sunOk = pool.filter((id) => !isOnLeave(id, sun.day) && !forcedRest[id].has(d + 1) && (consecutiveWorkDays[id] || 0) + 1 < MAX_CONSECUTIVE_WORKDAYS && !allKeys.some((k) => (sun.shifts[k] || []).includes(id)) && hours[id] + 2 * shiftHours[shiftType] <= hardCapFor(id));
-          if (sunOk.length > 0) pool = sunOk;
-        }
-        const chosen = pickBest(pool, day);
-        if (relaxedNote) warnings.push(`Tag ${d + 1} (${labelOf(shiftType)}): ${relaxedNote}`);
-        day.shifts[shiftType].push(chosen);
-        todayAssigned.add(chosen);
-        hours[chosen] += shiftHours[shiftType];
-        shiftCount[chosen]++;
-        if (day.weekday === 6) satCount[chosen]++;
-        if (day.weekday === 0) sunCount[chosen]++;
-        filled++;
+      fillUpTo(shiftType, Math.min(minRequired, desired));
+      if (day.weekday === 6 && day.shifts[shiftType].length > 0) {
+        weekendPairPick[shiftType] = day.shifts[shiftType][0];
       }
+    }
+    const extraOrder = [...neededShifts.filter((k) => k !== "F"), ...(neededShifts.includes("F") ? ["F"] : [])];
+    for (const shiftType of extraOrder) fillUpTo(shiftType, desiredOf(shiftType));
+    for (const shiftType of neededShifts) {
+      const desired = desiredOf(shiftType), filled = day.shifts[shiftType].length;
       if (filled < minRequired) {
         warnings.push(`Tag ${d + 1}: Schicht ${labelOf(shiftType)} war unbesetzt (starker Personalmangel)`);
       } else if (filled < desired) {
-        notes.push(`Tag ${d + 1}: ${labelOf(shiftType)} wurde mit ${filled} statt ${desired} Personen besetzt (Personalmangel/Urlaub)`);
-      }
-      if (day.weekday === 6 && day.shifts[shiftType].length > 0) {
-        weekendPairPick[shiftType] = day.shifts[shiftType][0];
+        notes.push(shiftType === "F" && filled === 1
+          ? `Tag ${d + 1}: Frühdienst mit 1 Person (Personalmangel – erlaubt, keine Regel gebrochen)`
+          : `Tag ${d + 1}: ${labelOf(shiftType)} wurde mit ${filled} statt ${desired} Personen besetzt (Personalmangel/Urlaub)`);
       }
     }
 
@@ -841,6 +858,7 @@ function buildScheduleXlsx(input) {
       if ((d.skipKeys ? d.skipKeys.includes(col.key) : reduced && input.skipKeys.has(col.key)) || (reduced && col.slotIndex >= 1)) xlsxSet(ws1, r, 3 + i, "–", sSkip); // extra shift not that day / weekends: 1 person per shift
       else if (id) xlsxSet(ws1, r, 3 + i, input.nameOf[id] || "", shiftCell(s));
       else if (input.quotaKeys && input.quotaKeys.has(col.key)) xlsxSet(ws1, r, 3 + i, "–", sSkip); // monthly-quota shift: most days are simply not needed
+      else if (input.softSecondSlot && input.softSecondSlot.includes(col.key) && col.slotIndex >= 1) xlsxSet(ws1, r, 3 + i, "(1 Person)", sSkip); // 2nd Frühdienst may stay empty
       else xlsxSet(ws1, r, 3 + i, "unbesetzt", sOpen);
     });
     xlsxSet(ws1, r, nCols, (input.absentByDay[d.day] || []).join(", "), sAbsent);
@@ -1062,6 +1080,8 @@ function LabShiftSchedulerInner() {
   const [sickEntries, setSickEntries] = useState([]); // {id, staffId, days}
   const [leaveDraft, setLeaveDraft] = useState({ staffId: "", days: "" });
   const [sickDraft, setSickDraft] = useState({ staffId: "", days: "" });
+  const [sickCoverOpen, setSickCoverOpen] = useState(false); // popup "Krankmeldung / Ausfall"
+  const [sickCoverMsg, setSickCoverMsg] = useState("");
   const [wishEntries, setWishEntries] = useState([]); // {id, staffId, days, shiftType}
   const [wishDraft, setWishDraft] = useState({ staffId: "", days: "", shiftType: "F" });
   const [schedule, setSchedule] = useState(null); // {days, hours, satCount, sunCount, target, warnings}
@@ -1565,6 +1585,26 @@ function LabShiftSchedulerInner() {
     }
   }
 
+  // "Übernehmen" in the Krankmeldung popup: change exactly these cells, note the sickness (K)
+  function applySickCover(option, sickId, from, to) {
+    setSchedule((prev) => {
+      if (!prev) return prev;
+      const days = prev.days.map((d) => {
+        const mine = option.changes.filter((c) => c.day === d.day);
+        if (!mine.length) return d;
+        const shifts = { ...d.shifts };
+        mine.forEach((c) => { const arr = [...(shifts[c.key] || [])]; arr[c.slot] = c.to || ""; shifts[c.key] = arr; });
+        return { ...d, shifts };
+      });
+      return { days, ...computeStatsAndWarnings(days, staffList, buildLeaveMap(), shiftHours, dayOrderedKeys) };
+    });
+    const range = from === to ? String(from) : `${from}-${to}`;
+    setSickEntries((prev) => (prev.some((e) => e.staffId === sickId && e.days === range) ? prev : [...prev, { id: `ke${nextEntryIdRef.current++}`, staffId: sickId, days: range }]));
+    setSickCoverOpen(false);
+    setSickCoverMsg(`„${option.title}“ übernommen – die Änderungen sind gelb markiert. Erst „Veröffentlichen“ zeigt sie den Mitarbeitenden.`);
+    setTimeout(() => setSickCoverMsg(""), 12000);
+  }
+
   function updateSlot(dayIndex, shiftType, slotIndex, newId) {
     setSchedule((prev) => {
       if (!prev) return prev;
@@ -1653,6 +1693,7 @@ function LabShiftSchedulerInner() {
       columns,
       shifts,
       skipKeys: dailyDayShiftKeys,
+      softSecondSlot: ["F"], // Frühdienst with 1 person is allowed in the lab (print: no red "unbesetzt")
       quotaKeys: new Set(dayShiftDefs.filter((d) => d.frequency === "quota").map((d) => d.key)),
       matrix: staffDayMatrix,
       nameOf: staffMap,
@@ -2344,6 +2385,14 @@ function LabShiftSchedulerInner() {
                     {printState === "done" ? <Check size={14} /> : <Printer size={14} />}
                     {printState === "busy" ? "Moment …" : printState === "done" ? "Druckansicht geöffnet" : printState === "blocked" ? "Pop-up blockiert – bitte erlauben" : printState === "error" ? "Druckansicht fehlgeschlagen" : "Drucken / PDF (Aushang)"}
                   </button>
+                  <button onClick={() => setSickCoverOpen(true)} className="inline-flex items-center gap-1.5 text-xs text-rose-800 border border-rose-200 bg-rose-50 rounded-lg px-2.5 py-1.5 hover:bg-rose-100 active:translate-y-px">
+                    <AlertTriangle size={14} /> Krankmeldung / Ausfall
+                  </button>
+                  {sickCoverMsg && <span role="status" className="w-full text-xs text-teal-800 bg-teal-50 border border-teal-200 rounded-lg px-2.5 py-1.5">{sickCoverMsg}</span>}
+                  {sickCoverOpen && (
+                    <SickCoverDialog schedule={schedule} staffList={staffList} shiftMeta={shiftMeta} totalDays={totalDays} offDays={buildLeaveMap()}
+                      orgCtx={orgCtx} year={year} monthIdx={monthIdx} onApply={applySickCover} onClose={() => setSickCoverOpen(false)} />
+                  )}
                   <a
                     href={fullTableMailtoUrl()}
                     onClick={copyFullTableForEmail}
@@ -2447,7 +2496,7 @@ function LabShiftSchedulerInner() {
                                   onChange={(e) => updateSlot(di, st, slotIndex, e.target.value)}
                                   className={`w-full text-[11px] rounded-md border px-1.5 py-1 ${val ? shiftMeta[st].chip : "bg-slate-50 border-slate-200 text-slate-400"} ${isNewHere ? "ring-2 ring-amber-400" : ""}`}
                                 >
-                                  <option value="">— leer —</option>
+                                  <option value="">{st === "F" && slotIndex >= 1 ? "— 1 Person (Mangel) —" : "— leer —"}</option>
                                   {staffList.map((s) => (
                                     <option key={s.id} value={s.id}>{s.name}</option>
                                   ))}
