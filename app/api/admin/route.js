@@ -15,7 +15,7 @@ export const dynamic = "force-dynamic";
 //    their own password before using the app (table first_login_flags, see the profile page).
 //  * Every action is written to admin_log (who, what, which company).
 
-const PRODUCTS = ["lab_planner", "generic_planner", "employee_app"];
+const PRODUCTS = ["lab_planner", "generic_planner", "employee_app", "time_tracking"];
 const ROLES = ["supervisor", "planner", "employee"]; // never "owner" here; owners are created with a company
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 const json = (body, status = 200) => Response.json(body, { status, headers: { "Cache-Control": "no-store" } });

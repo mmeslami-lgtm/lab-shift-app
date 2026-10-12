@@ -5,7 +5,7 @@ import { supabase, supabaseConfigured } from "../lib/supabaseClient";
 import LoginForm from "./LoginForm";
 
 const INK = "#1B2433", PRIMARY = "#243B6B", PAPER = "#E9EEF8", MUTED = "#6B7588", LINE = "#D9DEE7";
-const PRODUCT_LABEL = { lab_planner: "Dienstplaner Labor", generic_planner: "Dienstplaner allgemein", employee_app: "Mitarbeiter-App" };
+const PRODUCT_LABEL = { lab_planner: "Dienstplaner Labor", generic_planner: "Dienstplaner allgemein", employee_app: "Mitarbeiter-App", time_tracking: "Zeiterfassung" };
 const ROLE_LABEL = { owner: "Inhaber", supervisor: "Leitung", planner: "Schichtplaner", employee: "Mitarbeitende" };
 const card = { background: "#fff", borderRadius: 18, padding: 16, marginBottom: 12 };
 const btn = { border: 0, borderRadius: 12, background: PRIMARY, color: "#fff", fontSize: 15, fontWeight: 650, padding: "10px 14px", cursor: "pointer" };

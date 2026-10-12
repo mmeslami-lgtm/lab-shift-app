@@ -4,6 +4,7 @@ import React, { useContext, useEffect, useMemo, useState } from "react";
 import { CalendarDays, Users, FileText, Clock, Gift, ChevronLeft, ChevronRight, Sunrise, Sunset, Moon } from "lucide-react";
 import { OrgContext } from "../lib/orgContext";
 import EmployeeWishes from "./EmployeeWishes";
+import EmployeeTimes from "./EmployeeTimes";
 
 // ---------------------------------------------------------------------------------------------
 // Employee app on REAL data. Reads only what the database rules allow for this login:
@@ -371,7 +372,9 @@ export default function EmployeeLive() {
 
         {tab === "wishes" && <EmployeeWishes org={org} defs={defs} />}
 
-        {(tab === "requests" || tab === "time") && (
+        {tab === "time" && <EmployeeTimes org={org} />}
+
+        {tab === "requests" && (
           <Card>
             <div style={{ fontSize: 17, fontWeight: 700, marginBottom: 6 }}>{tab === "requests" ? "Anträge" : tab === "time" ? "Zeiten" : "Wünsche"}</div>
             <div style={{ fontSize: 14, color: MUTED }}>Dieser Bereich wird gerade an die Datenbank angebunden und ist noch nicht freigeschaltet. Plan und Team zeigen bereits deine echten Daten.</div>

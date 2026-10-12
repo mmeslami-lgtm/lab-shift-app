@@ -2,7 +2,7 @@
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://lab-shift-app.vercel.app";
 export default function robots() {
   return {
-    rules: [{ userAgent: "*", allow: ["/$", "/impressum", "/datenschutz", "/demo"], disallow: ["/admin", "/konto", "/profil", "/profile", "/freigaben", "/mitarbeiter", "/allgemein", "/api/"] }],
+    rules: [{ userAgent: "*", allow: ["/$", "/impressum", "/datenschutz", "/demo"], disallow: ["/admin", "/konto", "/profil", "/profile", "/freigaben", "/mitarbeiter", "/allgemein", "/terminal", "/stempeln", "/api/"] }],
     sitemap: `${SITE_URL}/sitemap.xml`,
   };
 }
