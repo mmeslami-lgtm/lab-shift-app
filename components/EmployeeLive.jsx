@@ -5,6 +5,7 @@ import { CalendarDays, Users, FileText, Clock, Gift, ChevronLeft, ChevronRight, 
 import { OrgContext } from "../lib/orgContext";
 import EmployeeWishes from "./EmployeeWishes";
 import EmployeeTimes from "./EmployeeTimes";
+import EmployeeRequests from "./EmployeeRequests";
 
 // ---------------------------------------------------------------------------------------------
 // Employee app on REAL data. Reads only what the database rules allow for this login:
@@ -374,13 +375,7 @@ export default function EmployeeLive() {
 
         {tab === "time" && <EmployeeTimes org={org} />}
 
-        {tab === "requests" && (
-          <Card>
-            <div style={{ fontSize: 17, fontWeight: 700, marginBottom: 6 }}>{tab === "requests" ? "Anträge" : tab === "time" ? "Zeiten" : "Wünsche"}</div>
-            <div style={{ fontSize: 14, color: MUTED }}>Dieser Bereich wird gerade an die Datenbank angebunden und ist noch nicht freigeschaltet. Plan und Team zeigen bereits deine echten Daten.</div>
-            <a href="/demo" style={{ display: "inline-block", marginTop: 12, fontSize: 14, color: PRIMARY, fontWeight: 650 }}>Vorschau mit Beispieldaten ansehen</a>
-          </Card>
-        )}
+        {tab === "requests" && <EmployeeRequests org={org} />}
       </div>
 
       <nav style={{ position: "fixed", left: 0, right: 0, bottom: 0, background: "#fff", borderTop: "1px solid #E1E5EC", paddingBottom: "env(safe-area-inset-bottom, 0px)", zIndex: 10 }}>

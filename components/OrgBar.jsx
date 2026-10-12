@@ -5,6 +5,8 @@ import { OrgContext } from "../lib/orgContext";
 import { fetchAll } from "../lib/fetchAll";
 import WishesDialog from "./WishesDialog";
 import AttendanceDialog from "./AttendanceDialog";
+import RequestsDialog from "./RequestsDialog";
+import ZugaengeDialog from "./ZugaengeDialog";
 
 const ROLE_LABEL = { owner: "Inhaber", supervisor: "Leitung", planner: "Schichtplaner", employee: "Mitarbeitende" };
 const PRODUCT_LABEL = { lab_planner: "Dienstplaner Labor", generic_planner: "Dienstplaner allgemein", employee_app: "Mitarbeiter-App" };
@@ -17,7 +19,7 @@ const MONTHS = ["Januar", "Februar", "März", "April", "Mai", "Juni", "Juli", "A
 //   onLoadStaff(rows)   replace the planner list with the rows from the database
 //   staffList, toDb(s)  the planner's current people and how one becomes a database row
 //   onIdsChanged(map)   tell the planner that local ids were replaced by database ids
-export default function OrgBar({ onLoadStaff, staffList, toDb, onIdsChanged, year, monthIdx, onLoadPlan, hasPlan, onImportWishes }) {
+export default function OrgBar({ onLoadStaff, staffList, toDb, onIdsChanged, year, monthIdx, onLoadPlan, hasPlan, onImportWishes, onImportRequests }) {
   const org = useContext(OrgContext);
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState("");
@@ -35,7 +37,23 @@ export default function OrgBar({ onLoadStaff, staffList, toDb, onIdsChanged, yea
   const isLeader = org && (org.role === "owner" || org.role === "supervisor");
   const [pendingMonths, setPendingMonths] = useState([]);
   const [attOpen, setAttOpen] = useState(false); // popup "Anwesenheit" (Zeiterfassung)
+  const [reqOpen, setReqOpen] = useState(false); // popup "Anträge"
+  const [zugOpen, setZugOpen] = useState(false); // popup "Zugänge"
+  const [openReq, setOpenReq] = useState(0);
+  const [reqBump, setReqBump] = useState(0);
+  const hasApp = org && (org.products || []).includes("employee_app");
   const hasTime = org && (org.products || []).includes("time_tracking");
+  useEffect(() => {
+    if (!org || !hasApp) return undefined;
+    let alive = true;
+    const check = async () => {
+      const r = await org.supabase.from("requests").select("id").eq("org_id", org.orgId).eq("status", "open");
+      if (alive && !r.error) setOpenReq((r.data || []).length);
+    };
+    check(); const t = setInterval(check, 60000); window.addEventListener("focus", check);
+    return () => { alive = false; clearInterval(t); window.removeEventListener("focus", check); };
+  }, [org, hasApp, reqBump]);
+
   useEffect(() => {
     if (!org || !isLeader) return undefined;
     let alive = true;
@@ -248,6 +266,8 @@ export default function OrgBar({ onLoadStaff, staffList, toDb, onIdsChanged, yea
           <button onClick={save} disabled={!!busy} className="rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-sm text-indigo-800 hover:bg-indigo-100 disabled:opacity-60">
             {busy === "save" ? "Speichert …" : "Personen in Datenbank speichern"}
           </button>
+          {hasApp && <button onClick={() => setReqOpen(true)} className={`rounded-lg border px-3 py-2 text-sm active:translate-y-px ${openReq ? "border-rose-300 bg-rose-50 text-rose-800 hover:bg-rose-100" : "border-slate-200 text-slate-700 hover:bg-slate-50"}`}>Anträge{openReq ? ` (${openReq})` : ""}</button>}
+          {isLeader && hasApp && <button onClick={() => setZugOpen(true)} className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 active:translate-y-px">Zugänge</button>}
           {isLeader && hasTime && <button onClick={() => setAttOpen(true)} className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 active:translate-y-px">Anwesenheit</button>}
           <button onClick={() => setWishesOpen(true)} className={`rounded-lg border px-3 py-2 text-sm active:translate-y-px ${openWishes > 0 ? "border-rose-200 bg-rose-50 font-medium text-rose-800 hover:bg-rose-100" : "border-slate-200 text-slate-700 hover:bg-slate-50"}`}>Wünsche{openWishes > 0 ? ` · ${openWishes} offen` : ""}</button>
           <a href="/freigaben" className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">Freigaben &amp; Archiv{openJumps > 0 ? ` · ${openJumps} Einspringen offen` : ""}</a>
@@ -255,6 +275,8 @@ export default function OrgBar({ onLoadStaff, staffList, toDb, onIdsChanged, yea
       </div>
       <div className="mt-2 text-[11px] text-slate-500">Neue oder geänderte Personen sind erst nach „Personen in Datenbank speichern“ in der Datenbank. Nur Personen aus der Datenbank können Pläne veröffentlicht bekommen.</div>
       {attOpen && <AttendanceDialog onClose={() => setAttOpen(false)} />}
+      {reqOpen && <RequestsDialog year={year} monthIdx={monthIdx} onImport={onImportRequests} onChanged={() => setReqBump((b) => b + 1)} onClose={() => { setReqOpen(false); setReqBump((b) => b + 1); }} />}
+      {zugOpen && <ZugaengeDialog onClose={() => setZugOpen(false)} />}
       {wishesOpen && <WishesDialog year={year} monthIdx={monthIdx} onImport={onImportWishes} onChanged={() => setWishBump((b) => b + 1)} onClose={() => { setWishesOpen(false); setWishBump((b) => b + 1); }} />}
       {editOpen && (
         <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">

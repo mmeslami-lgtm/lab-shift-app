@@ -1808,6 +1808,22 @@ function LabShiftSchedulerInner() {
   }
   // Approved wishes from the employee app ("Wünsche" in the bar above) -> wish list of this plan.
   // Only when the Leitung presses the button there; wishes already taken over are not added twice.
+  // approved Anträge -> Urlaub (U) / Krank (A) of this month; nothing twice (dbId)
+  function importRequests(list) {
+    const have = new Set([...leaveEntries, ...sickEntries].map((e) => e.dbId).filter(Boolean));
+    const staffIds = new Set(staffList.map((x) => x.id));
+    const leave = [], sick = []; let already = 0, noPerson = 0;
+    list.forEach((r) => {
+      if (have.has(r.dbId)) { already++; return; }
+      if (!staffIds.has(r.staffId)) { noPerson++; return; }
+      const e = { id: `ra${nextEntryIdRef.current++}`, staffId: r.staffId, days: r.days, dbId: r.dbId };
+      (r.kind === "sick" ? sick : leave).push(e);
+    });
+    if (leave.length) setLeaveEntries((prev) => [...prev, ...leave]);
+    if (sick.length) setSickEntries((prev) => [...prev, ...sick]);
+    return { added: leave.length + sick.length, already, noPerson };
+  }
+
   function importWishes(list) {
     const valid = new Set([...Object.keys(shiftMeta), "Frei"]);
     const have = new Set(wishEntries.map((e) => e.dbId).filter(Boolean));
@@ -2148,7 +2164,7 @@ function LabShiftSchedulerInner() {
           )}
         </div>
 
-        {orgCtx && <OrgBar onLoadStaff={loadStaffFromDb} staffList={staffList} toDb={staffToDb} onIdsChanged={applyStaffIds} year={year} monthIdx={monthIdx} onLoadPlan={applyLoadedPlan} hasPlan={!!schedule} onImportWishes={importWishes} />}
+        {orgCtx && <OrgBar onLoadStaff={loadStaffFromDb} staffList={staffList} toDb={staffToDb} onIdsChanged={applyStaffIds} year={year} monthIdx={monthIdx} onLoadPlan={applyLoadedPlan} hasPlan={!!schedule} onImportWishes={importWishes} onImportRequests={importRequests} />}
 
         {/* Archive */}
         {archiveList.length > 0 && (
