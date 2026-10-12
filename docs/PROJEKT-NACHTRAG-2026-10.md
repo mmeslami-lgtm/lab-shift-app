@@ -81,6 +81,11 @@
 ### تست‌ها
 تست‌های جدید در `dev-tests` (جدا از پروژه): `print_test`، `wake_test`، `opening_test`، `closed_emp_test`، `wishes_test`، `genbtn_test`، `saldo_test`، `late_test`، `opening_test` (نیم‌روز)، `admin_test`، `mid_ui_test`، `pending_test`، `sick_ui_test`، شبیه‌سازی `sick_test`، و شبیه‌سازی تولید پلن. `edit_test` و `approval_test` قدیمی هستند (مدل نقش قبلی «Zur Freigabe einreichen») و باید به‌روز شوند.
 
+## ۱۱.۱ Funktionen pro Firma (کلیدهای ویژگی، ساخته شد)
+- فهرست کلیدها در `lib/features.js` (`FEATURES`، `hasFeature(org, key)`). جدول `org_features` (`docs/sql/19-org-features-schema.sql`، اجرا شد): اعضای شرکت فقط می‌خوانند، فقط سرور (ادمین) می‌نویسد. `/admin` → زیر محصولات هر شرکت «Funktionen nur für diese Firma» (روشن/خاموش، در `admin_log`). در `OrgContext` به‌صورت `org.features`؛ ترمینال از پاسخ `token`.
+- **اولین کلید:** `terminal_pin_only` = دکمهٔ «Ohne Handy: mit PIN stempeln» روی ترمینال (جای ثابت `SHOW_PIN_ONLY`). تست: فقط برای همان شرکت دیده می‌شود.
+- **روال برای هر خواستهٔ مخصوص مشتری:** کلید در `FEATURES` → در کد `hasFeature(...)` → اول برای Testfirma روشن و تست → بعد برای مشتری. منطق قبلی برای بقیه بدون تغییر.
+
 ## ۱۱.۲ Anträge و Zugänge (ساخته شد، هر دو Dienstplaner)
 - **Anträge در اپ کارمند** (`components/EmployeeRequests.jsx`، تب «Anträge» دیگر خالی نیست): «+ Neuer Antrag» با نوع (از `request_types`: Urlaub/Fortbildung/Krankmeldung)، از/تا، شمار روزهای کاری دوشنبه–جمعه، یادداشت → «An die Leitung senden». وضعیت: «Offen – wartet auf die Leitung» / «Genehmigt ✓» / «Abgelehnt» + «Antwort der Leitung». درخواست باز قابل «Zurückziehen».
 - **Leitung** (`components/RequestsDialog.jsx`): دکمهٔ «Anträge (n)» در OrgBar (قرمز وقتی باز هست؛ هر دقیقه چک)، فیلتر Offen/Genehmigt/Abgelehnt/Alle، «Genehmigen» / «Ablehnen» (دلیل اختیاری که شخص می‌بیند) / «Wieder öffnen»؛ «Genehmigte in den Plan übernehmen» → Urlaub (U) / Krankmeldung (A) همان ماه در فهرست‌های Urlaub/Krank برنامه‌ریز (بدون تکرار، فقط با «Neu generieren» اثر). Schichtplaner فقط می‌بیند.
