@@ -1,5 +1,6 @@
 import { randomInt } from "crypto";
 import { supabaseAdmin } from "../../../lib/supabaseAdmin";
+import { FEATURES } from "../../../lib/features";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -78,6 +79,7 @@ export async function GET(request) {
   // light check used by the profile page ("is this person a platform admin?")
   if (new URL(request.url).searchParams.get("check")) return json({ ok: true, me: auth.user.email });
   try {
+    const feats = await supabaseAdmin.from("org_features").select("org_id, feature, enabled"); // script 19; missing table = none
     const [orgs, prods, mems, staff] = await Promise.all([
       supabaseAdmin.from("organizations").select("id, name, active, created_at, require_approval, retention_years, short_notice_days").order("created_at"),
       supabaseAdmin.from("org_products").select("org_id, product, enabled"),
@@ -96,6 +98,7 @@ export async function GET(request) {
     const firms = orgs.data.map((o) => ({
       ...o,
       products: Object.fromEntries(PRODUCTS.map((p) => [p, !!prods.data.find((x) => x.org_id === o.id && x.product === p && x.enabled)])),
+      features: Object.fromEntries(Object.keys(FEATURES).map((k) => [k, !feats.error && !!(feats.data || []).find((x) => x.org_id === o.id && x.feature === k && x.enabled)])),
       members: mems.data.filter((m) => m.org_id === o.id).map((m) => ({ userId: m.user_id, email: (users[m.user_id] || {}).email || "?", lastSignIn: (users[m.user_id] || {}).lastSignIn || null, role: m.role, staffId: m.staff_id, staffName: m.staff_id ? staffName[m.staff_id] || null : null })),
       staff: staff.data.filter((s) => s.org_id === o.id && s.active).map((s) => ({ id: s.id, name: s.name, hasLogin: mems.data.some((m) => m.staff_id === s.id) })),
     }));
@@ -165,6 +168,15 @@ export async function POST(request) {
         await markFirstLogin(u.id);
         await log(me, "reset_password", null, email, null);
         return json({ ok: true, email, password: given ? null : password });
+      }
+      case "set_feature": {
+        const feature = String(body.feature || "");
+        if (!Object.prototype.hasOwnProperty.call(FEATURES, feature)) return json({ error: "Unbekannte Funktion." }, 400);
+        const on = !!body.enabled;
+        const r = await supabaseAdmin.from("org_features").upsert({ org_id: body.orgId, feature, enabled: on, updated_at: new Date().toISOString(), updated_by: me.id }, { onConflict: "org_id,feature" });
+        if (r.error) throw r.error;
+        await log(me, "set_feature", body.orgId, feature, { enabled: on });
+        return json({ ok: true });
       }
       case "rename_org": {
         const name = String(body.name || "").trim();

@@ -59,9 +59,12 @@ export default function ProductGate({ product, supervisorOnly = false, label, ch
         if (settings.data[0].short_notice_days !== undefined && settings.data[0].short_notice_days !== null) shortNoticeDays = settings.data[0].short_notice_days;
       }
       if (cancelled) return;
+      // Funktionen pro Firma (org_features, Skript 19); fehlt die Tabelle, gibt es einfach keine
+      const fr = await supabase.from("org_features").select("feature, enabled").eq("org_id", ok.org_id);
+      const features = fr.error ? [] : (fr.data || []).filter((f) => f.enabled).map((f) => f.feature);
       setState({
         status: "ok",
-        ctx: { supabase, session, orgId: ok.org_id, orgName: ok.organizations ? ok.organizations.name : "Firma", role: ok.role, staffId: ok.staff_id, products: enabled(ok.org_id), requireApproval, retentionYears, shortNoticeDays },
+        ctx: { supabase, session, orgId: ok.org_id, orgName: ok.organizations ? ok.organizations.name : "Firma", role: ok.role, staffId: ok.staff_id, products: enabled(ok.org_id), features, requireApproval, retentionYears, shortNoticeDays },
       });
     })();
     return () => { cancelled = true; };

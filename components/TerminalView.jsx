@@ -9,7 +9,7 @@ const BG = "#0F2238", CARD = "#16304F", TXT = "#EAF1FB", SUB = "#9FB3CF";
 const GREEN = "#1F9D55", RED = "#D23B3B"; // Kommen = grün, Gehen = rot
 // small movement on click: pressed = slightly smaller, chosen = short "pop"
 const PRESS_CSS = ".tbtn{transition:transform .12s ease, box-shadow .2s ease, opacity .2s ease}.tbtn:active{transform:scale(.94)}.tbtn.sel{animation:tpop .35s ease-out}@keyframes tpop{0%{transform:scale(.92)}60%{transform:scale(1.05)}100%{transform:scale(1)}}";
-const SHOW_PIN_ONLY = false; // "Ohne Handy: mit PIN stempeln" – switched off for now (decision 10/2026), set true to show it again
+
 
 function readCreds() { try { return JSON.parse(localStorage.getItem(KEY) || "null"); } catch (e) { return null; } }
 
@@ -62,6 +62,7 @@ function Setup({ onDone }) {
 function Terminal({ creds, onReset }) {
   const [token, setToken] = useState(null);
   const [orgName, setOrgName] = useState("");
+  const [features, setFeatures] = useState([]); // Funktionen pro Firma (z. B. terminal_pin_only)
   const [offset, setOffset] = useState(0); // server time − device time
   const [now, setNow] = useState(Date.now());
   const [err, setErr] = useState("");
@@ -86,7 +87,7 @@ function Terminal({ creds, onReset }) {
   const refresh = useCallback(async (dir) => {
     try {
       const b = await call({ action: "token", direction: dir || undefined });
-      setToken(dir ? { token: b.token, dir } : null); setOffset(new Date(b.serverTime).getTime() - Date.now()); setErr(""); if (b.orgName) setOrgName(b.orgName);
+      setToken(dir ? { token: b.token, dir } : null); setOffset(new Date(b.serverTime).getTime() - Date.now()); setErr(""); if (b.orgName) setOrgName(b.orgName); if (Array.isArray(b.features)) setFeatures(b.features);
     } catch (e) { setErr(e.message); }
   }, [call]);
 
@@ -241,7 +242,7 @@ function Terminal({ creds, onReset }) {
             </div>
           )}
 
-          {SHOW_PIN_ONLY && <button onClick={openPin} style={{ border: "1.5px solid #5E7FA8", background: CARD, color: TXT, borderRadius: 16, fontSize: 18, fontWeight: 650, padding: "14px 22px", cursor: "pointer" }}>Ohne Handy: mit PIN stempeln</button>}
+          {features.includes("terminal_pin_only") && <button onClick={openPin} style={{ border: "1.5px solid #5E7FA8", background: CARD, color: TXT, borderRadius: 16, fontSize: 18, fontWeight: 650, padding: "14px 22px", cursor: "pointer" }}>Ohne Handy: mit PIN stempeln</button>}
           {err && <div role="alert" style={{ marginTop: 14, color: "#FFB4B4" }}>{err}</div>}
         </>
       )}

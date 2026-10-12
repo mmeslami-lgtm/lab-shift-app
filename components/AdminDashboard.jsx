@@ -1,5 +1,6 @@
 "use client";
 
+import { FEATURES } from "../lib/features";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { supabase, supabaseConfigured } from "../lib/supabaseClient";
 import LoginForm from "./LoginForm";
@@ -196,6 +197,22 @@ export default function AdminDashboard() {
               </button>
             ))}
           </div>
+          {Object.keys(FEATURES).length > 0 && (
+            <details style={{ margin: "0 0 10px" }}>
+              <summary style={{ cursor: "pointer", fontSize: 13, color: MUTED }}>Funktionen nur für diese Firma ({Object.keys(FEATURES).filter((k) => f.features && f.features[k]).length} an)</summary>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
+                {Object.keys(FEATURES).map((k) => {
+                  const on = !!(f.features && f.features[k]);
+                  return (
+                    <button key={k} disabled={busy} onClick={() => act({ action: "set_feature", orgId: f.id, feature: k, enabled: !on }, { key: "f" + f.id + k, okText: `„${FEATURES[k]}“ für „${f.name}“ ${on ? "ausgeschaltet" : "eingeschaltet"}.` })}
+                      style={{ ...ghost, background: on ? "#DDF2E8" : "#fff", color: on ? "#1F6347" : MUTED, borderColor: on ? "#B7E1CB" : LINE }}>
+                      {busyKey === "f" + f.id + k ? "Moment …" : (on ? "✓ " : "+ ") + FEATURES[k]}
+                    </button>
+                  );
+                })}
+              </div>
+            </details>
+          )}
           <div style={{ overflowX: "auto" }}>
             <table style={{ borderCollapse: "collapse", fontSize: 13, width: "100%", minWidth: 520 }}>
               <thead><tr style={{ textAlign: "left", color: MUTED }}><th style={{ padding: "4px 6px" }}>Konto</th><th style={{ padding: "4px 6px" }}>Rolle</th><th style={{ padding: "4px 6px" }}>Person</th><th style={{ padding: "4px 6px" }}>zuletzt angemeldet</th><th /></tr></thead>

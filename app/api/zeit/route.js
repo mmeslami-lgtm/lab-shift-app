@@ -84,7 +84,9 @@ export async function POST(request) {
         const r = await supabaseAdmin.from("terminal_tokens").insert({ token, device_id: device.id, org_id: device.org_id, expires_at: expires, direction: tdir });
         if (r.error) throw r.error;
         const o = await supabaseAdmin.from("organizations").select("name").eq("id", device.org_id);
-        return json({ token, expiresAt: expires, serverTime: new Date().toISOString(), terminal: device.name || device.serial, orgName: (o.data && o.data[0] && o.data[0].name) || "" });
+        const f = await supabaseAdmin.from("org_features").select("feature, enabled").eq("org_id", device.org_id);
+        const features = f.error ? [] : (f.data || []).filter((x) => x.enabled).map((x) => x.feature);
+        return json({ token, expiresAt: expires, serverTime: new Date().toISOString(), terminal: device.name || device.serial, orgName: (o.data && o.data[0] && o.data[0].name) || "", features });
       }
 
       if (action === "staff") {
