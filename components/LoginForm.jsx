@@ -19,6 +19,12 @@ export function translateAuthError(msg) {
   return msg || "Anmeldung fehlgeschlagen.";
 }
 
+// "Guten Morgen / Guten Tag / Guten Abend" by the time of day on this device
+function greeting() {
+  const h = new Date().getHours();
+  return h < 5 ? "Gute Nacht" : h < 11 ? "Guten Morgen" : h < 18 ? "Guten Tag" : "Guten Abend";
+}
+
 // Email + password sign-in. The session is picked up by whoever listens to supabase.auth.
 export default function LoginForm({ title = "Anmelden" }) {
   const [email, setEmail] = useState("");
@@ -37,6 +43,10 @@ export default function LoginForm({ title = "Anmelden" }) {
 
   return (
     <form onSubmit={signIn} style={{ background: "#fff", borderRadius: 18, padding: 16, marginBottom: 12 }}>
+      <div style={{ textAlign: "center", padding: "6px 0 14px", marginBottom: 12, borderBottom: `1px solid ${LINE}` }}>
+        <div style={{ fontSize: 22, fontWeight: 750, color: PRIMARY }}>{greeting()}</div>
+        <div style={{ fontSize: 15, color: MUTED, marginTop: 4 }}>Herzlich willkommen!</div>
+      </div>
       <div style={{ fontSize: 16, fontWeight: 650, marginBottom: 10 }}>{title}</div>
       <label style={{ display: "block", fontSize: 12, color: MUTED, marginBottom: 12 }}>E-Mail
         <input type="email" autoComplete="username" autoCapitalize="none" autoCorrect="off" spellCheck={false} required value={email} onChange={(e) => setEmail(e.target.value)} style={fld} />

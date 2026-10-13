@@ -20,6 +20,12 @@ export default function AttendanceDialog({ onClose }) {
   const [staffList, setStaffList] = useState([]);
   const [newCard, setNewCard] = useState(null); // { staffId, code }
   const [needPin, setNeedPin] = useState(false);
+  const [reqs, setReqs] = useState([]);       // open correction requests
+  const [missing, setMissing] = useState([]); // planned, shift started > 2 h ago, nobody stamped
+  const [denyReq, setDenyReq] = useState(null); // { id, note }
+  const [edit, setEdit] = useState({ staffId: "", date: "" }); // "Zeiten bearbeiten"
+  const [daySessions, setDaySessions] = useState(null);
+  const [fix, setFix] = useState(null);        // { sessionId|null, in, out, reason }
   const [pairName, setPairName] = useState(null); // null = closed, string = form open
   const [pairCode, setPairCode] = useState(null); // { code, name, expiresAt }
   const closeRef = useRef(onClose); closeRef.current = onClose;
@@ -34,6 +40,13 @@ export default function AttendanceDialog({ onClose }) {
     setBadges((bg.data || []).filter((b) => !b.revoked_at));
     setNeedPin(!!(og.data && og.data[0] && og.data[0].card_requires_pin));
     setStaffList((st.data || []).slice().sort((a, b) => String(a.name).localeCompare(String(b.name))));
+    // "Noch nicht eingestempelt": published shifts that started 3 to 20 hours ago without any Kommen
+    const now = Date.now();
+    const sh = await org.supabase.from("scheduled_shifts").select("staff_id, shift_label, shift_key, planned_start").eq("org_id", org.orgId).eq("status", "published").gte("planned_start", new Date(now - 20 * 3600000).toISOString()).lt("planned_start", new Date(now - 3 * 3600000).toISOString());
+    const recent = (s.data || []);
+    setMissing(sh.error ? [] : (sh.data || []).filter((x) => !recent.some((r) => r.staff_id === x.staff_id && r.check_in && new Date(r.check_in).getTime() >= new Date(x.planned_start).getTime() - 3 * 3600000)));
+    const rq = await org.supabase.from("attendance_correction_requests").select("id, staff_id, session_id, work_date, check_in, check_out, reason, status, created_at").eq("org_id", org.orgId).eq("status", "open").order("created_at");
+    setReqs(rq.error ? [] : rq.data || []);
     const n = {}; (st.data || []).forEach((x) => { n[x.id] = x.name; });
     setNames(n); setRows(s.data || []); setDevices((dv.data || []).filter((d) => String(d.serial).startsWith("T-")));
   }, [org]);
@@ -71,6 +84,50 @@ export default function AttendanceDialog({ onClose }) {
     setBusy(""); if (error) { setMsg(error.message); return; }
     setNeedPin(on); setMsg(on ? "Ab jetzt: Karte + PIN ✓" : "Ab jetzt: Karte allein genügt ✓");
   }
+  // ---- corrections ----
+  const monthClosed = async (staffId, dateIso) => {
+    const [y, m] = dateIso.split("-").map(Number);
+    const r = await org.supabase.from("staff_month_balance").select("year").eq("org_id", org.orgId).eq("staff_id", staffId).eq("year", y).eq("month", m);
+    return !r.error && r.data && r.data.length > 0;
+  };
+  async function decideReq(q, approve, note) {
+    if (approve && (await monthClosed(q.staff_id, q.work_date)) && !window.confirm("Dieser Monat ist für die Person schon abgeschlossen (Saldo). Trotzdem übernehmen?")) return;
+    setBusy("rq" + q.id);
+    const { error } = await org.supabase.rpc("decide_correction_request", { p_id: q.id, p_approve: approve, p_note: note || null });
+    setBusy(""); setDenyReq(null);
+    setMsg(error ? error.message : approve ? `Korrektur für ${names[q.staff_id]} übernommen ✓` : "Antrag abgelehnt ✓"); load();
+  }
+  async function loadDay(staffId, date) {
+    setEdit({ staffId, date }); setFix(null);
+    if (!staffId || !date) { setDaySessions(null); return; }
+    const from = new Date(`${date}T00:00:00`), to = new Date(from.getTime() + 86400000);
+    const r = await org.supabase.from("attendance_sessions").select("id, check_in, check_out").eq("org_id", org.orgId).eq("staff_id", staffId).gte("check_in", from.toISOString()).lt("check_in", to.toISOString()).order("check_in");
+    setDaySessions(r.error ? [] : r.data || []);
+  }
+  const atTime = (date, hhmm, after) => { if (!/^\d{1,2}:\d{2}$/.test(hhmm || "")) return null; const t = new Date(`${date}T${hhmm.padStart(5, "0")}:00`); if (after && t <= after) t.setDate(t.getDate() + 1); return t; };
+  async function saveFix() {
+    const { staffId, date } = edit;
+    if (fix.reason.trim().length < 3) { setMsg("Bitte einen Grund angeben."); return; }
+    if ((await monthClosed(staffId, date)) && !window.confirm("Dieser Monat ist für die Person schon abgeschlossen (Saldo). Trotzdem ändern?")) return;
+    setBusy("fix");
+    let error = null;
+    if (fix.sessionId) {
+      const s0 = (daySessions || []).find((x) => x.id === fix.sessionId);
+      const tin = fix.in ? atTime(date, fix.in) : null;
+      const tout = fix.out ? atTime(date, fix.out, tin || (s0 && s0.check_in ? new Date(s0.check_in) : null)) : null;
+      if (!tin && !tout) { setBusy(""); setMsg("Bitte Kommen und/oder Gehen eintragen."); return; }
+      if (tin) ({ error } = await org.supabase.rpc("correct_attendance", { p_session_id: fix.sessionId, p_field: "check_in", p_new_value: tin.toISOString(), p_reason: fix.reason.trim() }));
+      if (!error && tout) ({ error } = await org.supabase.rpc("correct_attendance", { p_session_id: fix.sessionId, p_field: "check_out", p_new_value: tout.toISOString(), p_reason: fix.reason.trim() }));
+    } else {
+      const tin = atTime(date, fix.in), tout = atTime(date, fix.out, tin);
+      if (!tin || !tout) { setBusy(""); setMsg("Bitte Kommen und Gehen eintragen."); return; }
+      ({ error } = await org.supabase.rpc("add_attendance_session", { p_org: org.orgId, p_staff: staffId, p_in: tin.toISOString(), p_out: tout.toISOString(), p_reason: fix.reason.trim() }));
+    }
+    setBusy("");
+    if (error) { setMsg(error.message); return; }
+    setMsg(`Gespeichert ✓ (mit Grund protokolliert)`); setFix(null); loadDay(staffId, date); load();
+  }
+
   async function createPairCode() {
     setBusy("pair"); setMsg("");
     try {
@@ -102,6 +159,36 @@ export default function AttendanceDialog({ onClose }) {
         {msg && <div role="status" className="mt-3 rounded-lg bg-teal-50 p-2.5 text-xs text-teal-900">{msg}</div>}
         {rows === null ? <div className="mt-4 text-xs text-slate-500">Lädt …</div> : (
           <>
+            {reqs.length > 0 && (
+              <div className="mt-3 rounded-xl border-2 border-amber-300 bg-amber-50 p-3">
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-amber-900">Korrekturanträge ({reqs.length})</h3>
+                <ul className="mt-1 space-y-2">
+                  {reqs.map((q) => (
+                    <li key={q.id} className="rounded-lg bg-white p-2">
+                      <div className="font-medium">{names[q.staff_id] || "?"} · {q.work_date.split("-").reverse().join(".")}</div>
+                      <div className="text-xs text-slate-700">{q.check_in ? `Kommen ${clock(q.check_in)} ` : ""}{q.check_out ? `Gehen ${clock(q.check_out)}` : ""}{q.session_id ? "" : " (ganz vergessen)"} · „{q.reason}“</div>
+                      <div className="mt-1.5 flex flex-wrap gap-2">
+                        <button onClick={() => decideReq(q, true)} disabled={!!busy} className="rounded-md bg-emerald-600 px-3 py-1 text-xs font-semibold text-white hover:bg-emerald-700 active:translate-y-px">Übernehmen</button>
+                        <button onClick={() => setDenyReq({ id: q.id, note: "" })} disabled={!!busy} className="rounded-md border border-rose-200 px-3 py-1 text-xs text-rose-700 hover:bg-rose-50 active:translate-y-px">Ablehnen</button>
+                      </div>
+                      {denyReq && denyReq.id === q.id && (
+                        <div className="mt-1.5 flex flex-wrap items-end gap-2">
+                          <input autoFocus value={denyReq.note} maxLength={500} onChange={(e) => setDenyReq({ ...denyReq, note: e.target.value })} placeholder="Grund (sieht die Person)" className="w-56 rounded-md border border-slate-300 px-2 py-1 text-sm" />
+                          <button onClick={() => decideReq(q, false, denyReq.note)} className="rounded-md bg-rose-600 px-3 py-1 text-xs font-semibold text-white">Ablehnen</button>
+                        </div>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {missing.length > 0 && (
+              <>
+                <h3 className="mt-4 text-xs font-semibold uppercase tracking-wide text-amber-800">Noch nicht eingestempelt ({missing.length})</h3>
+                <div className="mt-1 flex flex-wrap gap-2">{missing.map((x, i) => <span key={i} className="rounded-lg border border-amber-300 bg-amber-50 px-2.5 py-1.5 text-amber-900">● {names[x.staff_id] || "?"} <span className="text-amber-700">{x.shift_label || x.shift_key} seit {clock(x.planned_start)}</span></span>)}</div>
+                <div className="mt-1 text-[11px] text-slate-500">Schicht hat vor mehr als 3 Stunden begonnen, aber kein Kommen. Vergessen? Dann unten unter „Zeiten bearbeiten“ nachtragen.</div>
+              </>
+            )}
             <h3 className="mt-4 text-xs font-semibold uppercase tracking-wide text-slate-500">Jetzt da ({present.length})</h3>
             {present.length === 0 ? <div className="mt-1 text-xs text-slate-500">Im Moment ist niemand eingestempelt.</div> : (
               <div className="mt-1 flex flex-wrap gap-2">{present.map((r) => <span key={r.id} className="rounded-lg border border-emerald-300 bg-emerald-50 px-2.5 py-1.5 text-emerald-900">● {names[r.staff_id] || "?"} <span className="text-emerald-700">seit {clock(r.check_in)}</span></span>)}</div>
@@ -116,7 +203,7 @@ export default function AttendanceDialog({ onClose }) {
                     <tr key={r.id} className="border-t border-slate-100">
                       <td className="py-1.5 pr-2 font-medium">{names[r.staff_id] || "?"}</td>
                       <td className={`py-1.5 pr-2 ${r.check_in ? "" : "text-amber-700"}`}>{r.check_in ? clock(r.check_in) : "fehlt"}</td>
-                      <td className="py-1.5 pr-2">{r.check_out ? clock(r.check_out) : <span className="text-emerald-700">läuft</span>}</td>
+                      <td className="py-1.5 pr-2">{r.check_out ? clock(r.check_out) : Date.now() - new Date(r.check_in).getTime() > 12 * 3600000 ? <span className="font-semibold text-amber-700">Gehen fehlt</span> : <span className="text-emerald-700">läuft</span>}</td>
                       <td className="py-1.5 pr-2">{dur(r.check_in, r.check_out)}</td>
                       <td className="py-1.5 text-right"><button onClick={() => resetPin(r.staff_id)} disabled={!!busy} className="text-xs text-slate-500 underline">PIN zurücksetzen</button></td>
                     </tr>
@@ -124,6 +211,37 @@ export default function AttendanceDialog({ onClose }) {
                 </tbody>
               </table>
             </div>
+            <h3 className="mt-4 text-xs font-semibold uppercase tracking-wide text-slate-500">Zeiten bearbeiten (auch frühere Tage)</h3>
+            <div className="mt-1 flex flex-wrap items-end gap-2">
+              <select value={edit.staffId} onChange={(e) => loadDay(e.target.value, edit.date)} className="rounded-md border border-slate-300 px-2 py-1.5 text-sm" aria-label="Person">
+                <option value="">– Person –</option>
+                {staffList.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
+              </select>
+              <input type="date" value={edit.date} onChange={(e) => loadDay(edit.staffId, e.target.value)} className="rounded-md border border-slate-300 px-2 py-1.5 text-sm" aria-label="Tag" />
+            </div>
+            {daySessions && (
+              <div className="mt-2 rounded-lg bg-slate-50 p-2.5">
+                {daySessions.length === 0 && <div className="text-xs text-slate-500">An diesem Tag gibt es keine Stempelung.</div>}
+                {daySessions.map((x) => (
+                  <div key={x.id} className="flex items-center justify-between gap-2 py-1 text-sm">
+                    <span>Kommen <b>{clock(x.check_in)}</b> · Gehen <b>{x.check_out ? clock(x.check_out) : "fehlt"}</b></span>
+                    <button onClick={() => setFix({ sessionId: x.id, in: "", out: "", reason: "" })} className="rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs text-slate-700 hover:bg-slate-50">Korrigieren</button>
+                  </div>
+                ))}
+                {!fix && <button onClick={() => setFix({ sessionId: null, in: "", out: "", reason: "" })} className="mt-1 rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs text-slate-700 hover:bg-slate-50">+ Zeit nachtragen</button>}
+                {fix && (
+                  <div className="mt-2 flex flex-wrap items-end gap-2 border-t border-slate-200 pt-2">
+                    <label className="text-xs text-slate-600">Kommen<input type="time" value={fix.in} onChange={(e) => setFix({ ...fix, in: e.target.value })} className="mt-1 block rounded-md border border-slate-300 px-2 py-1 text-sm" /></label>
+                    <label className="text-xs text-slate-600">Gehen<input type="time" value={fix.out} onChange={(e) => setFix({ ...fix, out: e.target.value })} className="mt-1 block rounded-md border border-slate-300 px-2 py-1 text-sm" /></label>
+                    <label className="text-xs text-slate-600">Grund (Pflicht)<input value={fix.reason} maxLength={500} onChange={(e) => setFix({ ...fix, reason: e.target.value })} placeholder="z. B. Gehen vergessen" className="mt-1 block w-52 rounded-md border border-slate-300 px-2 py-1 text-sm" /></label>
+                    <button onClick={saveFix} disabled={busy === "fix"} className="rounded-md bg-teal-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-teal-700 active:translate-y-px">{busy === "fix" ? "Moment …" : fix.sessionId ? "Korrektur speichern" : "Nachtragen"}</button>
+                    <button onClick={() => setFix(null)} className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-600">Abbrechen</button>
+                    {fix.sessionId && <div className="w-full text-[11px] text-slate-500">Nur das eintragen, was falsch ist. Die Stempelung selbst bleibt erhalten; die Korrektur wird mit Grund protokolliert.</div>}
+                  </div>
+                )}
+              </div>
+            )}
+
             <h3 className="mt-4 text-xs font-semibold uppercase tracking-wide text-slate-500">Chipkarten ({badges.length})</h3>
             <label className="mt-1 flex items-center gap-2 text-xs text-slate-700">
               <input type="checkbox" checked={needPin} disabled={!!busy} onChange={(e) => toggleNeedPin(e.target.checked)} />

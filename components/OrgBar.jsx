@@ -40,6 +40,7 @@ export default function OrgBar({ onLoadStaff, staffList, toDb, onIdsChanged, yea
   const [reqOpen, setReqOpen] = useState(false); // popup "Anträge"
   const [zugOpen, setZugOpen] = useState(false); // popup "Zugänge"
   const [openReq, setOpenReq] = useState(0);
+  const [openCorr, setOpenCorr] = useState(0); // open Zeit-Korrekturanträge
   const [reqBump, setReqBump] = useState(0);
   const hasApp = org && (org.products || []).includes("employee_app");
   const hasTime = org && (org.products || []).includes("time_tracking");
@@ -49,10 +50,14 @@ export default function OrgBar({ onLoadStaff, staffList, toDb, onIdsChanged, yea
     const check = async () => {
       const r = await org.supabase.from("requests").select("id").eq("org_id", org.orgId).eq("status", "open");
       if (alive && !r.error) setOpenReq((r.data || []).length);
+      if (isLeader && hasTime) {
+        const c = await org.supabase.from("attendance_correction_requests").select("id").eq("org_id", org.orgId).eq("status", "open");
+        if (alive && !c.error) setOpenCorr((c.data || []).length);
+      }
     };
     check(); const t = setInterval(check, 60000); window.addEventListener("focus", check);
     return () => { alive = false; clearInterval(t); window.removeEventListener("focus", check); };
-  }, [org, hasApp, reqBump]);
+  }, [org, hasApp, reqBump, isLeader, hasTime]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!org || !isLeader) return undefined;
@@ -268,13 +273,13 @@ export default function OrgBar({ onLoadStaff, staffList, toDb, onIdsChanged, yea
           </button>
           {hasApp && <button onClick={() => setReqOpen(true)} className={`rounded-lg border px-3 py-2 text-sm active:translate-y-px ${openReq ? "border-rose-300 bg-rose-50 text-rose-800 hover:bg-rose-100" : "border-slate-200 text-slate-700 hover:bg-slate-50"}`}>Anträge{openReq ? ` (${openReq})` : ""}</button>}
           {isLeader && hasApp && <button onClick={() => setZugOpen(true)} className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 active:translate-y-px">Zugänge</button>}
-          {isLeader && hasTime && <button onClick={() => setAttOpen(true)} className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 active:translate-y-px">Anwesenheit</button>}
+          {isLeader && hasTime && <button onClick={() => setAttOpen(true)} className={`rounded-lg border px-3 py-2 text-sm active:translate-y-px ${openCorr ? "border-amber-300 bg-amber-50 text-amber-900 hover:bg-amber-100" : "border-slate-200 text-slate-700 hover:bg-slate-50"}`}>Anwesenheit{openCorr ? ` (${openCorr})` : ""}</button>}
           <button onClick={() => setWishesOpen(true)} className={`rounded-lg border px-3 py-2 text-sm active:translate-y-px ${openWishes > 0 ? "border-rose-200 bg-rose-50 font-medium text-rose-800 hover:bg-rose-100" : "border-slate-200 text-slate-700 hover:bg-slate-50"}`}>Wünsche{openWishes > 0 ? ` · ${openWishes} offen` : ""}</button>
           <a href="/freigaben" className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">Freigaben &amp; Archiv{openJumps > 0 ? ` · ${openJumps} Einspringen offen` : ""}</a>
           <button onClick={openEdit} disabled={!!busy} aria-expanded={editOpen} className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-900 hover:bg-amber-100 disabled:opacity-60">Plan bearbeiten</button>
       </div>
       <div className="mt-2 text-[11px] text-slate-500">Neue oder geänderte Personen sind erst nach „Personen in Datenbank speichern“ in der Datenbank. Nur Personen aus der Datenbank können Pläne veröffentlicht bekommen.</div>
-      {attOpen && <AttendanceDialog onClose={() => setAttOpen(false)} />}
+      {attOpen && <AttendanceDialog onClose={() => { setAttOpen(false); setReqBump((b) => b + 1); }} />}
       {reqOpen && <RequestsDialog year={year} monthIdx={monthIdx} onImport={onImportRequests} onChanged={() => setReqBump((b) => b + 1)} onClose={() => { setReqOpen(false); setReqBump((b) => b + 1); }} />}
       {zugOpen && <ZugaengeDialog onClose={() => setZugOpen(false)} />}
       {wishesOpen && <WishesDialog year={year} monthIdx={monthIdx} onImport={onImportWishes} onChanged={() => setWishBump((b) => b + 1)} onClose={() => { setWishesOpen(false); setWishBump((b) => b + 1); }} />}

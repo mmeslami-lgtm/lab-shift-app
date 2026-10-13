@@ -81,10 +81,27 @@
 ### تست‌ها
 تست‌های جدید در `dev-tests` (جدا از پروژه): `print_test`، `wake_test`، `opening_test`، `closed_emp_test`، `wishes_test`، `genbtn_test`، `saldo_test`، `late_test`، `opening_test` (نیم‌روز)، `admin_test`، `mid_ui_test`، `pending_test`، `sick_ui_test`، شبیه‌سازی `sick_test`، و شبیه‌سازی تولید پلن. `edit_test` و `approval_test` قدیمی هستند (مدل نقش قبلی «Zur Freigabe einreichen») و باید به‌روز شوند.
 
+## ۱۱.۰ نقش‌ها و ادمین (برگشت به حالت قبل، تصمیم کاربر ۱۲.۱۰.)
+- نام «Hauptkonto» امتحان شد و **برگردانده شد** → همه‌جا دوباره **«Inhaber»** (متن‌های برنامه و پیام‌های توابع دیتابیس؛ دسترسی‌ها و security definer بررسی شد).
+- محدود کردن ادمین به فقط Inhaber هم **برگردانده شد**: `/admin` مثل قبل همهٔ حساب‌ها، «+ Konto hinzufügen» (Leitung/Schichtplaner/Mitarbeitende)، «E-Mail ändern»، «Neues Passwort»، «Entfernen». «Zugänge» در شرکت هم مثل قبل (فقط با محصول Mitarbeiter-App).
+- «Rolle ändern»، «Stellvertretende Leitung»، تغییر ایمیل توسط خود کارمند: فعلاً نه.
+- **ایده‌های فقط برای مشتری سفارش‌دهنده (پشت کلید ویژگی):** حالت چرخشی (مثلاً ۵× Nacht → ۲ frei → ۵× Früh → ۲ frei → ۵× Spät → ۲ frei)؛ **پلن هفتگی/سالانه** (کاربر: «هر وقت خواستیم، الان نه»): بازهٔ هفته به‌جای ماه، انتشار هفتگی، قوانین در مرز هفته‌ها؛ سالانه = ۱۲ ماه پشت‌سرهم.
+- **محیط آزمایشی (فعلی):** شاخهٔ `test` در GitHub → Vercel Preview `https://lab-shift-app-git-test-mmeslami-2517.vercel.app` (همان دیتابیس! فقط شرکت‌های تست). متغیرهای محیطی Supabase برای Production و Preview فعال. روال: آپلود در `test` → امتحان → Pull request → Merge → چک Deployments؛ بار اول ورسل بعد از merge خودکار نساخت → «⋯ → Promote» روی Preview (علت هنوز بررسی نشده). پروژهٔ Supabase «transport-scanner» مال برنامهٔ پسر کاربر است — **دست نزن**. دیتابیس آزمایشی جدا بعد از Supabase Pro با `docs/sql/STAGING-SETUP.sql`.
+
 ## ۱۱.۱ Funktionen pro Firma (کلیدهای ویژگی، ساخته شد)
 - فهرست کلیدها در `lib/features.js` (`FEATURES`، `hasFeature(org, key)`). جدول `org_features` (`docs/sql/19-org-features-schema.sql`، اجرا شد): اعضای شرکت فقط می‌خوانند، فقط سرور (ادمین) می‌نویسد. `/admin` → زیر محصولات هر شرکت «Funktionen nur für diese Firma» (روشن/خاموش، در `admin_log`). در `OrgContext` به‌صورت `org.features`؛ ترمینال از پاسخ `token`.
 - **اولین کلید:** `terminal_pin_only` = دکمهٔ «Ohne Handy: mit PIN stempeln» روی ترمینال (جای ثابت `SHOW_PIN_ONLY`). تست: فقط برای همان شرکت دیده می‌شود.
 - **روال برای هر خواستهٔ مخصوص مشتری:** کلید در `FEATURES` → در کد `hasFeature(...)` → اول برای Testfirma روشن و تست → بعد برای مشتری. منطق قبلی برای بقیه بدون تغییر.
+
+## ۱۱.۰۴ خوش‌آمدگویی در صفحهٔ ورود
+- `components/LoginForm.jsx` (همهٔ صفحه‌های ورود): «Guten Morgen/Tag/Abend» (بر اساس ساعت دستگاه) + «Herzlich willkommen!» (بدون دست و جملهٔ دوم، تصمیم کاربر)
+
+## ۱۱.۰۵ Zeiterfassung مرحلهٔ ۲: Korrekturen (ساخته شد)
+- **کارمند** (`EmployeeTimes.jsx`): در فهرست «Gehen fehlt – bitte Korrektur beantragen» (جلسهٔ باز بیش از ۱۲ ساعت)؛ در جزئیات روز «Korrektur beantragen» (Kommen/Gehen ساعت + Grund؛ برای روز بدون ثبت «Vergessen zu stempeln? Zeit beantragen» با هر دو زمان؛ Gehen قبل از Kommen = صبح روز بعد/شیفت شب). وضعیت: Offen / Übernommen ✓ / Abgelehnt + «Antwort der Leitung». زمان‌های اصلاح‌شده با «✎». ماه بسته: فقط هشدار.
+- **Leitung/Inhaber** (`AttendanceDialog.jsx`): دکمهٔ «Anwesenheit (n)» نارنجی وقتی درخواست باز هست؛ کادر «Korrekturanträge» با «Übernehmen» / «Ablehnen» (+Grund)؛ «Gehen fehlt» در جدول امروز؛ بخش «Zeiten bearbeiten (auch frühere Tage)»: Person + Tag → «Korrigieren» (فقط فیلد اشتباه، Grund اجباری) و «+ Zeit nachtragen». ماه بسته (`staff_month_balance`) → تأیید اضافه.
+- **دیتابیس** `docs/sql/20-zeit-korrekturen-schema.sql` (اجرا و با نقش‌های واقعی تست شد، ۹ بررسی): جدول `attendance_correction_requests` (RLS: کارمند فقط برای خودش و فقط open، پس‌گرفتن open؛ Leitung می‌بیند)، `decide_correction_request` (اعمال از طریق `correct_attendance` یا `add_attendance_session`، هر دو با ثبت در `attendance_corrections`)، `add_attendance_session` (حداکثر ۱۶ ساعت، Grund اجباری). ثبت‌های اصلی (`attendance_events`) هرگز عوض نمی‌شوند.
+- **«Kommen fehlt» (تصمیم کاربر: کارمند ۳۰ دقیقه، Leitung ۳ ساعت):** در اپ، روز با شیفت منتشرشده و بدون هیچ ثبت → امروز ۳۰ دقیقه بعد از شروع شیفت «Kommen fehlt»، روزهای قبل «Kommen fehlt – bitte Korrektur beantragen» (فقط از روز روشن‌شدن Zeiterfassung = `org_products.created_at`). Leitung در «Anwesenheit»: «Noch nicht eingestempelt (n)» = شیفت‌هایی که ۳ تا ۲۰ ساعت پیش شروع شده‌اند بدون Kommen. **Pop-up در اپ کارمند** (`components/StampReminder.jsx`): «Kommen vergessen?» (۳۰ دقیقه بعد از شروع شیفت بدون ثبت) / «Gehen vergessen?» (ثبت باز > ۱۲ ساعت)، هر شیفت یک بار، دکمهٔ «Zu meinen Zeiten». فقط وقتی اپ باز است؛ **اعلان واقعی گوشی (Web Push، وقتی اپ بسته است)** = کار باز جدا (iPhone فقط با اپ نصب‌شده روی صفحهٔ اصلی و iOS ≥ 16.4، اجازهٔ کاربر، زمان‌بند سرور). مرخصی/بیماری شیفت ندارند → هشدار نمی‌گیرند.
+- تست: `korrektur_test`، `kommenfehlt_test` (مرورگر).
 
 ## ۱۱.۲ Anträge و Zugänge (ساخته شد، هر دو Dienstplaner)
 - **Anträge در اپ کارمند** (`components/EmployeeRequests.jsx`، تب «Anträge» دیگر خالی نیست): «+ Neuer Antrag» با نوع (از `request_types`: Urlaub/Fortbildung/Krankmeldung)، از/تا، شمار روزهای کاری دوشنبه–جمعه، یادداشت → «An die Leitung senden». وضعیت: «Offen – wartet auf die Leitung» / «Genehmigt ✓» / «Abgelehnt» + «Antwort der Leitung». درخواست باز قابل «Zurückziehen».
