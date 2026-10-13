@@ -6,6 +6,7 @@ import { OrgContext } from "../lib/orgContext";
 import EmployeeWishes from "./EmployeeWishes";
 import EmployeeTimes from "./EmployeeTimes";
 import EmployeeRequests from "./EmployeeRequests";
+import StampReminder from "./StampReminder";
 
 // ---------------------------------------------------------------------------------------------
 // Employee app on REAL data. Reads only what the database rules allow for this login:
@@ -373,6 +374,7 @@ export default function EmployeeLive() {
 
         {tab === "wishes" && <EmployeeWishes org={org} defs={defs} />}
 
+        <StampReminder org={org} onOpenTimes={() => setTab("time")} />
         {tab === "time" && <EmployeeTimes org={org} />}
 
         {tab === "requests" && <EmployeeRequests org={org} />}

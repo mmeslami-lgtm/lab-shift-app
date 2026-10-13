@@ -37,6 +37,11 @@ export default function EmployeeTimes({ org }) {
   const [pinForm, setPinForm] = useState(null);
   const [pinMsg, setPinMsg] = useState({ text: "", bad: false });
   const [err, setErr] = useState("");
+  const [reqs, setReqs] = useState([]);      // own correction requests
+  const [corrs, setCorrs] = useState([]);    // corrections made by the Leitung (session_id, field)
+  const [cform, setCform] = useState(null);  // { sessionId, in, out, reason }
+  const [ttStart, setTtStart] = useState(null); // day the company switched on Zeiterfassung (no "fehlt" before)
+  const [cmsg, setCmsg] = useState({ text: "", bad: false });
 
   const load = useCallback(async () => {
     setErr("");
@@ -45,6 +50,12 @@ export default function EmployeeTimes({ org }) {
     const sh = await sb.from("scheduled_shifts").select("shift_date, shift_key, shift_label, planned_start, planned_end").eq("org_id", org.orgId).eq("staff_id", org.staffId).eq("status", "published");
     const b = await sb.from("staff_month_balance").select("year, month, contract_hours, planned_hours").eq("org_id", org.orgId).eq("staff_id", org.staffId);
     setSessions(s.data || []); setShifts(sh.data || []); setClosed(b.error ? [] : b.data || []);
+    const rq = await sb.from("attendance_correction_requests").select("id, session_id, work_date, check_in, check_out, reason, status, decision_note, created_at").eq("org_id", org.orgId).eq("staff_id", org.staffId).order("created_at", { ascending: false });
+    setReqs(rq.error ? [] : rq.data || []);
+    const tp = await sb.from("org_products").select("created_at").eq("org_id", org.orgId).eq("product", "time_tracking");
+    setTtStart(tp.data && tp.data[0] && tp.data[0].created_at ? isoOf(new Date(tp.data[0].created_at)) : null);
+    const co = await sb.from("attendance_corrections").select("session_id, field").eq("org_id", org.orgId).eq("staff_id", org.staffId);
+    setCorrs(co.error ? [] : co.data || []);
     const og = await sb.from("organizations").select("card_requires_pin").eq("id", org.orgId);
     setNeedPin(!!(og.data && og.data[0] && og.data[0].card_requires_pin));
     const p = await sb.rpc("my_pin_is_set", { p_org: org.orgId });
@@ -95,6 +106,26 @@ export default function EmployeeTimes({ org }) {
   }
 
   // ---------- day detail ----------
+  const corrected = (sid, field) => corrs.some((c) => c.session_id === sid && c.field === field);
+  const toIso = (dayIso, hhmm, after) => { // "HH:MM" on that day; if it is before `after`, it is the next morning (night shift)
+    if (!/^\d{1,2}:\d{2}$/.test(hhmm || "")) return null;
+    const t = new Date(`${dayIso}T${hhmm.padStart(5, "0")}:00`);
+    if (after && t <= after) t.setDate(t.getDate() + 1);
+    return t;
+  };
+  async function sendCorrection() {
+    setCmsg({ text: "", bad: false });
+    const s0 = cform.sessionId ? (sessions || []).find((x) => x.id === cform.sessionId) : null;
+    const tin = cform.in ? toIso(sel, cform.in) : null;
+    const tout = cform.out ? toIso(sel, cform.out, tin || (s0 && s0.check_in ? new Date(s0.check_in) : null)) : null;
+    if (!tin && !tout) return setCmsg({ text: "Bitte Kommen und/oder Gehen angeben (z. B. 16:30).", bad: true });
+    if (!cform.sessionId && (!tin || !tout)) return setCmsg({ text: "Für einen ganz vergessenen Tag bitte Kommen und Gehen angeben.", bad: true });
+    if (cform.reason.trim().length < 3) return setCmsg({ text: "Bitte kurz den Grund angeben.", bad: true });
+    const { error } = await sb.from("attendance_correction_requests").insert({ org_id: org.orgId, staff_id: org.staffId, session_id: cform.sessionId || null, work_date: sel, check_in: tin ? tin.toISOString() : null, check_out: tout ? tout.toISOString() : null, reason: cform.reason.trim().slice(0, 500), status: "open" });
+    if (error) return setCmsg({ text: /check/i.test(error.message) ? "Gehen muss nach Kommen liegen." : error.message, bad: true });
+    setCform(null); setCmsg({ text: "Korrektur beantragt ✓ Die Leitung entscheidet.", bad: false }); load();
+  }
+
   if (sel) {
     const d = days[sel] || { sessions: [], shifts: [], gross: 0, pause: 0, worked: 0, planned: 0, daily: 0 };
     const date = new Date(sel + "T12:00:00");
@@ -109,11 +140,11 @@ export default function EmployeeTimes({ org }) {
           <div key={s.id}>
             <div style={{ ...card, display: "flex", alignItems: "center", gap: 12, background: "#F4F6FA" }}>
               <span style={{ color: "#3B9B5A", fontSize: 20 }}>→</span><span style={{ flex: 1, fontSize: 16 }}>Kommen</span>
-              <span style={{ color: MUTED, fontSize: 16 }}>{s.check_in ? clock(s.check_in) : "fehlt"}</span><span aria-label="gesperrt">🔒</span>
+              <span style={{ color: s.check_in ? MUTED : "#B45309", fontSize: 16 }}>{s.check_in ? clock(s.check_in) : "fehlt"}{corrected(s.id, "check_in") ? " ✎" : ""}</span><span aria-label="gesperrt">🔒</span>
             </div>
             <div style={{ ...card, display: "flex", alignItems: "center", gap: 12, background: "#F4F6FA" }}>
               <span style={{ color: "#E0A050", fontSize: 20 }}>←</span><span style={{ flex: 1, fontSize: 16 }}>Gehen</span>
-              <span style={{ color: MUTED, fontSize: 16 }}>{s.check_out ? clock(s.check_out) : "läuft"}</span><span aria-label="gesperrt">🔒</span>
+              <span style={{ color: !s.check_out && Date.now() - new Date(s.check_in).getTime() > 12 * 3600000 ? "#B45309" : MUTED, fontSize: 16 }}>{s.check_out ? clock(s.check_out) : Date.now() - new Date(s.check_in).getTime() > 12 * 3600000 ? "fehlt" : "läuft"}{corrected(s.id, "check_out") ? " ✎" : ""}</span><span aria-label="gesperrt">🔒</span>
             </div>
           </div>
         ))}
@@ -132,7 +163,50 @@ export default function EmployeeTimes({ org }) {
           <div style={row}><span>+ Tagessaldo</span><span>{finished && firstIso && sel >= firstIso ? hm(d.daily, true) : "0:00"}</span></div>
           <div style={{ ...row, borderTop: `1px solid ${LINE}`, fontWeight: 700 }}><span>= Neu</span><span>{hm(before + (finished && firstIso && sel >= firstIso ? d.daily : 0), true)}</span></div>
         </div>
-        <div style={{ fontSize: 13, color: MUTED, padding: "0 4px 12px" }}>🔒 Stempelzeiten kann niemand nachträglich ändern. Ist etwas falsch, sag bitte der Leitung Bescheid – sie korrigiert es mit Begründung.</div>
+        {(() => {
+          const dayReqs = reqs.filter((q) => q.work_date === sel);
+          const monthClosed = closed.some((c) => c.year === date.getFullYear() && c.month === date.getMonth() + 1);
+          const STAT = { open: ["Offen – die Leitung entscheidet", "#7A4E00", "#FFF4D6"], approved: ["Übernommen ✓", "#1F6347", "#DDF2E8"], denied: ["Abgelehnt", "#8A2A3E", "#FCE5EA"] };
+          return (
+            <div style={card}>
+              <div style={{ fontSize: 17, fontWeight: 700, marginBottom: 6 }}>Korrektur</div>
+              {dayReqs.map((q) => (
+                <div key={q.id} style={{ fontSize: 14, padding: "6px 0", borderBottom: `1px solid ${LINE}` }}>
+                  <span style={{ fontSize: 12, fontWeight: 650, color: STAT[q.status][1], background: STAT[q.status][2], borderRadius: 8, padding: "2px 7px", marginRight: 6 }}>{STAT[q.status][0]}</span>
+                  {q.check_in ? `Kommen ${clock(q.check_in)} ` : ""}{q.check_out ? `Gehen ${clock(q.check_out)}` : ""} · „{q.reason}“
+                  {q.decision_note && <div style={{ color: MUTED, marginTop: 2 }}>Antwort der Leitung: {q.decision_note}</div>}
+                </div>
+              ))}
+              {cmsg.text && <div role={cmsg.bad ? "alert" : "status"} style={{ fontSize: 13, margin: "8px 0", color: cmsg.bad ? "#B3263E" : "#1F6347" }}>{cmsg.text}</div>}
+              {sel > todayIso ? null : cform ? (
+                <div style={{ marginTop: 8 }}>
+                  {d.sessions.length > 1 && (
+                    <select value={cform.sessionId || ""} onChange={(e) => setCform({ ...cform, sessionId: e.target.value ? Number(e.target.value) : null })} style={{ width: "100%", padding: 10, borderRadius: 12, border: `1px solid ${LINE}`, fontSize: 15, marginBottom: 8 }}>
+                      {d.sessions.map((x) => <option key={x.id} value={x.id}>{x.check_in ? clock(x.check_in) : "?"} – {x.check_out ? clock(x.check_out) : "?"}</option>)}
+                      <option value="">Ganz vergessen (neuer Eintrag)</option>
+                    </select>
+                  )}
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                    <label style={{ fontSize: 13, color: MUTED }}>Kommen<input type="time" value={cform.in} onChange={(e) => setCform({ ...cform, in: e.target.value })} style={{ display: "block", width: "100%", boxSizing: "border-box", marginTop: 4, border: `1px solid ${LINE}`, borderRadius: 12, padding: "9px 10px", fontSize: 16 }} /></label>
+                    <label style={{ fontSize: 13, color: MUTED }}>Gehen<input type="time" value={cform.out} onChange={(e) => setCform({ ...cform, out: e.target.value })} style={{ display: "block", width: "100%", boxSizing: "border-box", marginTop: 4, border: `1px solid ${LINE}`, borderRadius: 12, padding: "9px 10px", fontSize: 16 }} /></label>
+                  </div>
+                  <label style={{ display: "block", fontSize: 13, color: MUTED, marginTop: 8 }}>Grund
+                    <input value={cform.reason} maxLength={500} placeholder="z. B. Ausstempeln vergessen" onChange={(e) => setCform({ ...cform, reason: e.target.value })} style={{ display: "block", width: "100%", boxSizing: "border-box", marginTop: 4, border: `1px solid ${LINE}`, borderRadius: 12, padding: "9px 10px", fontSize: 16 }} />
+                  </label>
+                  {monthClosed && <div style={{ fontSize: 13, color: "#7A4E00", marginTop: 6 }}>Dieser Monat ist schon abgeschlossen – die Leitung entscheidet trotzdem.</div>}
+                  <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+                    <button onClick={sendCorrection} style={{ flex: 1, border: 0, borderRadius: 14, background: PRIMARY, color: "#fff", fontSize: 15, fontWeight: 650, padding: "11px 0", cursor: "pointer" }}>An die Leitung senden</button>
+                    <button onClick={() => { setCform(null); setCmsg({ text: "", bad: false }); }} style={{ border: "1.5px solid #9AAED0", borderRadius: 14, background: "#fff", fontSize: 14, padding: "11px 14px", cursor: "pointer" }}>Abbrechen</button>
+                  </div>
+                </div>
+              ) : (
+                <button onClick={() => { setCmsg({ text: "", bad: false }); const s0 = d.sessions[0]; setCform({ sessionId: s0 ? s0.id : null, in: "", out: "", reason: "" }); }}
+                  style={{ marginTop: 6, border: "1.5px solid #9AAED0", borderRadius: 12, background: "#fff", fontSize: 15, fontWeight: 600, padding: "10px 14px", cursor: "pointer" }}>{d.sessions.length ? "Korrektur beantragen" : "Vergessen zu stempeln? Zeit beantragen"}</button>
+              )}
+              <div style={{ fontSize: 12, color: MUTED, marginTop: 8 }}>🔒 Stempelzeiten ändert niemand still: Die Leitung entscheidet, alles wird mit Grund gespeichert. ✎ = von der Leitung korrigiert.</div>
+            </div>
+          );
+        })()}
       </div>
     );
   }
@@ -193,7 +267,13 @@ export default function EmployeeTimes({ org }) {
           const d = days[iso]; const dt = new Date(iso + "T12:00:00");
           const label = iso === todayIso ? "Heute" : iso === isoOf(new Date(now.getTime() - 86400000)) ? "Gestern" : `${WD_LONG[dt.getDay()]}, ${pad(dt.getDate())}.${pad(dt.getMonth() + 1)}.${dt.getFullYear()}`;
           const sh = d && d.shifts[0];
-          const sub = !d ? "frei" : d.open ? `läuft seit ${clock(d.sessions.find((s) => s.check_in && !s.check_out).check_in)}`
+          const openS = d && d.sessions.find((x) => x.check_in && !x.check_out);
+          // planned but nothing stamped: today 30 minutes after the shift start, earlier days always (since Zeiterfassung started)
+          const firstStart = d && d.shifts.length ? Math.min(...d.shifts.map((x) => new Date(x.planned_start).getTime())) : null;
+          const noStamp = d && d.shifts.length > 0 && d.sessions.length === 0 && ttStart && iso >= ttStart;
+          const kommenFehlt = noStamp && (iso < todayIso || (iso === todayIso && Date.now() > firstStart + 30 * 60000));
+          const forgot = openS && Date.now() - new Date(openS.check_in).getTime() > 12 * 3600000;
+          const sub = !d ? "frei" : forgot ? "Gehen fehlt – bitte Korrektur beantragen" : kommenFehlt ? (iso === todayIso ? "Kommen fehlt" : "Kommen fehlt – bitte Korrektur beantragen") : d.open ? `läuft seit ${clock(openS.check_in)}`
             : d.sessions.length ? `gearbeitet ${hm(d.worked)} h${d.missing ? " · Kommen fehlt" : ""}`
             : d.shifts.length ? (iso < todayIso ? "geplant, kein Stempel" : `${sh.shift_label || sh.shift_key} geplant`) : "frei";
           return (
@@ -201,7 +281,7 @@ export default function EmployeeTimes({ org }) {
               <span style={{ width: 4, alignSelf: "stretch", borderRadius: 4, background: sh ? BAR[sh.shift_key] || "#C9D3E3" : "transparent" }} />
               <span style={{ flex: 1 }}>
                 <span style={{ display: "block", fontSize: 16 }}>{label}</span>
-                <span style={{ display: "block", fontSize: 14, color: d && d.missing ? "#B45309" : MUTED }}>{sub}</span>
+                <span style={{ display: "block", fontSize: 14, color: (d && d.missing) || forgot || kommenFehlt ? "#B45309" : MUTED }}>{sub}</span>
               </span>
               <span style={{ color: "#9AA4B5", fontSize: 22 }}>›</span>
             </button>
