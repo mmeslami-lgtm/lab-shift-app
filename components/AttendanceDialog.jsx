@@ -2,6 +2,7 @@
 
 import React, { useCallback, useContext, useEffect, useRef, useState } from "react";
 import { OrgContext } from "../lib/orgContext";
+import { ABSENCE, absenceMap } from "../lib/absence";
 
 const pad = (n) => String(n).padStart(2, "0");
 const clock = (ts) => { if (!ts) return "–"; const d = new Date(ts); return `${pad(d.getHours())}:${pad(d.getMinutes())}`; };
@@ -21,7 +22,9 @@ export default function AttendanceDialog({ onClose }) {
   const [newCard, setNewCard] = useState(null); // { staffId, code }
   const [needPin, setNeedPin] = useState(false);
   const [reqs, setReqs] = useState([]);       // open correction requests
-  const [missing, setMissing] = useState([]); // planned, shift started > 2 h ago, nobody stamped
+  const [missing, setMissing] = useState([]); // planned, shift started > 3 h ago, nobody stamped
+  const [absForm, setAbsForm] = useState(null); // { staffId, date, kind, note }
+  const [dayAbsence, setDayAbsence] = useState(null); // absence on the day open in "Zeiten bearbeiten"
   const [denyReq, setDenyReq] = useState(null); // { id, note }
   const [edit, setEdit] = useState({ staffId: "", date: "" }); // "Zeiten bearbeiten"
   const [daySessions, setDaySessions] = useState(null);
@@ -42,9 +45,13 @@ export default function AttendanceDialog({ onClose }) {
     setStaffList((st.data || []).slice().sort((a, b) => String(a.name).localeCompare(String(b.name))));
     // "Noch nicht eingestempelt": published shifts that started 3 to 20 hours ago without any Kommen
     const now = Date.now();
-    const sh = await org.supabase.from("scheduled_shifts").select("staff_id, shift_label, shift_key, planned_start").eq("org_id", org.orgId).eq("status", "published").gte("planned_start", new Date(now - 20 * 3600000).toISOString()).lt("planned_start", new Date(now - 3 * 3600000).toISOString());
+    const sh = await org.supabase.from("scheduled_shifts").select("staff_id, shift_label, shift_key, planned_start, shift_date").eq("org_id", org.orgId).eq("status", "published").gte("planned_start", new Date(now - 20 * 3600000).toISOString()).lt("planned_start", new Date(now - 3 * 3600000).toISOString());
     const recent = (s.data || []);
-    setMissing(sh.error ? [] : (sh.data || []).filter((x) => !recent.some((r) => r.staff_id === x.staff_id && r.check_in && new Date(r.check_in).getTime() >= new Date(x.planned_start).getTime() - 3 * 3600000)));
+    // absences (Leitung) and approved Anträge: no warning for those people/days
+    const ab = await org.supabase.from("attendance_absences").select("staff_id, work_date, kind, voided_at").eq("org_id", org.orgId).gte("work_date", new Date(now - 2 * 86400000).toISOString().slice(0, 10));
+    const ap = await org.supabase.from("requests").select("staff_id, type_key, date_from, date_to, status").eq("org_id", org.orgId).eq("status", "approved");
+    const absent = (staffId, day) => !!absenceMap((ab.data || []).filter((a) => a.staff_id === staffId), (ap.data || []).filter((a) => a.staff_id === staffId))[day];
+    setMissing(sh.error ? [] : (sh.data || []).filter((x) => !absent(x.staff_id, String(x.shift_date).slice(0, 10)) && !recent.some((r) => r.staff_id === x.staff_id && r.check_in && new Date(r.check_in).getTime() >= new Date(x.planned_start).getTime() - 3 * 3600000)));
     const rq = await org.supabase.from("attendance_correction_requests").select("id, staff_id, session_id, work_date, check_in, check_out, reason, status, created_at").eq("org_id", org.orgId).eq("status", "open").order("created_at");
     setReqs(rq.error ? [] : rq.data || []);
     const n = {}; (st.data || []).forEach((x) => { n[x.id] = x.name; });
@@ -97,9 +104,25 @@ export default function AttendanceDialog({ onClose }) {
     setBusy(""); setDenyReq(null);
     setMsg(error ? error.message : approve ? `Korrektur für ${names[q.staff_id]} übernommen ✓` : "Antrag abgelehnt ✓"); load();
   }
+  async function saveAbsence() {
+    setBusy("abs");
+    const { error } = await org.supabase.rpc("set_absence", { p_org: org.orgId, p_staff: absForm.staffId, p_date: absForm.date, p_kind: absForm.kind, p_note: absForm.note || null });
+    setBusy(""); if (error) { setMsg(error.message); return; }
+    setMsg(`${names[absForm.staffId]}: ${ABSENCE[absForm.kind].label} eingetragen ✓${absForm.kind === "krank" ? " – Ersatz finden: im Dienstplan „Krankmeldung / Ausfall“." : ""}`);
+    const same = edit.staffId === absForm.staffId && edit.date === absForm.date;
+    setAbsForm(null); load(); if (same) loadDay(edit.staffId, edit.date);
+  }
+  async function voidAbsence(a) {
+    const reason = window.prompt("Abwesenheit aufheben – Grund:", "falsch eingetragen");
+    if (reason === null) return;
+    const { error } = await org.supabase.rpc("void_absence", { p_id: a.id, p_reason: reason });
+    setMsg(error ? error.message : "Abwesenheit aufgehoben ✓"); load(); loadDay(edit.staffId, edit.date);
+  }
   async function loadDay(staffId, date) {
-    setEdit({ staffId, date }); setFix(null);
+    setEdit({ staffId, date }); setFix(null); setDayAbsence(null);
     if (!staffId || !date) { setDaySessions(null); return; }
+    const ab = await org.supabase.from("attendance_absences").select("id, kind, note, voided_at").eq("org_id", org.orgId).eq("staff_id", staffId).eq("work_date", date);
+    setDayAbsence(((ab.data || []).filter((a) => !a.voided_at))[0] || null);
     const from = new Date(`${date}T00:00:00`), to = new Date(from.getTime() + 86400000);
     const r = await org.supabase.from("attendance_sessions").select("id, check_in, check_out").eq("org_id", org.orgId).eq("staff_id", staffId).gte("check_in", from.toISOString()).lt("check_in", to.toISOString()).order("check_in");
     setDaySessions(r.error ? [] : r.data || []);
@@ -185,9 +208,26 @@ export default function AttendanceDialog({ onClose }) {
             {missing.length > 0 && (
               <>
                 <h3 className="mt-4 text-xs font-semibold uppercase tracking-wide text-amber-800">Noch nicht eingestempelt ({missing.length})</h3>
-                <div className="mt-1 flex flex-wrap gap-2">{missing.map((x, i) => <span key={i} className="rounded-lg border border-amber-300 bg-amber-50 px-2.5 py-1.5 text-amber-900">● {names[x.staff_id] || "?"} <span className="text-amber-700">{x.shift_label || x.shift_key} seit {clock(x.planned_start)}</span></span>)}</div>
-                <div className="mt-1 text-[11px] text-slate-500">Schicht hat vor mehr als 3 Stunden begonnen, aber kein Kommen. Vergessen? Dann unten unter „Zeiten bearbeiten“ nachtragen.</div>
+                <div className="mt-1 flex flex-wrap gap-2">{missing.map((x, i) => (
+                  <span key={i} className="inline-flex items-center gap-2 rounded-lg border border-amber-300 bg-amber-50 px-2.5 py-1.5 text-amber-900">● {names[x.staff_id] || "?"} <span className="text-amber-700">{x.shift_label || x.shift_key} seit {clock(x.planned_start)}</span>
+                    <button onClick={() => setAbsForm({ staffId: x.staff_id, date: String(x.shift_date).slice(0, 10), kind: "krank", note: "" })} className="rounded-md border border-amber-400 bg-white px-2 py-0.5 text-xs text-amber-900 hover:bg-amber-100">Abwesend …</button>
+                  </span>
+                ))}</div>
+                <div className="mt-1 text-[11px] text-slate-500">Schicht hat vor mehr als 3 Stunden begonnen, aber kein Kommen. Nicht gekommen? → „Abwesend …“. Gestempelt vergessen? → unten „Zeiten bearbeiten“.</div>
               </>
+            )}
+            {absForm && (
+              <div className="mt-2 flex flex-wrap items-end gap-2 rounded-lg border border-slate-200 bg-slate-50 p-2.5">
+                <div className="w-full text-xs font-semibold text-slate-700">{names[absForm.staffId]} · {absForm.date.split("-").reverse().join(".")}</div>
+                <label className="text-xs text-slate-600">Grund
+                  <select value={absForm.kind} onChange={(e) => setAbsForm({ ...absForm, kind: e.target.value })} className="mt-1 block rounded-md border border-slate-300 px-2 py-1.5 text-sm">
+                    {Object.keys(ABSENCE).map((k) => <option key={k} value={k}>{ABSENCE[k].label}{ABSENCE[k].credit ? "" : " (Stunden fehlen)"}</option>)}
+                  </select>
+                </label>
+                <label className="text-xs text-slate-600">Notiz (optional)<input value={absForm.note} maxLength={500} onChange={(e) => setAbsForm({ ...absForm, note: e.target.value })} className="mt-1 block w-52 rounded-md border border-slate-300 px-2 py-1.5 text-sm" /></label>
+                <button onClick={saveAbsence} disabled={busy === "abs"} className="rounded-md bg-teal-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-teal-700 active:translate-y-px">{busy === "abs" ? "Moment …" : "Eintragen"}</button>
+                <button onClick={() => setAbsForm(null)} className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-600">Abbrechen</button>
+              </div>
             )}
             <h3 className="mt-4 text-xs font-semibold uppercase tracking-wide text-slate-500">Jetzt da ({present.length})</h3>
             {present.length === 0 ? <div className="mt-1 text-xs text-slate-500">Im Moment ist niemand eingestempelt.</div> : (
@@ -221,6 +261,12 @@ export default function AttendanceDialog({ onClose }) {
             </div>
             {daySessions && (
               <div className="mt-2 rounded-lg bg-slate-50 p-2.5">
+                {dayAbsence ? (
+                  <div className="mb-1 flex items-center justify-between gap-2 text-sm"><span>Abwesenheit: <b>{ABSENCE[dayAbsence.kind].label}</b>{dayAbsence.note ? ` · ${dayAbsence.note}` : ""}</span>
+                    <span className="whitespace-nowrap"><button onClick={() => setAbsForm({ staffId: edit.staffId, date: edit.date, kind: dayAbsence.kind, note: dayAbsence.note || "" })} className="mr-1 rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs text-slate-700">Ändern</button><button onClick={() => voidAbsence(dayAbsence)} className="rounded-md border border-rose-200 bg-white px-2.5 py-1 text-xs text-rose-700">Aufheben</button></span></div>
+                ) : (
+                  <button onClick={() => setAbsForm({ staffId: edit.staffId, date: edit.date, kind: "krank", note: "" })} className="mb-1 rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs text-slate-700 hover:bg-slate-50">Abwesenheit eintragen …</button>
+                )}
                 {daySessions.length === 0 && <div className="text-xs text-slate-500">An diesem Tag gibt es keine Stempelung.</div>}
                 {daySessions.map((x) => (
                   <div key={x.id} className="flex items-center justify-between gap-2 py-1 text-sm">

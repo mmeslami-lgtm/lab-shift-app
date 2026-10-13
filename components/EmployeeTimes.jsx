@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { ABSENCE, absenceMap } from "../lib/absence";
 
 const INK = "#1B2433", PRIMARY = "#243B6B", MUTED = "#6B7588", LINE = "#D9DEE7", PAPER = "#E9EEF8";
 const WD_LONG = ["Sonntag", "Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag"];
@@ -40,7 +41,9 @@ export default function EmployeeTimes({ org }) {
   const [reqs, setReqs] = useState([]);      // own correction requests
   const [corrs, setCorrs] = useState([]);    // corrections made by the Leitung (session_id, field)
   const [cform, setCform] = useState(null);  // { sessionId, in, out, reason }
-  const [ttStart, setTtStart] = useState(null); // day the company switched on Zeiterfassung (no "fehlt" before)
+  const [ttStart, setTtStart] = useState(null);
+  const [absences, setAbsences] = useState([]);
+  const [approved, setApproved] = useState([]); // approved Anträge (Urlaub / Fortbildung / Krank) // day the company switched on Zeiterfassung (no "fehlt" before)
   const [cmsg, setCmsg] = useState({ text: "", bad: false });
 
   const load = useCallback(async () => {
@@ -52,6 +55,10 @@ export default function EmployeeTimes({ org }) {
     setSessions(s.data || []); setShifts(sh.data || []); setClosed(b.error ? [] : b.data || []);
     const rq = await sb.from("attendance_correction_requests").select("id, session_id, work_date, check_in, check_out, reason, status, decision_note, created_at").eq("org_id", org.orgId).eq("staff_id", org.staffId).order("created_at", { ascending: false });
     setReqs(rq.error ? [] : rq.data || []);
+    const ab = await sb.from("attendance_absences").select("id, work_date, kind, note, voided_at").eq("org_id", org.orgId).eq("staff_id", org.staffId);
+    setAbsences(ab.error ? [] : ab.data || []);
+    const ap = await sb.from("requests").select("type_key, date_from, date_to, status").eq("org_id", org.orgId).eq("staff_id", org.staffId).eq("status", "approved");
+    setApproved(ap.error ? [] : ap.data || []);
     const tp = await sb.from("org_products").select("created_at").eq("org_id", org.orgId).eq("product", "time_tracking");
     setTtStart(tp.data && tp.data[0] && tp.data[0].created_at ? isoOf(new Date(tp.data[0].created_at)) : null);
     const co = await sb.from("attendance_corrections").select("session_id, field").eq("org_id", org.orgId).eq("staff_id", org.staffId);
@@ -69,6 +76,8 @@ export default function EmployeeTimes({ org }) {
     const get = (iso) => (map[iso] = map[iso] || { iso, sessions: [], shifts: [] });
     (sessions || []).forEach((s) => { const d = new Date(s.check_in || s.check_out); get(isoOf(d)).sessions.push(s); });
     shifts.forEach((s) => get(String(s.shift_date).slice(0, 10)).shifts.push(s));
+    const am = absenceMap(absences, approved);
+    Object.keys(am).forEach((iso) => { get(iso).absence = am[iso]; });
     Object.values(map).forEach((d) => {
       d.gross = d.sessions.reduce((t, s) => t + (s.check_in && s.check_out ? (new Date(s.check_out) - new Date(s.check_in)) / 60000 : 0), 0);
       d.open = d.sessions.some((s) => s.check_in && !s.check_out);
@@ -76,13 +85,17 @@ export default function EmployeeTimes({ org }) {
       d.pause = breakFor(d.gross);
       d.worked = Math.max(0, d.gross - d.pause);
       d.planned = d.shifts.reduce((t, s) => t + plannedOf(s), 0);
-      d.daily = d.worked - d.planned;
+      // Abwesenheit: krank / urlaub / fortbildung / sonstiges count as the planned time (no minus)
+      const credit = d.absence && ABSENCE[d.absence.kind] && ABSENCE[d.absence.kind].credit;
+      d.daily = credit ? Math.max(d.worked, d.planned) - d.planned : d.worked - d.planned;
     });
     return map;
-  }, [sessions, shifts]);
+  }, [sessions, shifts, absences, approved]);
 
   // time account: closed months (plan vs. contract) + every finished day since the first stamp (worked vs. plan)
-  const firstIso = (sessions || []).length ? isoOf(new Date(sessions[0].check_in || sessions[0].check_out)) : null;
+  // time account counts from the day the company switched Zeiterfassung on (else from the first own stamp)
+  const firstStampIso = (sessions || []).length ? isoOf(new Date(sessions[0].check_in || sessions[0].check_out)) : null;
+  const firstIso = ttStart || firstStampIso;
   const todayIso = isoOf(now);
   const balanceBefore = (iso) => {
     let t = closed.reduce((s, r) => s + (Number(r.planned_hours) - Number(r.contract_hours)) * 60, 0);
@@ -135,7 +148,8 @@ export default function EmployeeTimes({ org }) {
       <div>
         <button onClick={() => setSel(null)} style={{ border: 0, background: "none", color: PRIMARY, fontSize: 16, fontWeight: 600, padding: "4px 0 10px", cursor: "pointer" }}>‹ Zurück</button>
         <div style={{ fontSize: 22, fontWeight: 750, marginBottom: 12 }}>{WD_LONG[date.getDay()]}, {pad(date.getDate())}.{pad(date.getMonth() + 1)}.{date.getFullYear()}</div>
-        {d.sessions.length === 0 && <div style={{ ...card, color: MUTED, fontSize: 14 }}>An diesem Tag gibt es keine Stempelung.</div>}
+        {d.absence && <div style={{ ...card, background: "#EEF3FB", fontSize: 15 }}><b>{ABSENCE[d.absence.kind].label}</b> <span style={{ color: MUTED, fontSize: 13 }}>{d.absence.source === "antrag" ? "(genehmigter Antrag)" : "(eingetragen von der Leitung)"}</span>{d.absence.note ? <div style={{ color: MUTED, fontSize: 13, marginTop: 2 }}>{d.absence.note}</div> : null}</div>}
+        {d.sessions.length === 0 && !d.absence && <div style={{ ...card, color: MUTED, fontSize: 14 }}>An diesem Tag gibt es keine Stempelung.</div>}
         {d.sessions.map((s) => (
           <div key={s.id}>
             <div style={{ ...card, display: "flex", alignItems: "center", gap: 12, background: "#F4F6FA" }}>
@@ -270,10 +284,11 @@ export default function EmployeeTimes({ org }) {
           const openS = d && d.sessions.find((x) => x.check_in && !x.check_out);
           // planned but nothing stamped: today 30 minutes after the shift start, earlier days always (since Zeiterfassung started)
           const firstStart = d && d.shifts.length ? Math.min(...d.shifts.map((x) => new Date(x.planned_start).getTime())) : null;
-          const noStamp = d && d.shifts.length > 0 && d.sessions.length === 0 && ttStart && iso >= ttStart;
+          const noStamp = d && d.shifts.length > 0 && d.sessions.length === 0 && ttStart && iso >= ttStart && !d.absence;
           const kommenFehlt = noStamp && (iso < todayIso || (iso === todayIso && Date.now() > firstStart + 30 * 60000));
           const forgot = openS && Date.now() - new Date(openS.check_in).getTime() > 12 * 3600000;
-          const sub = !d ? "frei" : forgot ? "Gehen fehlt – bitte Korrektur beantragen" : kommenFehlt ? (iso === todayIso ? "Kommen fehlt" : "Kommen fehlt – bitte Korrektur beantragen") : d.open ? `läuft seit ${clock(openS.check_in)}`
+          const absTxt = d && d.absence ? `${ABSENCE[d.absence.kind].label}${!ABSENCE[d.absence.kind].credit && d.planned ? ` (−${hm(d.planned)} h)` : ""}` : null;
+          const sub = !d ? "frei" : absTxt && !d.sessions.length ? absTxt : forgot ? "Gehen fehlt – bitte Korrektur beantragen" : kommenFehlt ? (iso === todayIso ? "Kommen fehlt" : "Kommen fehlt – bitte Korrektur beantragen") : d.open ? `läuft seit ${clock(openS.check_in)}`
             : d.sessions.length ? `gearbeitet ${hm(d.worked)} h${d.missing ? " · Kommen fehlt" : ""}`
             : d.shifts.length ? (iso < todayIso ? "geplant, kein Stempel" : `${sh.shift_label || sh.shift_key} geplant`) : "frei";
           return (

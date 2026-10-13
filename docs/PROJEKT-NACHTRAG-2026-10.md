@@ -93,6 +93,17 @@
 - **اولین کلید:** `terminal_pin_only` = دکمهٔ «Ohne Handy: mit PIN stempeln» روی ترمینال (جای ثابت `SHOW_PIN_ONLY`). تست: فقط برای همان شرکت دیده می‌شود.
 - **روال برای هر خواستهٔ مخصوص مشتری:** کلید در `FEATURES` → در کد `hasFeature(...)` → اول برای Testfirma روشن و تست → بعد برای مشتری. منطق قبلی برای بقیه بدون تغییر.
 
+## ۱۱.۰۲ جدول پلن در کادر جداگانه (هر دو Dienstplaner)
+- جدول «nach Tag» و «nach Mitarbeitenden» حالا در کادر خودش اسکرول می‌شود (کلاس `plan-scroll` در `globals.css`: حداکثر ۷۲٪ ارتفاع صفحه)، سرستون‌ها هنگام اسکرول بالا می‌مانند؛ دکمه‌های بالای جدول (Krankmeldung، Rückgängig، Drucken …) همیشه همان‌جا در دسترس. در چاپ مرورگر محدودیت ارتفاع برداشته می‌شود. تست: `planscroll_test`.
+
+## ۱۱.۰۳ Abwesenheit (ساخته شد)
+- Leitung/Inhaber در «Anwesenheit»: کنار هر نفر در «Noch nicht eingestempelt» دکمهٔ «Abwesend …»؛ در «Zeiten bearbeiten» برای هر روز «Abwesenheit eintragen …» / «Ändern» / «Aufheben» (با Grund). انواع (`lib/absence.js`): Krank، Urlaub، Fortbildung/Dienstreise، Sonstiges (bezahlt) = ساعت برنامه‌ریزی‌شده **بدون کسر** حساب می‌شود؛ Überstundenabbau و Unentschuldigt = ساعت شیفت از Zeitkonto **کم** می‌شود («Unentschuldigt (−8:00 h)»). بعد از «Krank» راهنما به «Krankmeldung / Ausfall» برای جایگزین. (قواعد حقوقی با مشاور حقوق کار تأیید شود.)
+- **درخواست‌های تأییدشده** (Urlaub/Fortbildung/Krankmeldung در Anträge) خودکار همان اثر را دارند: بدون هشدار، بدون pop-up، در اپ برچسب نوع.
+- اپ کارمند: برچسب نوع به‌جای «Kommen fehlt»، در جزئیات روز «(eingetragen von der Leitung)» / «(genehmigter Antrag)». همکاران نمی‌بینند.
+- دیتابیس: `docs/sql/21-abwesenheit-schema.sql` (اجرا و با نقش‌های واقعی تست شد، ۷ بررسی): جدول `attendance_absences` (هر نفر/روز یک فعال؛ تغییر = قدیمی «ersetzt» باطل؛ هیچ حذف)، `set_absence`، `void_absence` (Grund اجباری).
+- **Zeitkonto حالا از روز روشن‌شدن Zeiterfassung برای شرکت** (`org_products.created_at`) شمرده می‌شود (قبلاً از اولین ثبت خود شخص).
+- تست: `abwesend_test`.
+
 ## ۱۱.۰۴ خوش‌آمدگویی در صفحهٔ ورود
 - `components/LoginForm.jsx` (همهٔ صفحه‌های ورود): «Guten Morgen/Tag/Abend» (بر اساس ساعت دستگاه) + «Herzlich willkommen!» (بدون دست و جملهٔ دوم، تصمیم کاربر)
 

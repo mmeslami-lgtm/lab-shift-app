@@ -61,3 +61,10 @@ button.text-sm { font-size: 0.9375rem !important; }
 .border-slate-200 { border-color: #A9BBDA !important; }
 .border-slate-300, input.border, select.border, textarea.border { border-color: #8EA2C6 !important; }
 .divide-slate-50 > :not([hidden]) ~ :not([hidden]), .divide-slate-100 > :not([hidden]) ~ :not([hidden]) { border-color: #C3D0E7 !important; }
+
+/* plan table ("nach Tag" / "nach Mitarbeitenden") scrolls inside its own box, so the buttons above
+   (Krankmeldung, Rückgängig, Drucken …) stay in view; the column headings stay on top while scrolling */
+.plan-scroll { max-height: 72vh; overflow: auto; }
+.plan-scroll thead th { position: sticky; top: 0; z-index: 6; background: #F8FAFC; box-shadow: inset 0 -1px 0 #E2E8F0; }
+.plan-scroll thead th.sticky { z-index: 12; } /* top-left corner cell: above both sticky directions */
+@media print { .plan-scroll { max-height: none; overflow: visible; } }

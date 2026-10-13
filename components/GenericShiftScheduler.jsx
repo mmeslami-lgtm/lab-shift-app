@@ -2860,7 +2860,7 @@ function LabShiftSchedulerInner() {
                 </div>
               )}
               {viewMode === "byStaff" ? (
-              <div className="overflow-x-auto">
+              <div className="overflow-auto plan-scroll">
                 <table className="text-xs border-collapse">
                   <thead>
                     <tr className="bg-slate-50 text-slate-500 border-b border-slate-100">
@@ -2894,7 +2894,7 @@ function LabShiftSchedulerInner() {
                 </p>
               </div>
               ) : (
-              <div className="overflow-x-auto">
+              <div className="overflow-auto plan-scroll">
                 <table className="w-full text-xs">
                   <thead>
                     <tr className="bg-slate-50 text-slate-500 border-b border-slate-100">
