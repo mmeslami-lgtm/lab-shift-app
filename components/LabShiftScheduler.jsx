@@ -4,6 +4,7 @@ import React, { useState, useMemo, useRef, useEffect } from "react";
 import { OrgContext } from "../lib/orgContext";
 import OrgBar from "./OrgBar";
 import SickCoverDialog from "./SickCoverDialog";
+import { scorePlan, VARIANTS } from "../lib/planScore";
 import PublishPanel from "./PublishPanel";
 import { fetchAll } from "../lib/fetchAll";
 import { computeChanges } from "../lib/planDiff";
@@ -359,8 +360,11 @@ function generateSchedule(staffList, year, monthIdx, holidaySet, shiftHours, shi
     }
     quotaTargetDaysByKey[qd.key] = targetDays;
   });
+  // "Befreit von Büro": never planned for the Büro shift (key B or a shift called "Büro")
+  const noOfficeSet = new Set(staffList.filter((s) => s.noOffice).map((s) => s.id));
   function pickQuotaPerson(qd, day, todayAssigned) {
-    const eligible = ids.filter((id) => !todayAssigned.has(id) && !forcedRest[id].has(day.day - 1) && !isOnLeave(id, day.day) && hours[id] + shiftHours[qd.key] <= hardCapFor(id));
+    const officeShift = qd.key === "B" || /büro/i.test(qd.label || "");
+    const eligible = ids.filter((id) => !(officeShift && noOfficeSet.has(id)) && !todayAssigned.has(id) && !forcedRest[id].has(day.day - 1) && !isOnLeave(id, day.day) && hours[id] + shiftHours[qd.key] <= hardCapFor(id));
     if (eligible.length === 0) return null;
     const preferred = qd.preferLead ? eligible.filter((id) => leadMTLASet.has(id)) : [];
     const pool = preferred.length > 0 ? preferred : eligible;
@@ -1099,6 +1103,8 @@ function LabShiftSchedulerInner() {
   const [emailTableState, setEmailTableState] = useState("idle"); // idle | copied
   const [balances, setBalances] = useState({}); // name(trimmed) -> { hours, satDeficit, sunDeficit, nightDeficit }
   const [balancesLoaded, setBalancesLoaded] = useState(false);
+  const dbBalanceRef = useRef(false); // true when the saldo comes from the database (company login)
+  const [balanceBump, setBalanceBump] = useState(0);
   const [saveState, setSaveState] = useState("idle"); // idle | saving | saved | error
   const [saveErrorMsg, setSaveErrorMsg] = useState("");
   const [archiveList, setArchiveList] = useState([]); // [{monthValue, staffCount, savedAt}]
@@ -1147,7 +1153,7 @@ function LabShiftSchedulerInner() {
             }
           } catch (_) { /* skip unreadable key */ }
         }
-        if (!cancelled) { setBalances(map); setBalancesLoaded(true); }
+        if (!cancelled && !dbBalanceRef.current) { setBalances(map); setBalancesLoaded(true); }
       } catch (_) {
         if (!cancelled) setBalancesLoaded(true);
       }
@@ -1185,6 +1191,26 @@ function LabShiftSchedulerInner() {
       const nightCountOf = {};
       staffList.forEach((s) => { nightCountOf[s.id] = schedule.days.filter((d) => (d.shifts.N || []).includes(s.id)).length; });
       const avgNightCount = nightEligible.length > 0 ? nightEligible.reduce((sum, s) => sum + nightCountOf[s.id], 0) / nightEligible.length : 0;
+
+      if (orgCtx) {
+        // company login: one row per person and month in the database (pressing again overwrites the month)
+        const openSat = schedule.days.filter((d) => d.weekday === 6).length;
+        const openSun = schedule.days.filter((d) => d.weekday === 0).length;
+        const rows = staffList.filter((x) => /^[0-9a-f-]{36}$/i.test(String(x.id))).map((x) => ({
+          staff_id: x.id,
+          contract_hours: Math.round((schedule.targetOf[x.id] || 0) * 100) / 100,
+          planned_hours: Math.round((schedule.hours[x.id] || 0) * 100) / 100,
+          sat_short: x.weekendExempt || openSat < 2 ? 0 : Math.max(0, 2 - (schedule.satCount[x.id] || 0)),
+          sun_short: x.weekendExempt || openSun < 2 ? 0 : Math.max(0, 2 - (schedule.sunCount[x.id] || 0)),
+          night_short: x.nightExempt ? 0 : Math.round(Math.max(0, avgNightCount - nightCountOf[x.id]) * 100) / 100,
+        }));
+        const { error: balErr } = await orgCtx.supabase.rpc("save_month_balances", { p_org: orgCtx.orgId, p_year: year, p_month: monthIdx + 1, p_rows: rows });
+        if (balErr) throw new Error("Saldo nicht gespeichert: " + balErr.message);
+        setBalanceBump((b) => b + 1);
+        setArchiveState("saved");
+        setTimeout(() => setArchiveState("idle"), 2500);
+        return;
+      }
 
       const updated = { ...balances };
       for (const s of staffList) {
@@ -1283,6 +1309,32 @@ function LabShiftSchedulerInner() {
 
   // ---- connection to the shared database (only active when the page runs behind the login gate) ----
   const orgCtx = React.useContext(OrgContext);
+  dbBalanceRef.current = !!orgCtx;
+  // With a company login the saldo comes from the database (staff_month_balance, script 12), like in the
+  // general planner: sum of all months BEFORE the month on screen – the same on every device and browser.
+  const staffIdKey = staffList.map((s) => s.id + ":" + s.name).join("|");
+  useEffect(() => {
+    if (!orgCtx) return undefined;
+    let cancelled = false;
+    (async () => {
+      let rows = [];
+      try { rows = await fetchAll(() => orgCtx.supabase.from("staff_month_balance").select("staff_id, year, month, contract_hours, planned_hours, sat_short, sun_short, night_short").eq("org_id", orgCtx.orgId)); }
+      catch (_) { rows = []; }
+      if (cancelled) return;
+      const nowKey = year * 12 + monthIdx;
+      const byId = {};
+      rows.forEach((x) => {
+        if (x.year * 12 + (x.month - 1) >= nowKey) return; // only earlier months
+        const b = byId[x.staff_id] || (byId[x.staff_id] = { hours: 0, satDeficit: 0, sunDeficit: 0, nightDeficit: 0 });
+        b.hours += Number(x.contract_hours) - Number(x.planned_hours);
+        b.satDeficit += Number(x.sat_short) || 0; b.sunDeficit += Number(x.sun_short) || 0; b.nightDeficit += Number(x.night_short) || 0;
+      });
+      const byName = {};
+      staffList.forEach((s) => { if (byId[s.id]) byName[s.name.trim()] = byId[s.id]; });
+      setBalances(byName); setBalancesLoaded(true);
+    })();
+    return () => { cancelled = true; };
+  }, [orgCtx, year, monthIdx, staffIdKey, balanceBump]); // eslint-disable-line react-hooks/exhaustive-deps
   // What the employees currently see for the shown month. Every difference of the plan on screen to this
   // published version is marked yellow — no matter whether the plan was generated or opened with "Plan bearbeiten".
   const [publishedTick, setPublishedTick] = useState(0);
@@ -1326,13 +1378,13 @@ function LabShiftSchedulerInner() {
   const loadStaffFromDb = (rows) => {
     setStaffList(rows.map((r) => ({
       id: r.id, name: r.name, weeklyHours: Number(r.weekly_hours) || 38.5, employmentType: r.employment_type || "full",
-      nightExempt: !!r.night_exempt, weekendExempt: !!r.weekend_exempt, isLeadMTLA: !!r.is_team_lead, email: r.email || "",
+      nightExempt: !!r.night_exempt, weekendExempt: !!r.weekend_exempt, isLeadMTLA: !!r.is_team_lead, noOffice: !!r.no_office, email: r.email || "",
     })));
     setLeaveEntries([]); setSickEntries([]); setWishEntries([]); setSchedule(null); setEditMode(false);
   };
   const staffToDb = (s) => ({
     email: s.email ? String(s.email).trim() : null, weekly_hours: Number(s.weeklyHours) || 0, employment_type: s.employmentType || "full",
-    night_exempt: !!s.nightExempt, weekend_exempt: !!s.weekendExempt, is_team_lead: !!s.isLeadMTLA,
+    night_exempt: !!s.nightExempt, weekend_exempt: !!s.weekendExempt, is_team_lead: !!s.isLeadMTLA, no_office: !!s.noOffice,
   });
   // after saving, local ids ("s3") are replaced by the database ids everywhere they are used
   const applyStaffIds = (idMap) => {
@@ -1367,7 +1419,7 @@ function LabShiftSchedulerInner() {
     }
     const people = staffRows.map((r) => ({
       id: r.id, name: r.name, weeklyHours: Number(r.weekly_hours) || 38.5, employmentType: r.employment_type || "full",
-      nightExempt: !!r.night_exempt, weekendExempt: !!r.weekend_exempt, isLeadMTLA: !!r.is_team_lead, email: r.email || "",
+      nightExempt: !!r.night_exempt, weekendExempt: !!r.weekend_exempt, isLeadMTLA: !!r.is_team_lead, noOffice: !!r.no_office, email: r.email || "",
     }));
     setStaffList(people);
     setLeaveEntries([]); setSickEntries([]); setWishEntries([]); setFreiWishByStaff({});
@@ -1577,11 +1629,16 @@ function LabShiftSchedulerInner() {
         if (e.shiftType === "Frei") return; // handled above via leaveMap, not a real shift wish
         parseDayList(e.days, totalDays).forEach((d) => wishes.push({ staffId: e.staffId, day: d, shiftType: e.shiftType }));
       });
-      const result = generateSchedule(staffList, year, monthIdx, holidaySet, shiftHours, shiftLabels, dayShiftDefs, perShiftCount, leaveMap, carryOver, wishes);
-      // Recompute + validate from the final `days` (same pass used after manual edits) so any
-      // rule the generator couldn't fully guarantee up front (e.g. a rare consecutive-workday
-      // overrun caused by an already-fixed night block) still surfaces as a warning immediately.
-      const stats = computeStatsAndWarnings(result.days, staffList, leaveMap, shiftHours, dayOrderedKeys);
+      // "Beste von N Varianten": build the plan many times (ties are decided by chance) and keep the one
+      // that fits ALL rules best (lib/planScore.js). Every variant is built by the same rules.
+      let result = null, stats = null, bestScore = Infinity;
+      for (let v = 0; v < VARIANTS; v++) {
+        const r = generateSchedule(staffList, year, monthIdx, holidaySet, shiftHours, shiftLabels, dayShiftDefs, perShiftCount, leaveMap, carryOver, wishes);
+        // Recompute + validate from the final `days` (same pass used after manual edits)
+        const st = computeStatsAndWarnings(r.days, staffList, leaveMap, shiftHours, dayOrderedKeys);
+        const sc = scorePlan({ days: r.days, hours: st.hours, targetOf: st.targetOf, warnings: [...r.warnings, ...st.warnings], notes: r.notes }, staffList, ["N"]);
+        if (sc < bestScore) { bestScore = sc; result = r; stats = st; }
+      }
       // how much differs from the plan that was on the screen before (so the button visibly does something)
       let changed = 0;
       if (schedule && schedule.days) {
@@ -1590,7 +1647,7 @@ function LabShiftSchedulerInner() {
           Object.keys(nd.shifts).forEach((k) => { (nd.shifts[k] || []).forEach((id) => { if (!(od.shifts[k] || []).includes(id)) changed++; }); });
         });
       }
-      setGenInfo({ at: new Date(), changed, first: !schedule });
+      setGenInfo({ at: new Date(), changed, first: !schedule, variants: VARIANTS });
       setEditMode(false);
       setSchedule({
         days: result.days,
@@ -2139,6 +2196,10 @@ function LabShiftSchedulerInner() {
                       <input type="checkbox" checked={!!s.weekendExempt} onChange={(e) => updateStaffField(s.id, "weekendExempt", e.target.checked)} />
                       Befreit von Wochenendquote
                     </label>
+                    <label className="flex items-center gap-1 text-slate-500">
+                      <input type="checkbox" checked={!!s.noOffice} onChange={(e) => updateStaffField(s.id, "noOffice", e.target.checked)} />
+                      Befreit von Büro
+                    </label>
                     <label className="flex items-center gap-1 text-fuchsia-700">
                       <input type="checkbox" checked={!!s.isLeadMTLA} onChange={(e) => updateStaffField(s.id, "isLeadMTLA", e.target.checked)} />
                       Leitende MTLA (übernimmt meist Büro)
@@ -2330,7 +2391,7 @@ function LabShiftSchedulerInner() {
                     );
                   })}
               </div>
-              <button onClick={resetBalances} className="mt-2 text-violet-500 hover:text-rose-600 underline">Alle Salden löschen</button>
+              {!orgCtx && <button onClick={resetBalances} className="mt-2 text-violet-500 hover:text-rose-600 underline">Alle Salden löschen</button>}
             </div>
           )}
 
@@ -2345,7 +2406,7 @@ function LabShiftSchedulerInner() {
             </button>
             {genInfo && !genBusy && (
               <span role="status" className="text-xs text-teal-800 bg-teal-50 border border-teal-200 rounded-lg px-2.5 py-1.5">
-                {genInfo.first ? "Plan erstellt" : "Neu erstellt"} um {String(genInfo.at.getHours()).padStart(2, "0")}:{String(genInfo.at.getMinutes()).padStart(2, "0")}:{String(genInfo.at.getSeconds()).padStart(2, "0")} Uhr
+                {genInfo.first ? "Plan erstellt" : "Neu erstellt"} um {String(genInfo.at.getHours()).padStart(2, "0")}:{String(genInfo.at.getMinutes()).padStart(2, "0")}:{String(genInfo.at.getSeconds()).padStart(2, "0")} Uhr{genInfo.variants ? ` · beste von ${genInfo.variants} Varianten` : ""}
                 {!genInfo.first && (genInfo.changed > 0 ? ` – ${genInfo.changed} Einträge anders als vorher` : " – gleiches Ergebnis (mit diesen Personen und Regeln gibt es keine andere Verteilung)")}
               </span>
             )}

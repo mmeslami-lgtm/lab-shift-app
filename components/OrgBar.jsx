@@ -170,7 +170,7 @@ export default function OrgBar({ onLoadStaff, staffList, toDb, onIdsChanged, yea
       if (!rows.length) { setMsg(`Für ${MONTHS[m - 1]} ${y} ist kein gespeicherter Plan vorhanden.`); setBusy(""); return; }
       const d = source === "version" ? { data: [], error: null } : await sb.from("shift_definitions").select("key, label, start_time, end_time, frequency, quota_per_month, prefer_team_lead, requires_rest_after, sort_order").eq("org_id", org.orgId).eq("active", true);
       if (d.error) throw d.error;
-      const st = await sb.from("staff").select("id, name, email, weekly_hours, employment_type, night_exempt, weekend_exempt, is_team_lead, active").eq("org_id", org.orgId).order("name");
+      const st = await sb.from("staff").select("id, name, email, weekly_hours, employment_type, night_exempt, weekend_exempt, is_team_lead, no_office, active").eq("org_id", org.orgId).order("name");
       if (st.error) throw st.error;
       // what the employees currently see, to mark every manual change in the editor
       // (an archived version is compared with what is published right now, so going back shows every difference)
@@ -200,7 +200,7 @@ export default function OrgBar({ onLoadStaff, staffList, toDb, onIdsChanged, yea
     setBusy("load"); setMsg("");
     const { data, error } = await sb
       .from("staff")
-      .select("id, name, email, weekly_hours, employment_type, night_exempt, weekend_exempt, is_team_lead")
+      .select("id, name, email, weekly_hours, employment_type, night_exempt, weekend_exempt, is_team_lead, no_office")
       .eq("org_id", org.orgId)
       .eq("active", true)
       .order("name");

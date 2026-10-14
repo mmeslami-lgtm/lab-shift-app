@@ -7,6 +7,7 @@ import PublishPanel from "./PublishPanel";
 import { fetchAll } from "../lib/fetchAll";
 import { computeChanges } from "../lib/planDiff";
 import { openPrintView } from "../lib/printPlan";
+import { scorePlan, VARIANTS } from "../lib/planScore";
 import { Calendar, Users, AlertTriangle, RefreshCw, Plus, Trash2, Copy, Check, ClipboardList, Info, Printer } from "lucide-react";
 import { genericStorage as storage } from "../lib/storage";
 
@@ -1879,12 +1880,19 @@ function LabShiftSchedulerInner() {
         if (e.shiftType === "Frei") return; // handled above via leaveMap, not a real shift wish
         parseDayList(e.days, totalDays).forEach((d) => wishes.push({ staffId: e.staffId, day: d, shiftType: e.shiftType }));
       });
-      const result = generateSchedule(staffList, year, monthIdx, holidaySet, shiftHours, shiftLabels, dayShiftDefs, perShiftCount, leaveMap, carryOver, wishes, closedSet, openCount, useLate, { days: halfMap, parts: shiftParts });
+      // "Beste von N Varianten" (lib/planScore.js): same rules for every variant, the best one is shown
+      let result = null, stats = null, bestScore = Infinity;
+      for (let v = 0; v < VARIANTS; v++) {
+        const r = generateSchedule(staffList, year, monthIdx, holidaySet, shiftHours, shiftLabels, dayShiftDefs, perShiftCount, leaveMap, carryOver, wishes, closedSet, openCount, useLate, { days: halfMap, parts: shiftParts });
+        const st = computeStatsAndWarnings(r.days, staffList, leaveMap, shiftHours, dayOrderedKeys, restRequiringKeys, shiftLabels, closedSet, openCount, carryMap(), halfMap);
+        const sc = scorePlan({ days: r.days, hours: st.hours, targetOf: st.targetOf, warnings: [...r.warnings, ...st.warnings], notes: r.notes }, staffList, restRequiringKeys);
+        if (sc < bestScore) { bestScore = sc; result = r; stats = st; }
+      }
+
       // Recompute + validate from the final `days` (same pass used after manual edits) so any
       // rule the generator couldn't fully guarantee up front (e.g. a rare consecutive-workday
       // overrun caused by an already-fixed night block) still surfaces as a warning immediately.
-      const stats = computeStatsAndWarnings(result.days, staffList, leaveMap, shiftHours, dayOrderedKeys, restRequiringKeys, shiftLabels, closedSet, openCount, carryMap(), halfMap);
-      // how much differs from the plan that was on the screen before (so the button visibly does something)
+            // how much differs from the plan that was on the screen before (so the button visibly does something)
       let changed = 0;
       if (schedule && schedule.days) {
         result.days.forEach((nd, i) => {
@@ -1892,7 +1900,7 @@ function LabShiftSchedulerInner() {
           Object.keys(nd.shifts).forEach((k) => { (nd.shifts[k] || []).forEach((id) => { if (!(od.shifts[k] || []).includes(id)) changed++; }); });
         });
       }
-      setGenInfo({ at: new Date(), changed, first: !schedule });
+      setGenInfo({ at: new Date(), changed, first: !schedule, variants: VARIANTS });
       setEditMode(false);
       setSchedule({
         days: result.days,
@@ -2720,7 +2728,7 @@ function LabShiftSchedulerInner() {
             </button>
             {genInfo && !genBusy && (
               <span role="status" className="text-xs text-teal-800 bg-teal-50 border border-teal-200 rounded-lg px-2.5 py-1.5">
-                {genInfo.first ? "Plan erstellt" : "Neu erstellt"} um {String(genInfo.at.getHours()).padStart(2, "0")}:{String(genInfo.at.getMinutes()).padStart(2, "0")}:{String(genInfo.at.getSeconds()).padStart(2, "0")} Uhr
+                {genInfo.first ? "Plan erstellt" : "Neu erstellt"} um {String(genInfo.at.getHours()).padStart(2, "0")}:{String(genInfo.at.getMinutes()).padStart(2, "0")}:{String(genInfo.at.getSeconds()).padStart(2, "0")} Uhr{genInfo.variants ? ` · beste von ${genInfo.variants} Varianten` : ""}
                 {!genInfo.first && (genInfo.changed > 0 ? ` – ${genInfo.changed} Einträge anders als vorher` : " – gleiches Ergebnis (mit diesen Personen und Regeln gibt es keine andere Verteilung)")}
               </span>
             )}

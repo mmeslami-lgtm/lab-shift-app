@@ -93,6 +93,12 @@
 - **اولین کلید:** `terminal_pin_only` = دکمهٔ «Ohne Handy: mit PIN stempeln» روی ترمینال (جای ثابت `SHOW_PIN_ONLY`). تست: فقط برای همان شرکت دیده می‌شود.
 - **روال برای هر خواستهٔ مخصوص مشتری:** کلید در `FEATURES` → در کد `hasFeature(...)` → اول برای Testfirma روشن و تست → بعد برای مشتری. منطق قبلی برای بقیه بدون تغییر.
 
+## ۱۱.۰۱ «beste von 60 Varianten» + Saldo Labor در دیتابیس
+- **هر دو Dienstplaner:** «Dienstplan erstellen/Neu generieren» حالا ۶۰ بار با **همان قوانین** پلن می‌سازد (تساوی‌ها تصادفی) و بهترین را نشان می‌دهد (`lib/planScore.js`): ۱) هشدار قانون (۱۰۰۰ هر کدام؛ «weniger als 2 Samstage/Sonntage» نرم ۲۰؛ «Abweichung vom Stundenziel» جدا با ۳ سنجیده می‌شود)، ۲) شیفت کم‌نفر/اضافه‌کاری ۱۵، ۳) **پخش برابر ساعت نسبت به Ziel** (انحراف معیار × ۵۰۰۰)، ۴) ساعت بالای Ziel، ۵) پخش شب نسبت به ساعت قرارداد، ۶) پخش آخر هفته، ۷) جفت شنبه/یکشنبه. پیام: «Neu erstellt um … · beste von 60 Varianten». ~۳ میلی‌ثانیه هر پلن.
+- شبیه‌سازی نوامبر با ۶ تمام‌وقت + ۱ پاره‌وقت + ۴ مینی (کمبود ساختاری ~۱۵۰ ساعت): فاصلهٔ بیشترین تا کمترین کمبود تمام‌وقت‌ها از ~۲۵ به ~۱۵ ساعت؛ هشدار قانون سخت ۰٫۵ → ۰؛ جفت آخر هفته ۰. (کمبود کلی ساعت حل نمی‌شود: شیفت کافی نیست؛ راه: نفر بیشتر برای شیفت یا گزینهٔ «Bis zum Ziel auffüllen» – ساخته نشده.)
+- **Labor: Saldo در دیتابیس** (مثل allgemein، جدول `staff_month_balance`): «Monat abschließen» ردیف‌ها را ذخیره می‌کند، ماه بعد «Saldo aus Vormonaten» از دیتابیس (هر مرورگر/دستگاه، از جمله آدرس آزمایشی). منطق Labor (Ziel ۱۶۰، Saldo فقط روی اولویت) **بدون تغییر**. «Alle Salden löschen» با ورود شرکت پنهان. تست: `saldo_lab_test`.
+- **«Befreit von Büro»** (Labor، تصمیم کاربر: الف): تیک برای هر نفر کنار «Befreit von Nachtdienst/Wochenendquote»؛ ستون `staff.no_office` (`docs/sql/22-kein-buero-schema.sql`، اجرا شد)؛ مولد هرگز شیفت Büro (کلید B یا نام «Büro») به آن نفر نمی‌دهد (تغییر دستی ممکن). تست: ۲۷۰ شیفت Büro در ۳۰ پلن، صفر برای افراد معاف.
+
 ## ۱۱.۰۲ جدول پلن در کادر جداگانه (هر دو Dienstplaner)
 - جدول «nach Tag» و «nach Mitarbeitenden» حالا در کادر خودش اسکرول می‌شود (کلاس `plan-scroll` در `globals.css`: حداکثر ۷۲٪ ارتفاع صفحه)، سرستون‌ها هنگام اسکرول بالا می‌مانند؛ دکمه‌های بالای جدول (Krankmeldung، Rückgängig، Drucken …) همیشه همان‌جا در دسترس. در چاپ مرورگر محدودیت ارتفاع برداشته می‌شود. تست: `planscroll_test`.
 
