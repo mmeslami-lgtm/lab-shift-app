@@ -4,6 +4,7 @@ import React, { useCallback, useContext, useEffect, useRef, useState } from "rea
 import { OrgContext } from "../lib/orgContext";
 import { ABSENCE, absenceMap } from "../lib/absence";
 import { fetchAll } from "../lib/fetchAll";
+import { OVERTIME_MODES, overtimeMode, payoutMinutesByMonth } from "../lib/overtime";
 import { computeDays, buildSheet, buildTimesheetHtml, openHtmlPrint, germanHolidays, isoOf, MONTHS, SURCHARGES } from "../lib/timesheet";
 
 const pad = (n) => String(n).padStart(2, "0");
@@ -35,6 +36,11 @@ export default function AttendanceDialog({ onClose }) {
   const [tsWho, setTsWho] = useState("all");
   const [zus, setZus] = useState(null);      // saved surcharge settings (null = never set up)
   const [zusForm, setZusForm] = useState(null);
+  const [vacForm, setVacForm] = useState(null);
+  const [ot, setOt] = useState(null);          // Überstunden: { mode, code } (null = Zeitkonto)
+  const [otForm, setOtForm] = useState(null);
+  const [payForm, setPayForm] = useState(null); // { staffId, hours, note }
+  const [payList, setPayList] = useState([]);   // payouts of the month shown // { year, rows: { staffId: { entitlement, carryover } } }
   const [pairName, setPairName] = useState(null); // null = closed, string = form open
   const [pairCode, setPairCode] = useState(null); // { code, name, expiresAt }
   const closeRef = useRef(onClose); closeRef.current = onClose;
@@ -45,7 +51,8 @@ export default function AttendanceDialog({ onClose }) {
     const st = await org.supabase.from("staff").select("id, name, personnel_no, weekly_hours").eq("org_id", org.orgId);
     const dv = await org.supabase.from("devices").select("id, serial, name, active, created_at").eq("org_id", org.orgId).order("created_at");
     const bg = await org.supabase.from("badges").select("id, staff_id, badge_code, revoked_at, issued_at").eq("org_id", org.orgId);
-    const og = await org.supabase.from("organizations").select("card_requires_pin, surcharge_settings").eq("id", org.orgId);
+    const og = await org.supabase.from("organizations").select("card_requires_pin, surcharge_settings, overtime_settings").eq("id", org.orgId);
+    setOt(og.data && og.data[0] ? og.data[0].overtime_settings || null : null);
     setZus(og.data && og.data[0] ? og.data[0].surcharge_settings || null : null);
     setBadges((bg.data || []).filter((b) => !b.revoked_at));
     setNeedPin(!!(og.data && og.data[0] && og.data[0].card_requires_pin));
@@ -167,7 +174,8 @@ export default function AttendanceDialog({ onClose }) {
       const sb = org.supabase;
       const tp = await sb.from("org_products").select("created_at").eq("org_id", org.orgId).eq("product", "time_tracking");
       const startIso = tp.data && tp.data[0] && tp.data[0].created_at ? isoOf(new Date(tp.data[0].created_at)) : null;
-      const fromIso = startIso && startIso < `${y}-${String(m).padStart(2, "0")}-01` ? startIso : `${y}-${String(m).padStart(2, "0")}-01`;
+      const jan1 = `${y}-01-01`;
+      const fromIso = [startIso, jan1, `${y}-${String(m).padStart(2, "0")}-01`].filter(Boolean).sort()[0]; // earliest: Zeitkonto start or Jan 1 (Urlaub/Krank of the year)
       const from = new Date(`${fromIso}T00:00:00`), to = new Date(y, month + 1, 1);
       const people = staffList.filter((x) => tsWho === "all" || x.id === tsWho);
       const [ses, sh, ab, ap, cl, co] = await Promise.all([
@@ -178,12 +186,15 @@ export default function AttendanceDialog({ onClose }) {
         fetchAll(() => sb.from("staff_month_balance").select("staff_id, year, month, contract_hours, planned_hours").eq("org_id", org.orgId)),
         fetchAll(() => sb.from("attendance_corrections").select("session_id").eq("org_id", org.orgId)),
       ]);
+      const pays = overtimeMode(ot) === "gemischt" ? await fetchAll(() => sb.from("overtime_payouts").select("staff_id, year, month, hours, voided_at").eq("org_id", org.orgId)) : [];
+      const vac = await sb.from("staff_vacation").select("staff_id, entitlement, carryover").eq("org_id", org.orgId).eq("year", y);
       const corrected = new Set((co || []).map((x) => x.session_id));
       const hol = {}; const holidaysOf = (yy) => hol[yy] || (hol[yy] = germanHolidays(yy));
       const sheets = people.map((p) => {
         const days = computeDays({ sessions: (ses || []).filter((x) => x.staff_id === p.id), shifts: (sh || []).filter((x) => x.staff_id === p.id), absences: (ab || []).filter((x) => x.staff_id === p.id), approved: (ap || []).filter((x) => x.staff_id === p.id), holidaysOf });
-        const closedBefore = (cl || []).filter((r) => r.staff_id === p.id && r.year * 12 + r.month - 1 < y * 12 + month).reduce((t, r) => t + (Number(r.planned_hours) - Number(r.contract_hours)) * 60, 0);
-        return buildSheet({ name: p.personnel_no ? `${p.name} (${p.personnel_no})` : p.name, year: y, month, days, startIso, closedBefore, corrected, mode: sollMode, weeklyHours: p.weekly_hours });
+        const closedRows = (cl || []).filter((r) => r.staff_id === p.id && r.year * 12 + r.month - 1 <= y * 12 + month);
+        const overtime = { mode: overtimeMode(ot), code: ot && ot.code, stored: payoutMinutesByMonth(pays, p.id) };
+        return buildSheet({ name: p.personnel_no ? `${p.name} (${p.personnel_no})` : p.name, year: y, month, days, startIso, closedRows, overtime, corrected, mode: sollMode, weeklyHours: p.weekly_hours, vacation: (vac.data || []).find((v) => v.staff_id === p.id) || null });
       });
       if (!sheets.length) { setMsg("Keine Personen gefunden."); setBusy(""); return; }
       const ok = openHtmlPrint(buildTimesheetHtml(sheets, { orgName: org.orgName, year: y, month, mode: sollMode, surcharges: zus }));
@@ -192,6 +203,47 @@ export default function AttendanceDialog({ onClose }) {
     setBusy("");
   }
 
+  async function openVac(year) {
+    const r = await org.supabase.from("staff_vacation").select("staff_id, entitlement, carryover").eq("org_id", org.orgId).eq("year", year);
+    const rows = {}; (r.data || []).forEach((v) => { rows[v.staff_id] = { entitlement: String(v.entitlement), carryover: String(v.carryover) }; });
+    setVacForm({ year, rows });
+  }
+  async function saveVac() {
+    setBusy("vac");
+    const num = (v) => Number(String(v == null ? "" : v).replace(",", ".")) || 0;
+    const up = staffList.filter((x) => vacForm.rows[x.id] && (vacForm.rows[x.id].entitlement !== "" || vacForm.rows[x.id].carryover !== ""))
+      .map((x) => ({ org_id: org.orgId, staff_id: x.id, year: vacForm.year, entitlement: num(vacForm.rows[x.id].entitlement), carryover: num(vacForm.rows[x.id].carryover), updated_at: new Date().toISOString() }));
+    const { error } = up.length ? await org.supabase.from("staff_vacation").upsert(up, { onConflict: "staff_id,year" }) : { error: null };
+    setBusy(""); if (error) { setMsg(error.message); return; }
+    setVacForm(null); setMsg(`Urlaubsanspruch ${vacForm.year} gespeichert ✓`);
+  }
+  async function saveOt() {
+    setBusy("ot");
+    const { error } = await org.supabase.rpc("set_overtime_settings", { p_org: org.orgId, p_settings: { mode: otForm.mode || "konto", code: String(otForm.code || "").slice(0, 20) } });
+    setBusy(""); if (error) { setMsg(error.message); return; }
+    setOt({ mode: otForm.mode || "konto", code: String(otForm.code || "").slice(0, 20) }); setOtForm(null); setMsg("Überstunden-Regel gespeichert ✓");
+  }
+  async function loadPayouts() {
+    const [y, m] = tsMonth.split("-").map(Number);
+    const r = await org.supabase.from("overtime_payouts").select("id, staff_id, hours, note, created_at, voided_at, void_reason").eq("org_id", org.orgId).eq("year", y).eq("month", m).order("created_at");
+    setPayList(r.data || []);
+  }
+  async function addPayout() {
+    const [y, m] = tsMonth.split("-").map(Number);
+    const h = Number(String(payForm.hours || "").replace(",", "."));
+    if (!payForm.staffId || !(h > 0)) { setMsg("Bitte Person und Stunden angeben."); return; }
+    setBusy("pay");
+    const { error } = await org.supabase.rpc("add_overtime_payout", { p_org: org.orgId, p_staff: payForm.staffId, p_year: y, p_month: m, p_hours: h, p_note: payForm.note || "" });
+    setBusy(""); if (error) { setMsg(error.message); return; }
+    setPayForm({ staffId: "", hours: "", note: "" }); setMsg(`${String(h).replace(".", ",")} Std. zur Auszahlung eingetragen ✓`); loadPayouts();
+  }
+  async function voidPayout(id) {
+    const reason = window.prompt("Grund für die Stornierung:");
+    if (!reason || !reason.trim()) return;
+    const { error } = await org.supabase.rpc("void_overtime_payout", { p_id: id, p_reason: reason.trim() });
+    if (error) { setMsg(error.message); return; }
+    setMsg("Auszahlung storniert ✓"); loadPayouts();
+  }
   async function saveZus() {
     setBusy("zus");
     const clean = {};
@@ -313,6 +365,27 @@ export default function AttendanceDialog({ onClose }) {
               <button onClick={printTimesheets} disabled={busy === "ts"} className="rounded-md bg-teal-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-teal-700 active:translate-y-px">{busy === "ts" ? "Moment …" : "Drucken / PDF"}</button>
             </div>
             <div className="mt-1 text-[11px] text-slate-500">Eine Seite pro Person: Beginn, Ende, Pause, Netto, Soll, Zeitkonto, Nacht-/Sonntags-/Feiertagsstunden, Urlaub, Krank.</div>
+            {vacForm ? (
+              <div className="mt-2 rounded-lg border border-slate-200 bg-slate-50 p-2.5">
+                <div className="flex items-center gap-2 text-xs font-semibold text-slate-700">Urlaubsanspruch
+                  <select value={vacForm.year} onChange={(e) => openVac(Number(e.target.value))} className="rounded-md border border-slate-300 px-1.5 py-0.5 text-xs" aria-label="Jahr">
+                    {[0, 1, -1].map((k) => new Date().getFullYear() + k).sort().map((yy) => <option key={yy} value={yy}>{yy}</option>)}
+                  </select>
+                </div>
+                <table className="mt-1 text-sm"><thead><tr className="text-xs text-slate-500"><th className="pr-3 text-left">Name</th><th className="pr-3 text-left">Tage im Jahr</th><th className="text-left">Rest Vorjahr</th></tr></thead>
+                  <tbody>{staffList.map((x) => { const r = vacForm.rows[x.id] || { entitlement: "", carryover: "" }; const set = (k, v) => setVacForm({ ...vacForm, rows: { ...vacForm.rows, [x.id]: { ...r, [k]: v } } }); return (
+                    <tr key={x.id}><td className="pr-3">{x.name}</td>
+                      <td className="pr-3"><input value={r.entitlement} onChange={(e) => set("entitlement", e.target.value)} placeholder="z. B. 30" className="w-20 rounded-md border border-slate-300 px-2 py-0.5" aria-label={`Urlaubstage ${x.name}`} /></td>
+                      <td><input value={r.carryover} onChange={(e) => set("carryover", e.target.value)} placeholder="0" className="w-20 rounded-md border border-slate-300 px-2 py-0.5" aria-label={`Rest Vorjahr ${x.name}`} /></td></tr>
+                  ); })}</tbody></table>
+                <div className="mt-2 flex gap-2">
+                  <button onClick={saveVac} disabled={busy === "vac"} className="rounded-md bg-teal-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-teal-700 active:translate-y-px">{busy === "vac" ? "Moment …" : "Speichern"}</button>
+                  <button onClick={() => setVacForm(null)} className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-600">Abbrechen</button>
+                </div>
+              </div>
+            ) : (
+              <button onClick={() => openVac(Number(tsMonth.slice(0, 4)))} className="mr-2 mt-1.5 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs text-slate-700 hover:bg-slate-50 active:translate-y-px">Urlaubsanspruch eintragen</button>
+            )}
             {zusForm ? (
               <div className="mt-2 rounded-lg border border-slate-200 bg-slate-50 p-2.5">
                 <div className="text-xs font-semibold text-slate-700">Zuschläge (freiwillig – nur was Ihre Firma zahlt)</div>
@@ -334,6 +407,55 @@ export default function AttendanceDialog({ onClose }) {
             ) : (
               <button onClick={() => setZusForm(zus || {})} className="mt-1.5 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs text-slate-700 hover:bg-slate-50 active:translate-y-px">Zuschläge einstellen{zus ? ` (${SURCHARGES.filter((z) => zus[z.key] && zus[z.key].mode !== "off").length} aktiv)` : " (optional)"}</button>
             )}
+
+            <div className="mt-2">
+              {otForm ? (
+                <div className="rounded-lg border border-slate-200 bg-slate-50 p-2.5">
+                  <div className="text-xs font-semibold text-slate-700">Überstunden: Zeitkonto oder Auszahlung</div>
+                  {Object.entries(OVERTIME_MODES).map(([k, label]) => (
+                    <label key={k} className="mt-1 flex items-center gap-2 text-sm text-slate-700"><input type="radio" name="otmode" checked={(otForm.mode || "konto") === k} onChange={() => setOtForm({ ...otForm, mode: k })} />{label}</label>
+                  ))}
+                  {(otForm.mode || "konto") !== "konto" && <input value={otForm.code || ""} onChange={(e) => setOtForm({ ...otForm, code: e.target.value })} placeholder="Lohnart-Code (optional)" aria-label="Lohnart-Code Überstunden" className="mt-1.5 w-40 rounded-md border border-slate-300 px-2 py-1 text-sm" />}
+                  <div className="mt-1 text-[11px] text-slate-500">Ausgezahlt werden nur Plusstunden; Minusstunden bleiben im Zeitkonto. Bei Minijobs auf die Verdienstgrenze achten.</div>
+                  <div className="mt-2 flex gap-2">
+                    <button onClick={saveOt} disabled={busy === "ot"} className="rounded-md bg-teal-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-teal-700 active:translate-y-px">{busy === "ot" ? "Moment …" : "Speichern"}</button>
+                    <button onClick={() => setOtForm(null)} className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-600">Abbrechen</button>
+                  </div>
+                </div>
+              ) : (
+                <button onClick={() => setOtForm(ot || { mode: "konto" })} className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs text-slate-700 hover:bg-slate-50 active:translate-y-px">Überstunden: {overtimeMode(ot) === "konto" ? "Zeitkonto" : overtimeMode(ot) === "auszahlung" ? "Auszahlung" : "Gemischt"} – ändern</button>
+              )}
+              {overtimeMode(ot) === "gemischt" && !otForm && (
+                payForm ? (
+                  <div className="mt-2 rounded-lg border border-slate-200 bg-slate-50 p-2.5">
+                    <div className="text-xs font-semibold text-slate-700">Überstunden auszahlen – {MONTHS[Number(tsMonth.slice(5)) - 1]} {tsMonth.slice(0, 4)}</div>
+                    <div className="mt-1 flex flex-wrap items-end gap-2">
+                      <select value={payForm.staffId} onChange={(e) => setPayForm({ ...payForm, staffId: e.target.value })} aria-label="Person für Auszahlung" className="rounded-md border border-slate-300 px-2 py-1 text-sm">
+                        <option value="">Person wählen …</option>
+                        {staffList.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
+                      </select>
+                      <input value={payForm.hours} onChange={(e) => setPayForm({ ...payForm, hours: e.target.value })} placeholder="Stunden" aria-label="Stunden auszahlen" className="w-20 rounded-md border border-slate-300 px-2 py-1 text-sm" />
+                      <input value={payForm.note} onChange={(e) => setPayForm({ ...payForm, note: e.target.value })} placeholder="Notiz (optional)" aria-label="Notiz Auszahlung" className="w-40 rounded-md border border-slate-300 px-2 py-1 text-sm" />
+                      <button onClick={addPayout} disabled={busy === "pay"} className="rounded-md bg-teal-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-teal-700 active:translate-y-px">{busy === "pay" ? "Moment …" : "Auszahlen"}</button>
+                      <button onClick={() => setPayForm(null)} className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-600">Schließen</button>
+                    </div>
+                    {payList.length > 0 && (
+                      <ul className="mt-2 space-y-1 text-sm">
+                        {payList.map((x) => (
+                          <li key={x.id} className={x.voided_at ? "text-slate-400 line-through" : "text-slate-700"}>
+                            {(staffList.find((p) => p.id === x.staff_id) || {}).name || "?"}: {String(x.hours).replace(".", ",")} Std.{x.note ? ` – ${x.note}` : ""}
+                            {x.voided_at ? <span className="no-underline"> (storniert: {x.void_reason})</span> : <button onClick={() => voidPayout(x.id)} className="ml-2 text-xs text-rose-700 underline">Stornieren</button>}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                    <div className="mt-1 text-[11px] text-slate-500">Wird am Monatsende vom Zeitkonto abgezogen und im Stundenzettel als „Überstunden ausgezahlt“ gezeigt. Nichts wird gelöscht – Fehler „Stornieren“ (mit Grund).</div>
+                  </div>
+                ) : (
+                  <button onClick={() => { setPayForm({ staffId: "", hours: "", note: "" }); loadPayouts(); }} className="ml-2 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs text-slate-700 hover:bg-slate-50 active:translate-y-px">Überstunden auszahlen …</button>
+                )
+              )}
+            </div>
 
             <h3 className="mt-4 text-xs font-semibold uppercase tracking-wide text-slate-500">Zeiten bearbeiten (auch frühere Tage)</h3>
             <div className="mt-1 flex flex-wrap items-end gap-2">
