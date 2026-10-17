@@ -35,6 +35,7 @@ export default function AttendanceDialog({ onClose }) {
   const [tsWho, setTsWho] = useState("all");
   const [zus, setZus] = useState(null);      // saved surcharge settings (null = never set up)
   const [zusForm, setZusForm] = useState(null);
+  const [vacForm, setVacForm] = useState(null); // { year, rows: { staffId: { entitlement, carryover } } }
   const [pairName, setPairName] = useState(null); // null = closed, string = form open
   const [pairCode, setPairCode] = useState(null); // { code, name, expiresAt }
   const closeRef = useRef(onClose); closeRef.current = onClose;
@@ -167,7 +168,8 @@ export default function AttendanceDialog({ onClose }) {
       const sb = org.supabase;
       const tp = await sb.from("org_products").select("created_at").eq("org_id", org.orgId).eq("product", "time_tracking");
       const startIso = tp.data && tp.data[0] && tp.data[0].created_at ? isoOf(new Date(tp.data[0].created_at)) : null;
-      const fromIso = startIso && startIso < `${y}-${String(m).padStart(2, "0")}-01` ? startIso : `${y}-${String(m).padStart(2, "0")}-01`;
+      const jan1 = `${y}-01-01`;
+      const fromIso = [startIso, jan1, `${y}-${String(m).padStart(2, "0")}-01`].filter(Boolean).sort()[0]; // earliest: Zeitkonto start or Jan 1 (Urlaub/Krank of the year)
       const from = new Date(`${fromIso}T00:00:00`), to = new Date(y, month + 1, 1);
       const people = staffList.filter((x) => tsWho === "all" || x.id === tsWho);
       const [ses, sh, ab, ap, cl, co] = await Promise.all([
@@ -178,12 +180,13 @@ export default function AttendanceDialog({ onClose }) {
         fetchAll(() => sb.from("staff_month_balance").select("staff_id, year, month, contract_hours, planned_hours").eq("org_id", org.orgId)),
         fetchAll(() => sb.from("attendance_corrections").select("session_id").eq("org_id", org.orgId)),
       ]);
+      const vac = await sb.from("staff_vacation").select("staff_id, entitlement, carryover").eq("org_id", org.orgId).eq("year", y);
       const corrected = new Set((co || []).map((x) => x.session_id));
       const hol = {}; const holidaysOf = (yy) => hol[yy] || (hol[yy] = germanHolidays(yy));
       const sheets = people.map((p) => {
         const days = computeDays({ sessions: (ses || []).filter((x) => x.staff_id === p.id), shifts: (sh || []).filter((x) => x.staff_id === p.id), absences: (ab || []).filter((x) => x.staff_id === p.id), approved: (ap || []).filter((x) => x.staff_id === p.id), holidaysOf });
         const closedBefore = (cl || []).filter((r) => r.staff_id === p.id && r.year * 12 + r.month - 1 < y * 12 + month).reduce((t, r) => t + (Number(r.planned_hours) - Number(r.contract_hours)) * 60, 0);
-        return buildSheet({ name: p.personnel_no ? `${p.name} (${p.personnel_no})` : p.name, year: y, month, days, startIso, closedBefore, corrected, mode: sollMode, weeklyHours: p.weekly_hours });
+        return buildSheet({ name: p.personnel_no ? `${p.name} (${p.personnel_no})` : p.name, year: y, month, days, startIso, closedBefore, corrected, mode: sollMode, weeklyHours: p.weekly_hours, vacation: (vac.data || []).find((v) => v.staff_id === p.id) || null });
       });
       if (!sheets.length) { setMsg("Keine Personen gefunden."); setBusy(""); return; }
       const ok = openHtmlPrint(buildTimesheetHtml(sheets, { orgName: org.orgName, year: y, month, mode: sollMode, surcharges: zus }));
@@ -192,6 +195,20 @@ export default function AttendanceDialog({ onClose }) {
     setBusy("");
   }
 
+  async function openVac(year) {
+    const r = await org.supabase.from("staff_vacation").select("staff_id, entitlement, carryover").eq("org_id", org.orgId).eq("year", year);
+    const rows = {}; (r.data || []).forEach((v) => { rows[v.staff_id] = { entitlement: String(v.entitlement), carryover: String(v.carryover) }; });
+    setVacForm({ year, rows });
+  }
+  async function saveVac() {
+    setBusy("vac");
+    const num = (v) => Number(String(v == null ? "" : v).replace(",", ".")) || 0;
+    const up = staffList.filter((x) => vacForm.rows[x.id] && (vacForm.rows[x.id].entitlement !== "" || vacForm.rows[x.id].carryover !== ""))
+      .map((x) => ({ org_id: org.orgId, staff_id: x.id, year: vacForm.year, entitlement: num(vacForm.rows[x.id].entitlement), carryover: num(vacForm.rows[x.id].carryover), updated_at: new Date().toISOString() }));
+    const { error } = up.length ? await org.supabase.from("staff_vacation").upsert(up, { onConflict: "staff_id,year" }) : { error: null };
+    setBusy(""); if (error) { setMsg(error.message); return; }
+    setVacForm(null); setMsg(`Urlaubsanspruch ${vacForm.year} gespeichert ✓`);
+  }
   async function saveZus() {
     setBusy("zus");
     const clean = {};
@@ -313,6 +330,27 @@ export default function AttendanceDialog({ onClose }) {
               <button onClick={printTimesheets} disabled={busy === "ts"} className="rounded-md bg-teal-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-teal-700 active:translate-y-px">{busy === "ts" ? "Moment …" : "Drucken / PDF"}</button>
             </div>
             <div className="mt-1 text-[11px] text-slate-500">Eine Seite pro Person: Beginn, Ende, Pause, Netto, Soll, Zeitkonto, Nacht-/Sonntags-/Feiertagsstunden, Urlaub, Krank.</div>
+            {vacForm ? (
+              <div className="mt-2 rounded-lg border border-slate-200 bg-slate-50 p-2.5">
+                <div className="flex items-center gap-2 text-xs font-semibold text-slate-700">Urlaubsanspruch
+                  <select value={vacForm.year} onChange={(e) => openVac(Number(e.target.value))} className="rounded-md border border-slate-300 px-1.5 py-0.5 text-xs" aria-label="Jahr">
+                    {[0, 1, -1].map((k) => new Date().getFullYear() + k).sort().map((yy) => <option key={yy} value={yy}>{yy}</option>)}
+                  </select>
+                </div>
+                <table className="mt-1 text-sm"><thead><tr className="text-xs text-slate-500"><th className="pr-3 text-left">Name</th><th className="pr-3 text-left">Tage im Jahr</th><th className="text-left">Rest Vorjahr</th></tr></thead>
+                  <tbody>{staffList.map((x) => { const r = vacForm.rows[x.id] || { entitlement: "", carryover: "" }; const set = (k, v) => setVacForm({ ...vacForm, rows: { ...vacForm.rows, [x.id]: { ...r, [k]: v } } }); return (
+                    <tr key={x.id}><td className="pr-3">{x.name}</td>
+                      <td className="pr-3"><input value={r.entitlement} onChange={(e) => set("entitlement", e.target.value)} placeholder="z. B. 30" className="w-20 rounded-md border border-slate-300 px-2 py-0.5" aria-label={`Urlaubstage ${x.name}`} /></td>
+                      <td><input value={r.carryover} onChange={(e) => set("carryover", e.target.value)} placeholder="0" className="w-20 rounded-md border border-slate-300 px-2 py-0.5" aria-label={`Rest Vorjahr ${x.name}`} /></td></tr>
+                  ); })}</tbody></table>
+                <div className="mt-2 flex gap-2">
+                  <button onClick={saveVac} disabled={busy === "vac"} className="rounded-md bg-teal-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-teal-700 active:translate-y-px">{busy === "vac" ? "Moment …" : "Speichern"}</button>
+                  <button onClick={() => setVacForm(null)} className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-600">Abbrechen</button>
+                </div>
+              </div>
+            ) : (
+              <button onClick={() => openVac(Number(tsMonth.slice(0, 4)))} className="mr-2 mt-1.5 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs text-slate-700 hover:bg-slate-50 active:translate-y-px">Urlaubsanspruch eintragen</button>
+            )}
             {zusForm ? (
               <div className="mt-2 rounded-lg border border-slate-200 bg-slate-50 p-2.5">
                 <div className="text-xs font-semibold text-slate-700">Zuschläge (freiwillig – nur was Ihre Firma zahlt)</div>
