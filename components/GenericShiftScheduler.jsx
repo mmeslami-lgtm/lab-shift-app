@@ -2,6 +2,8 @@
 
 import React, { useState, useMemo, useRef, useEffect } from "react";
 import { OrgContext } from "../lib/orgContext";
+import { germanHolidays } from "../lib/timesheet";
+import { overtimeMode, payoutMinutesByMonth, planCarryHours } from "../lib/overtime";
 import OrgBar from "./OrgBar";
 import PublishPanel from "./PublishPanel";
 import { fetchAll } from "../lib/fetchAll";
@@ -51,6 +53,24 @@ class ErrorBoundary extends React.Component {
 
 
 const MONTHLY_HOUR_CAP = 160; // hard ceiling on paid hours per person per month (part-time / Minijob)
+
+// "Soll = Vertrag" (feature soll_vertrag, like Planerio): the monthly goal is weekly hours ÷ 5 for every
+// Monday–Friday that is not a public holiday and not a leave day – so it changes with the month
+// (March 2026: 22 × 7:42 = 169:24, April 2026: 20 × 7:42 = 154:00) instead of a fixed 160.
+// Set by the planner component on every render (company feature + month on screen).
+const sollCtx = { contract: false, year: 0, monthIdx: 0 };
+function contractMonthTarget(s, total, leaveMap) {
+  const credit = leaveMap && leaveMap.__credit && leaveMap.__credit[s.id];
+  const hol = germanHolidays(sollCtx.year);
+  let n = 0;
+  for (let d = 1; d <= total; d++) {
+    const dt = new Date(sollCtx.year, sollCtx.monthIdx, d, 12), wd = dt.getDay();
+    const iso = `${sollCtx.year}-${String(sollCtx.monthIdx + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+    const leave = leaveMap && leaveMap[s.id] && leaveMap[s.id].has(d) && !(credit && credit.has(d)); // Fortbildung counts as work
+    if (wd >= 1 && wd <= 5 && !hol[iso] && !leave) n++;
+  }
+  return ((s.weeklyHours || 38.5) / 5) * n;
+}
 const FULLTIME_MONTHLY_CEILING = 190; // full-time: never planned above this
 // Cycled through for any shift column (built-in or custom) so everything gets a distinct,
 // readable color without needing per-key hardcoding.
@@ -544,6 +564,7 @@ function generateSchedule(staffList, year, monthIdx, holidaySet, shiftHours, shi
 // Monthly hour target: weekly hours spread over the OPEN weekdays, counted only for open days the
 // person is not on leave. With all 7 days open this is exactly the old formula.
 function monthTarget(s, total, leaveMap, closedSet, openCount, halfDays) {
+  if (sollCtx.contract) return contractMonthTarget(s, total, leaveMap);
   let n = 0;
   for (let d = 1; d <= total; d++) if (!closedSet.has(d) && !(leaveMap[s.id] && leaveMap[s.id].has(d))) n += halfDays && halfDays[d] ? 0.5 : 1; // half day = half
   // Full-time staff: the real monthly hours (a month with 22 workdays has ~169 h at 38.5 h/week) may
@@ -1363,6 +1384,7 @@ function LabShiftSchedulerInner() {
 
   const orgCtx = React.useContext(OrgContext);
   dbBalanceRef.current = !!orgCtx;
+  sollCtx.contract = !!(orgCtx && (orgCtx.features || []).includes("soll_vertrag")); sollCtx.year = year; sollCtx.monthIdx = monthIdx;
   // saldo of each person (by id) for the generator and the summary
   function carryMap() {
     const m = {};
@@ -1380,14 +1402,24 @@ function LabShiftSchedulerInner() {
       try { rows = await fetchAll(() => orgCtx.supabase.from("staff_month_balance").select("staff_id, year, month, contract_hours, planned_hours, sat_short, sun_short, night_short").eq("org_id", orgCtx.orgId)); }
       catch (_) { rows = []; } // script 12 not run yet: no saldo
       if (cancelled) return;
+      // Überstunden-Auszahlung (lib/overtime.js): paid hours are taken off the saldo, as in the Stundenzettel
+      let mode = "konto", payouts = [];
+      try {
+        const og = await orgCtx.supabase.from("organizations").select("overtime_settings").eq("id", orgCtx.orgId);
+        mode = overtimeMode(og.data && og.data[0] ? og.data[0].overtime_settings : null);
+        if (mode === "gemischt") payouts = await fetchAll(() => orgCtx.supabase.from("overtime_payouts").select("staff_id, year, month, hours, voided_at").eq("org_id", orgCtx.orgId));
+      } catch (_) { mode = "konto"; payouts = []; }
+      if (cancelled) return;
       const nowKey = year * 12 + monthIdx;
       const byId = {};
+      const rowsOf = {};
       rows.forEach((x) => {
         if (x.year * 12 + (x.month - 1) >= nowKey) return; // only earlier months
+        (rowsOf[x.staff_id] || (rowsOf[x.staff_id] = [])).push(x);
         const b = byId[x.staff_id] || (byId[x.staff_id] = { hours: 0, satDeficit: 0, sunDeficit: 0, nightDeficit: 0 });
-        b.hours += Number(x.contract_hours) - Number(x.planned_hours);
         b.satDeficit += Number(x.sat_short) || 0; b.sunDeficit += Number(x.sun_short) || 0; b.nightDeficit += Number(x.night_short) || 0;
       });
+      Object.keys(byId).forEach((id) => { byId[id].hours = planCarryHours(rowsOf[id], nowKey, mode, payoutMinutesByMonth(payouts, id)); });
       const byName = {};
       staffList.forEach((s) => { if (byId[s.id]) byName[s.name.trim()] = byId[s.id]; });
       setBalances(byName); setBalancesLoaded(true);

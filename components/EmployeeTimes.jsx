@@ -3,6 +3,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { ABSENCE, absenceMap } from "../lib/absence";
 import { sollOf } from "../lib/timesheet";
+import { overtimeMode, payoutMinutesByMonth, walkBalance } from "../lib/overtime";
 
 const INK = "#1B2433", PRIMARY = "#243B6B", MUTED = "#6B7588", LINE = "#D9DEE7", PAPER = "#E9EEF8";
 const WD_LONG = ["Sonntag", "Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag"];
@@ -45,6 +46,7 @@ export default function EmployeeTimes({ org }) {
   const [ttStart, setTtStart] = useState(null);
   const [absences, setAbsences] = useState([]);
   const [approved, setApproved] = useState([]); // approved Anträge (Urlaub / Fortbildung / Krank)
+  const [ot, setOt] = useState({ mode: "konto", stored: {} }); // Überstunden-Auszahlung (lib/overtime.js)
   const [weekly, setWeekly] = useState(0); // own weekly hours (only needed for "Soll = Vertrag")
   const sollMode = (org.features || []).includes("soll_vertrag") ? "vertrag" : "plan";
   const [cmsg, setCmsg] = useState({ text: "", bad: false });
@@ -62,6 +64,10 @@ export default function EmployeeTimes({ org }) {
     setAbsences(ab.error ? [] : ab.data || []);
     const ap = await sb.from("requests").select("type_key, date_from, date_to, status").eq("org_id", org.orgId).eq("staff_id", org.staffId).eq("status", "approved");
     setApproved(ap.error ? [] : ap.data || []);
+    const ogOt = await sb.from("organizations").select("overtime_settings").eq("id", org.orgId);
+    const otMode = overtimeMode(ogOt.data && ogOt.data[0] ? ogOt.data[0].overtime_settings : null);
+    const po = otMode === "gemischt" ? await sb.from("overtime_payouts").select("staff_id, year, month, hours, voided_at").eq("org_id", org.orgId).eq("staff_id", org.staffId) : { data: [] };
+    setOt({ mode: otMode, stored: payoutMinutesByMonth(po.data || [], org.staffId) });
     const me = await sb.from("staff").select("weekly_hours").eq("id", org.staffId);
     setWeekly(me.data && me.data[0] ? Number(me.data[0].weekly_hours) || 0 : 0);
     const tp = await sb.from("org_products").select("created_at").eq("org_id", org.orgId).eq("product", "time_tracking");
@@ -108,11 +114,14 @@ export default function EmployeeTimes({ org }) {
   const firstIso = ttStart || firstStampIso;
   const todayIso = isoOf(now);
   const balanceBefore = (iso) => {
-    // contract mode: the closed months (plan vs. contract) are already inside the day differences
-    let t = sollMode === "vertrag" ? 0 : closed.reduce((s, r) => s + (Number(r.planned_hours) - Number(r.contract_hours)) * 60, 0);
-    if (!firstIso) return t;
-    Object.values(days).forEach((d) => { if (d.iso >= firstIso && d.iso < iso && d.iso < todayIso) t += d.daily; });
-    return t;
+    // contract mode: the closed months (plan vs. contract) are already inside the day differences;
+    // plan mode: a closed month adds plan − contract at its end. Paid-out Überstunden are taken off at month end.
+    const closedMap = {};
+    if (sollMode !== "vertrag") closed.forEach((r) => { const k = r.year * 12 + r.month - 1; closedMap[k] = (closedMap[k] || 0) + (Number(r.planned_hours) - Number(r.contract_hours)) * 60; });
+    const ck = Object.keys(closedMap).map(Number).sort((a, b) => a - b);
+    const firstClosed = ck.length ? `${Math.floor(ck[0] / 12)}-${String((ck[0] % 12) + 1).padStart(2, "0")}-01` : null;
+    const from = [firstIso, firstClosed].filter(Boolean).sort()[0];
+    return walkBalance({ fromIso: from, untilIso: iso, dailyOf: (x) => (firstIso && x >= firstIso && x < todayIso && days[x] ? days[x].daily : 0), closedOf: (k) => closedMap[k] || 0, mode: ot.mode, stored: ot.stored }).balance;
   };
   // today counts only once it is done (stamped in and out) – a day that has not started yet is no minus
   const total = balanceBefore(todayIso) + (days[todayIso] && days[todayIso].sessions.length && !days[todayIso].open ? days[todayIso].daily : 0);

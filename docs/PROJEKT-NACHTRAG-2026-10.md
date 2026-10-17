@@ -104,6 +104,7 @@
 - **«📷 Stempeln» داخل اپ کارمند** (`components/ScanStamp.jsx`): دکمهٔ شناور، دوربین داخل خود اپ (BarcodeDetector یا کتابخانهٔ `jsqr` – وابستگی جدید در `package.json`)، کد ترمینال را می‌خواند و با ورود همان اپ ثبت می‌کند → دیگر رفتن به Safari و ورود دوباره لازم نیست. کد غیر ترمینال: پیام «kein Stempel-Code». تست: `scanstamp_test` (دوربین ساختگی).
 - **Urlaubsanspruch + کادرهای Urlaub/Krankheit مثل Planerio:** «Anwesenheit → Urlaubsanspruch eintragen» (سال، برای هر نفر «Tage im Jahr» و «Rest Vorjahr»؛ جدول `staff_vacation`، `docs/sql/25-urlaubsanspruch-schema.sql`، اجرا شد؛ RLS: Leitung می‌نویسد، شخص فقط خودش را می‌بیند). Stundenzettel: «Urlaub: Verfügbar Monatsanfang (Anspruch + Rest − Genommen از ۱ ژانویه) · Genommen −n · Verfügbar Monatsende» و «Krankheit: Stand Monatsanfang (از ۱ ژانویه) · Veränderung · Stand Monatsende» – فقط روزهای کاری. بدون Anspruch: «Urlaubsanspruch nicht eingetragen».
 - ⚠️ کاربر بستهٔ قبلی را مستقیم در **main** آپلود کرد (نه test) → برای همگام شدن: PR «base: test ← compare: main» و merge، بعد بستهٔ جدید در test.
+- **Ziel ماهانه در برنامه‌ریز با `soll_vertrag`:** ساعت هفتگی ÷ ۵ × روزهای کاری (دوشنبه–جمعه، بدون تعطیلات سراسری و مرخصی) به‌جای ۱۶۰ ثابت؛ هر دو برنامه‌ریز. تست `zielvertrag_test`.
 - ایده‌های باز: (Urlaub verfügbar)، کدهای Lohnart، خروجی DATEV. تست: `stundenzettel_test`.
 
 ## ۱۱.۰۰ اصلاحات مولد Labor بعد از تست بستهٔ ۱۶ (گزارش کاربر)
