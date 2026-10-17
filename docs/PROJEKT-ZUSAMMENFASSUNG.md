@@ -28,7 +28,7 @@
 
 ## ۳. آخرین بسته
 
-- **`Upload-KOMPLETT-26.zip`**: همهٔ کارهای زیر (شامل همین خلاصه در `docs/`). بسته‌های قدیمی‌تر بی‌اعتبارند.
+- **`Upload-KOMPLETT-27.zip`**: همهٔ کارهای زیر (شامل همین خلاصه در `docs/`). بسته‌های قدیمی‌تر بی‌اعتبارند.
 - بستهٔ ۲۳ امتحان و در main است. **بستهٔ ۲۶ (حق مرخصی + Ziel ماهانه + اضافه‌کاری نقدی) باید در test آپلود و امتحان شود.**
 
 ## ۴. مهاجرت‌های دیتابیس (`docs/sql/`) – همه روی Supabase واقعی اجرا شده‌اند
@@ -74,14 +74,14 @@
 - **غیبت‌ها:** Krank/Urlaub/Fortbildung/Sonstiges (بدون کسر)، Überstundenabbau/Unentschuldigt (با کسر). **بیماری هرگز از مرخصی کم نمی‌شود**؛ بیماری وسط مرخصی = Leitung «Krank» ثبت می‌کند و بر درخواست اولویت دارد (§۹ BUrlG).
 - Anträge و Zugänge در اپ.
 
-### Stundenzettel برای کارگزینی (مثل Planerio)
+### Stundenzettel برای کارگزینی
 - «Anwesenheit → Stundenzettel (für die Lohnabrechnung)»: ماه + «Alle» یا یک نفر → «Drucken / PDF»، هر نفر یک صفحهٔ A4 (`lib/timesheet.js`).
 - بالا سمت راست: **Netto / Soll / Zeitkonto**. کادرها: **Zeitkonto** (Stand Monatsanfang / Veränderung / Stand Monatsende)، **Urlaub** (Verfügbar Monatsanfang / Genommen / Verfügbar Monatsende)، **Krankheit** (از اول سال)، Zuschlagsstunden.
 - جدول روزانه: Datum، Wochentag، Beginn، Ende «(+1)»، Pause قانونی، Netto، Soll، Tag، Zeitkonto جاری، Zuschläge، Information. ردیف جمع در پایان.
 - Urlaub/Krank/Fortbildung در روز کاری: Netto = Soll. شمار مرخصی/بیماری فقط روزهای کاری.
 - ساعت شب فقط اگر بیش از ۲ ساعت بین ۲۲ تا ۶ باشد، منهای پاوز (۲۲:۰۰–۰۶:۰۰ − ۰۰:۳۰ = ۰۷:۳۰).
 - تعطیلات: سراسری آلمان + یکشنبهٔ عید پاک و پنطیکاست.
-- **Soll = Vertrag** (کلید ویژگی `soll_vertrag`، در `/admin` برای هر شرکت روشن می‌شود): ساعت هفتگی ÷ ۵ در دوشنبه–جمعهٔ غیرتعطیل (مارس ۲۰۲۶ = ۱۶۹:۲۴، آوریل = ۱۵۴:۰۰، دقیقاً مثل Planerio). روز کاری آزاد = منفی («Zeitausgleich»)، کار آخر هفته = مثبت. پیش‌فرض خاموش (Soll = پلن منتشرشده). در اپ کارمند هم همین‌طور.
+- **Soll = Vertrag** (کلید ویژگی `soll_vertrag`، در `/admin` برای هر شرکت روشن می‌شود): ساعت هفتگی ÷ ۵ در دوشنبه–جمعهٔ غیرتعطیل (مارس ۲۰۲۶ = ۱۶۹:۲۴، آوریل = ۱۵۴:۰۰، دقیقاً مثل سیستم قبلی). روز کاری آزاد = منفی («Zeitausgleich»)، کار آخر هفته = مثبت. پیش‌فرض خاموش (Soll = پلن منتشرشده). در اپ کارمند هم همین‌طور.
 - **Zuschläge (اختیاری، خود Leitung):** «Zuschläge einstellen» برای Nacht / Samstag / Sonntag / Feiertag: «kein Zuschlag» / «Prozent» / «Betrag pro Tag (€)» + Lohnart-Code → جدول «Zuschläge | Code | Gesamt».
 - **Urlaubsanspruch:** «Urlaubsanspruch eintragen»: سال، «Tage im Jahr» و «Rest Vorjahr» برای هر نفر.
 
@@ -90,7 +90,7 @@
 - فقط ساعت مثبت پرداخت می‌شود؛ منفی در حساب می‌ماند. هشدار سقف مینی‌جاب در متن راهنما.
 - اثر یکسان در: Saldo Vormonat هر دو برنامه‌ریز (`planCarryHours`)، Stundenzettel (کادر Zeitkonto: «Ausgezahlt −X» + جدول «Überstunden ausgezahlt | Code | X Std.»)، Zeitkonto اپ کارمند (`walkBalance`).
 - Stundenzettel در حالت پلن «Monatsabschluss (Plan/Vertrag)» را آخر ماه نشان می‌دهد تا پایان ماه = شروع ماه بعد. تست: `ueberstunden_test`.
-- **Ziel در برنامه‌ریز عمومی بدون Soll=Vertrag:** ساعت هفتگی × روزهای باز ماه ÷ روزهای باز هفته (مثلاً چهارشنبه بسته در مارس ۲۰۲۶ → ۱۷۳٫۳). با کلید `soll_vertrag` همیشه دوشنبه–جمعه (۱۶۹٫۴) مثل Planerio. به کاربر توضیح داده شد.
+- **Ziel در برنامه‌ریز عمومی بدون Soll=Vertrag:** ساعت هفتگی × روزهای باز ماه ÷ روزهای باز هفته (مثلاً چهارشنبه بسته در مارس ۲۰۲۶ → ۱۷۳٫۳). با کلید `soll_vertrag` همیشه دوشنبه–جمعه (۱۶۹٫۴) مثل سیستم قبلی. به کاربر توضیح داده شد.
 
 ### کلیدهای ویژگی هر شرکت
 `lib/features.js` + جدول `org_features` + بخش «Funktionen nur für diese Firma» در `/admin`. کلیدها: `terminal_pin_only`، `soll_vertrag`.
@@ -99,6 +99,8 @@
 هدرهای امنیتی، `/impressum`، `/datenschutz`، فوتر، robots/sitemap؛ RLS روی همهٔ جدول‌ها.
 
 ## ۶. تصمیم‌های کاربر
+
+- **نام هیچ برنامهٔ رقیب (از جمله سیستمی که شرکت قبلاً داشت) هرگز در برنامه، راهنماها، کد یا متن‌های مشتری نیاید.**
 
 - «Inhaber» می‌ماند (نه «Hauptkonto»). صفحهٔ `/admin` مثل قبل برای ادمین.
 - **نه:** «Rolle ändern»، «Stellvertretende Leitung»، تغییر ایمیل توسط کارمند.
@@ -122,6 +124,6 @@
 
 ## ۹. کار بعدی
 
-1. آپلود `Upload-KOMPLETT-26.zip` در **test** و امتحان: «Urlaubsanspruch eintragen» و کادرهای Urlaub/Krankheit در Stundenzettel؛ «📷 Stempeln» روی آیفون واقعی.
+1. آپلود `Upload-KOMPLETT-27.zip` در **test** و امتحان: «Urlaubsanspruch eintragen» و کادرهای Urlaub/Krankheit در Stundenzettel؛ «📷 Stempeln» روی آیفون واقعی.
 2. بعد PR از test به main.
 3. برای شرکت واقعی آزمایشگاه در `/admin` کلید «Zeitkonto: Soll = Vertrag» را روشن کنید و Zuschläge (مثلاً Nacht ۲۰٪ کد 8027، Sonntag/Feiertag ۱۰۲٫۲۶ € در روز کد 1070/8002) و حق مرخصی را وارد کنید.

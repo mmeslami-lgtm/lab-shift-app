@@ -55,7 +55,7 @@ class ErrorBoundary extends React.Component {
 
 const MONTHLY_HOUR_CAP = 160; // hard ceiling on paid hours per person per month
 
-// "Soll = Vertrag" (feature soll_vertrag, like Planerio): the monthly goal is weekly hours ÷ 5 for every
+// "Soll = Vertrag" (feature soll_vertrag): the monthly goal is weekly hours ÷ 5 for every
 // Monday–Friday that is not a public holiday and not a leave day – so it changes with the month
 // (March 2026: 22 × 7:42 = 169:24, April 2026: 20 × 7:42 = 154:00) instead of a fixed 160.
 // Set by the planner component on every render (company feature + month on screen).
