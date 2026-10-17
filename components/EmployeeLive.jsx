@@ -7,6 +7,7 @@ import EmployeeWishes from "./EmployeeWishes";
 import EmployeeTimes from "./EmployeeTimes";
 import EmployeeRequests from "./EmployeeRequests";
 import StampReminder from "./StampReminder";
+import ScanStamp from "./ScanStamp";
 
 // ---------------------------------------------------------------------------------------------
 // Employee app on REAL data. Reads only what the database rules allow for this login:
@@ -75,6 +76,7 @@ export default function EmployeeLive() {
   const now = useMemo(() => new Date(), []);
   const todayIso = isoOf(now.getFullYear(), now.getMonth(), now.getDate());
   const [tab, setTab] = useState("plan");
+  const [scanOpen, setScanOpen] = useState(false); // "📷 Stempeln": camera inside the app
   const [view, setView] = useState({ y: now.getFullYear(), m: now.getMonth() });
   const [selIso, setSelIso] = useState(todayIso);
   const [teamMode, setTeamMode] = useState("people");
@@ -375,6 +377,13 @@ export default function EmployeeLive() {
         {tab === "wishes" && <EmployeeWishes org={org} defs={defs} />}
 
         <StampReminder org={org} onOpenTimes={() => setTab("time")} />
+        {(org.products || []).includes("time_tracking") && org.staffId && (
+          <button onClick={() => setScanOpen(true)} aria-label="Stempeln: QR-Code am Terminal scannen"
+            style={{ position: "fixed", right: 16, bottom: "calc(84px + env(safe-area-inset-bottom))", zIndex: 40, border: 0, borderRadius: 999, background: "#243B6B", color: "#fff", fontSize: 16, fontWeight: 700, padding: "14px 18px", boxShadow: "0 6px 18px rgba(15,34,56,.35)", cursor: "pointer" }}>
+            📷 Stempeln
+          </button>
+        )}
+        {scanOpen && <ScanStamp org={org} onClose={() => setScanOpen(false)} onOpenTimes={() => setTab("time")} />}
         {tab === "time" && <EmployeeTimes org={org} />}
 
         {tab === "requests" && <EmployeeRequests org={org} />}

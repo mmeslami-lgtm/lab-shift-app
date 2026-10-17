@@ -2,6 +2,9 @@
 
 import React, { useCallback, useContext, useEffect, useRef, useState } from "react";
 import { OrgContext } from "../lib/orgContext";
+import { ABSENCE, absenceMap } from "../lib/absence";
+import { fetchAll } from "../lib/fetchAll";
+import { computeDays, buildSheet, buildTimesheetHtml, openHtmlPrint, germanHolidays, isoOf, MONTHS, SURCHARGES } from "../lib/timesheet";
 
 const pad = (n) => String(n).padStart(2, "0");
 const clock = (ts) => { if (!ts) return "–"; const d = new Date(ts); return `${pad(d.getHours())}:${pad(d.getMinutes())}`; };
@@ -21,11 +24,17 @@ export default function AttendanceDialog({ onClose }) {
   const [newCard, setNewCard] = useState(null); // { staffId, code }
   const [needPin, setNeedPin] = useState(false);
   const [reqs, setReqs] = useState([]);       // open correction requests
-  const [missing, setMissing] = useState([]); // planned, shift started > 2 h ago, nobody stamped
+  const [missing, setMissing] = useState([]); // planned, shift started > 3 h ago, nobody stamped
+  const [absForm, setAbsForm] = useState(null); // { staffId, date, kind, note }
+  const [dayAbsence, setDayAbsence] = useState(null); // absence on the day open in "Zeiten bearbeiten"
   const [denyReq, setDenyReq] = useState(null); // { id, note }
   const [edit, setEdit] = useState({ staffId: "", date: "" }); // "Zeiten bearbeiten"
   const [daySessions, setDaySessions] = useState(null);
   const [fix, setFix] = useState(null);        // { sessionId|null, in, out, reason }
+  const [tsMonth, setTsMonth] = useState(() => { const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`; });
+  const [tsWho, setTsWho] = useState("all");
+  const [zus, setZus] = useState(null);      // saved surcharge settings (null = never set up)
+  const [zusForm, setZusForm] = useState(null);
   const [pairName, setPairName] = useState(null); // null = closed, string = form open
   const [pairCode, setPairCode] = useState(null); // { code, name, expiresAt }
   const closeRef = useRef(onClose); closeRef.current = onClose;
@@ -33,18 +42,23 @@ export default function AttendanceDialog({ onClose }) {
   const load = useCallback(async () => {
     const since = new Date(); since.setHours(0, 0, 0, 0); since.setTime(since.getTime() - 20 * 3600000); // includes night shifts from yesterday
     const s = await org.supabase.from("attendance_sessions").select("id, staff_id, check_in, check_out").eq("org_id", org.orgId).gte("check_in", since.toISOString()).order("check_in", { ascending: false });
-    const st = await org.supabase.from("staff").select("id, name").eq("org_id", org.orgId);
+    const st = await org.supabase.from("staff").select("id, name, personnel_no, weekly_hours").eq("org_id", org.orgId);
     const dv = await org.supabase.from("devices").select("id, serial, name, active, created_at").eq("org_id", org.orgId).order("created_at");
     const bg = await org.supabase.from("badges").select("id, staff_id, badge_code, revoked_at, issued_at").eq("org_id", org.orgId);
-    const og = await org.supabase.from("organizations").select("card_requires_pin").eq("id", org.orgId);
+    const og = await org.supabase.from("organizations").select("card_requires_pin, surcharge_settings").eq("id", org.orgId);
+    setZus(og.data && og.data[0] ? og.data[0].surcharge_settings || null : null);
     setBadges((bg.data || []).filter((b) => !b.revoked_at));
     setNeedPin(!!(og.data && og.data[0] && og.data[0].card_requires_pin));
     setStaffList((st.data || []).slice().sort((a, b) => String(a.name).localeCompare(String(b.name))));
     // "Noch nicht eingestempelt": published shifts that started 3 to 20 hours ago without any Kommen
     const now = Date.now();
-    const sh = await org.supabase.from("scheduled_shifts").select("staff_id, shift_label, shift_key, planned_start").eq("org_id", org.orgId).eq("status", "published").gte("planned_start", new Date(now - 20 * 3600000).toISOString()).lt("planned_start", new Date(now - 3 * 3600000).toISOString());
+    const sh = await org.supabase.from("scheduled_shifts").select("staff_id, shift_label, shift_key, planned_start, shift_date").eq("org_id", org.orgId).eq("status", "published").gte("planned_start", new Date(now - 20 * 3600000).toISOString()).lt("planned_start", new Date(now - 3 * 3600000).toISOString());
     const recent = (s.data || []);
-    setMissing(sh.error ? [] : (sh.data || []).filter((x) => !recent.some((r) => r.staff_id === x.staff_id && r.check_in && new Date(r.check_in).getTime() >= new Date(x.planned_start).getTime() - 3 * 3600000)));
+    // absences (Leitung) and approved Anträge: no warning for those people/days
+    const ab = await org.supabase.from("attendance_absences").select("staff_id, work_date, kind, voided_at").eq("org_id", org.orgId).gte("work_date", new Date(now - 2 * 86400000).toISOString().slice(0, 10));
+    const ap = await org.supabase.from("requests").select("staff_id, type_key, date_from, date_to, status").eq("org_id", org.orgId).eq("status", "approved");
+    const absent = (staffId, day) => !!absenceMap((ab.data || []).filter((a) => a.staff_id === staffId), (ap.data || []).filter((a) => a.staff_id === staffId))[day];
+    setMissing(sh.error ? [] : (sh.data || []).filter((x) => !absent(x.staff_id, String(x.shift_date).slice(0, 10)) && !recent.some((r) => r.staff_id === x.staff_id && r.check_in && new Date(r.check_in).getTime() >= new Date(x.planned_start).getTime() - 3 * 3600000)));
     const rq = await org.supabase.from("attendance_correction_requests").select("id, staff_id, session_id, work_date, check_in, check_out, reason, status, created_at").eq("org_id", org.orgId).eq("status", "open").order("created_at");
     setReqs(rq.error ? [] : rq.data || []);
     const n = {}; (st.data || []).forEach((x) => { n[x.id] = x.name; });
@@ -97,9 +111,25 @@ export default function AttendanceDialog({ onClose }) {
     setBusy(""); setDenyReq(null);
     setMsg(error ? error.message : approve ? `Korrektur für ${names[q.staff_id]} übernommen ✓` : "Antrag abgelehnt ✓"); load();
   }
+  async function saveAbsence() {
+    setBusy("abs");
+    const { error } = await org.supabase.rpc("set_absence", { p_org: org.orgId, p_staff: absForm.staffId, p_date: absForm.date, p_kind: absForm.kind, p_note: absForm.note || null });
+    setBusy(""); if (error) { setMsg(error.message); return; }
+    setMsg(`${names[absForm.staffId]}: ${ABSENCE[absForm.kind].label} eingetragen ✓${absForm.kind === "krank" ? " – Ersatz finden: im Dienstplan „Krankmeldung / Ausfall“." : ""}`);
+    const same = edit.staffId === absForm.staffId && edit.date === absForm.date;
+    setAbsForm(null); load(); if (same) loadDay(edit.staffId, edit.date);
+  }
+  async function voidAbsence(a) {
+    const reason = window.prompt("Abwesenheit aufheben – Grund:", "falsch eingetragen");
+    if (reason === null) return;
+    const { error } = await org.supabase.rpc("void_absence", { p_id: a.id, p_reason: reason });
+    setMsg(error ? error.message : "Abwesenheit aufgehoben ✓"); load(); loadDay(edit.staffId, edit.date);
+  }
   async function loadDay(staffId, date) {
-    setEdit({ staffId, date }); setFix(null);
+    setEdit({ staffId, date }); setFix(null); setDayAbsence(null);
     if (!staffId || !date) { setDaySessions(null); return; }
+    const ab = await org.supabase.from("attendance_absences").select("id, kind, note, voided_at").eq("org_id", org.orgId).eq("staff_id", staffId).eq("work_date", date);
+    setDayAbsence(((ab.data || []).filter((a) => !a.voided_at))[0] || null);
     const from = new Date(`${date}T00:00:00`), to = new Date(from.getTime() + 86400000);
     const r = await org.supabase.from("attendance_sessions").select("id, check_in, check_out").eq("org_id", org.orgId).eq("staff_id", staffId).gte("check_in", from.toISOString()).lt("check_in", to.toISOString()).order("check_in");
     setDaySessions(r.error ? [] : r.data || []);
@@ -126,6 +156,49 @@ export default function AttendanceDialog({ onClose }) {
     setBusy("");
     if (error) { setMsg(error.message); return; }
     setMsg(`Gespeichert ✓ (mit Grund protokolliert)`); setFix(null); loadDay(staffId, date); load();
+  }
+
+  // ---- Stundenzettel (monthly time sheet for the payroll office) ----
+  const sollMode = (org.features || []).includes("soll_vertrag") ? "vertrag" : "plan";
+  async function printTimesheets() {
+    const [y, m] = tsMonth.split("-").map(Number); const month = m - 1;
+    setBusy("ts"); setMsg("");
+    try {
+      const sb = org.supabase;
+      const tp = await sb.from("org_products").select("created_at").eq("org_id", org.orgId).eq("product", "time_tracking");
+      const startIso = tp.data && tp.data[0] && tp.data[0].created_at ? isoOf(new Date(tp.data[0].created_at)) : null;
+      const fromIso = startIso && startIso < `${y}-${String(m).padStart(2, "0")}-01` ? startIso : `${y}-${String(m).padStart(2, "0")}-01`;
+      const from = new Date(`${fromIso}T00:00:00`), to = new Date(y, month + 1, 1);
+      const people = staffList.filter((x) => tsWho === "all" || x.id === tsWho);
+      const [ses, sh, ab, ap, cl, co] = await Promise.all([
+        fetchAll(() => sb.from("attendance_sessions").select("id, staff_id, check_in, check_out").eq("org_id", org.orgId).gte("check_in", from.toISOString()).lt("check_in", to.toISOString())),
+        fetchAll(() => sb.from("scheduled_shifts").select("staff_id, shift_date, shift_key, shift_label, planned_start, planned_end").eq("org_id", org.orgId).eq("status", "published").gte("shift_date", fromIso).lt("shift_date", `${to.getFullYear()}-${String(to.getMonth() + 1).padStart(2, "0")}-01`)),
+        fetchAll(() => sb.from("attendance_absences").select("staff_id, work_date, kind, note, voided_at").eq("org_id", org.orgId)),
+        fetchAll(() => sb.from("requests").select("staff_id, type_key, date_from, date_to, status").eq("org_id", org.orgId).eq("status", "approved")),
+        fetchAll(() => sb.from("staff_month_balance").select("staff_id, year, month, contract_hours, planned_hours").eq("org_id", org.orgId)),
+        fetchAll(() => sb.from("attendance_corrections").select("session_id").eq("org_id", org.orgId)),
+      ]);
+      const corrected = new Set((co || []).map((x) => x.session_id));
+      const hol = {}; const holidaysOf = (yy) => hol[yy] || (hol[yy] = germanHolidays(yy));
+      const sheets = people.map((p) => {
+        const days = computeDays({ sessions: (ses || []).filter((x) => x.staff_id === p.id), shifts: (sh || []).filter((x) => x.staff_id === p.id), absences: (ab || []).filter((x) => x.staff_id === p.id), approved: (ap || []).filter((x) => x.staff_id === p.id), holidaysOf });
+        const closedBefore = (cl || []).filter((r) => r.staff_id === p.id && r.year * 12 + r.month - 1 < y * 12 + month).reduce((t, r) => t + (Number(r.planned_hours) - Number(r.contract_hours)) * 60, 0);
+        return buildSheet({ name: p.personnel_no ? `${p.name} (${p.personnel_no})` : p.name, year: y, month, days, startIso, closedBefore, corrected, mode: sollMode, weeklyHours: p.weekly_hours });
+      });
+      if (!sheets.length) { setMsg("Keine Personen gefunden."); setBusy(""); return; }
+      const ok = openHtmlPrint(buildTimesheetHtml(sheets, { orgName: org.orgName, year: y, month, mode: sollMode, surcharges: zus }));
+      setMsg(ok ? `${sheets.length} Stundenzettel für ${MONTHS[month]} ${y} – im Druckfenster „Als PDF speichern“ wählen, um sie per E-Mail an die Personalabteilung zu schicken.` : "Der Browser hat das neue Fenster blockiert.");
+    } catch (e) { setMsg("Stundenzettel: " + (e.message || e)); }
+    setBusy("");
+  }
+
+  async function saveZus() {
+    setBusy("zus");
+    const clean = {};
+    SURCHARGES.forEach((z) => { const c = zusForm[z.key] || {}; clean[z.key] = { mode: c.mode || "off", value: c.mode === "off" ? null : Math.max(0, Number(String(c.value || "0").replace(",", ".")) || 0), code: String(c.code || "").slice(0, 20) }; });
+    const { error } = await org.supabase.rpc("set_surcharge_settings", { p_org: org.orgId, p_settings: clean });
+    setBusy(""); if (error) { setMsg(error.message); return; }
+    setZus(clean); setZusForm(null); setMsg("Zuschläge gespeichert ✓");
   }
 
   async function createPairCode() {
@@ -185,9 +258,26 @@ export default function AttendanceDialog({ onClose }) {
             {missing.length > 0 && (
               <>
                 <h3 className="mt-4 text-xs font-semibold uppercase tracking-wide text-amber-800">Noch nicht eingestempelt ({missing.length})</h3>
-                <div className="mt-1 flex flex-wrap gap-2">{missing.map((x, i) => <span key={i} className="rounded-lg border border-amber-300 bg-amber-50 px-2.5 py-1.5 text-amber-900">● {names[x.staff_id] || "?"} <span className="text-amber-700">{x.shift_label || x.shift_key} seit {clock(x.planned_start)}</span></span>)}</div>
-                <div className="mt-1 text-[11px] text-slate-500">Schicht hat vor mehr als 3 Stunden begonnen, aber kein Kommen. Vergessen? Dann unten unter „Zeiten bearbeiten“ nachtragen.</div>
+                <div className="mt-1 flex flex-wrap gap-2">{missing.map((x, i) => (
+                  <span key={i} className="inline-flex items-center gap-2 rounded-lg border border-amber-300 bg-amber-50 px-2.5 py-1.5 text-amber-900">● {names[x.staff_id] || "?"} <span className="text-amber-700">{x.shift_label || x.shift_key} seit {clock(x.planned_start)}</span>
+                    <button onClick={() => setAbsForm({ staffId: x.staff_id, date: String(x.shift_date).slice(0, 10), kind: "krank", note: "" })} className="rounded-md border border-amber-400 bg-white px-2 py-0.5 text-xs text-amber-900 hover:bg-amber-100">Abwesend …</button>
+                  </span>
+                ))}</div>
+                <div className="mt-1 text-[11px] text-slate-500">Schicht hat vor mehr als 3 Stunden begonnen, aber kein Kommen. Nicht gekommen? → „Abwesend …“. Gestempelt vergessen? → unten „Zeiten bearbeiten“.</div>
               </>
+            )}
+            {absForm && (
+              <div className="mt-2 flex flex-wrap items-end gap-2 rounded-lg border border-slate-200 bg-slate-50 p-2.5">
+                <div className="w-full text-xs font-semibold text-slate-700">{names[absForm.staffId]} · {absForm.date.split("-").reverse().join(".")}</div>
+                <label className="text-xs text-slate-600">Grund
+                  <select value={absForm.kind} onChange={(e) => setAbsForm({ ...absForm, kind: e.target.value })} className="mt-1 block rounded-md border border-slate-300 px-2 py-1.5 text-sm">
+                    {Object.keys(ABSENCE).map((k) => <option key={k} value={k}>{ABSENCE[k].label}{ABSENCE[k].credit ? "" : " (Stunden fehlen)"}</option>)}
+                  </select>
+                </label>
+                <label className="text-xs text-slate-600">Notiz (optional)<input value={absForm.note} maxLength={500} onChange={(e) => setAbsForm({ ...absForm, note: e.target.value })} className="mt-1 block w-52 rounded-md border border-slate-300 px-2 py-1.5 text-sm" /></label>
+                <button onClick={saveAbsence} disabled={busy === "abs"} className="rounded-md bg-teal-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-teal-700 active:translate-y-px">{busy === "abs" ? "Moment …" : "Eintragen"}</button>
+                <button onClick={() => setAbsForm(null)} className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-600">Abbrechen</button>
+              </div>
             )}
             <h3 className="mt-4 text-xs font-semibold uppercase tracking-wide text-slate-500">Jetzt da ({present.length})</h3>
             {present.length === 0 ? <div className="mt-1 text-xs text-slate-500">Im Moment ist niemand eingestempelt.</div> : (
@@ -211,6 +301,40 @@ export default function AttendanceDialog({ onClose }) {
                 </tbody>
               </table>
             </div>
+            <h3 className="mt-4 text-xs font-semibold uppercase tracking-wide text-slate-500">Stundenzettel (für die Lohnabrechnung)</h3>
+            <div className="mt-1 flex flex-wrap items-end gap-2">
+              <label className="text-xs text-slate-600">Monat<input type="month" value={tsMonth} onChange={(e) => setTsMonth(e.target.value)} className="mt-1 block rounded-md border border-slate-300 px-2 py-1.5 text-sm" /></label>
+              <label className="text-xs text-slate-600">Für
+                <select value={tsWho} onChange={(e) => setTsWho(e.target.value)} className="mt-1 block rounded-md border border-slate-300 px-2 py-1.5 text-sm">
+                  <option value="all">Alle ({staffList.length})</option>
+                  {staffList.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
+                </select>
+              </label>
+              <button onClick={printTimesheets} disabled={busy === "ts"} className="rounded-md bg-teal-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-teal-700 active:translate-y-px">{busy === "ts" ? "Moment …" : "Drucken / PDF"}</button>
+            </div>
+            <div className="mt-1 text-[11px] text-slate-500">Eine Seite pro Person: Beginn, Ende, Pause, Netto, Soll, Zeitkonto, Nacht-/Sonntags-/Feiertagsstunden, Urlaub, Krank.</div>
+            {zusForm ? (
+              <div className="mt-2 rounded-lg border border-slate-200 bg-slate-50 p-2.5">
+                <div className="text-xs font-semibold text-slate-700">Zuschläge (freiwillig – nur was Ihre Firma zahlt)</div>
+                {SURCHARGES.map((z) => { const c = zusForm[z.key] || { mode: "off" }; const set = (patch) => setZusForm({ ...zusForm, [z.key]: { ...c, ...patch } }); return (
+                  <div key={z.key} className="mt-1.5 flex flex-wrap items-end gap-2">
+                    <span className="w-44 text-xs text-slate-700">{z.label}</span>
+                    <select value={c.mode || "off"} onChange={(e) => set({ mode: e.target.value })} className="rounded-md border border-slate-300 px-2 py-1 text-sm" aria-label={`${z.label} Art`}>
+                      <option value="off">kein Zuschlag</option><option value="percent">Prozent (Stunden)</option><option value="perDay">Betrag pro Tag (€)</option>
+                    </select>
+                    {c.mode && c.mode !== "off" && <input value={c.value == null ? "" : c.value} onChange={(e) => set({ value: e.target.value })} placeholder={c.mode === "perDay" ? "z. B. 102,26" : "z. B. 20"} className="w-24 rounded-md border border-slate-300 px-2 py-1 text-sm" aria-label={`${z.label} Wert`} />}
+                    {c.mode && c.mode !== "off" && <input value={c.code || ""} onChange={(e) => set({ code: e.target.value })} placeholder="Lohnart-Code" className="w-28 rounded-md border border-slate-300 px-2 py-1 text-sm" aria-label={`${z.label} Code`} />}
+                  </div>
+                ); })}
+                <div className="mt-2 flex gap-2">
+                  <button onClick={saveZus} disabled={busy === "zus"} className="rounded-md bg-teal-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-teal-700 active:translate-y-px">{busy === "zus" ? "Moment …" : "Speichern"}</button>
+                  <button onClick={() => setZusForm(null)} className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-600">Abbrechen</button>
+                </div>
+              </div>
+            ) : (
+              <button onClick={() => setZusForm(zus || {})} className="mt-1.5 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs text-slate-700 hover:bg-slate-50 active:translate-y-px">Zuschläge einstellen{zus ? ` (${SURCHARGES.filter((z) => zus[z.key] && zus[z.key].mode !== "off").length} aktiv)` : " (optional)"}</button>
+            )}
+
             <h3 className="mt-4 text-xs font-semibold uppercase tracking-wide text-slate-500">Zeiten bearbeiten (auch frühere Tage)</h3>
             <div className="mt-1 flex flex-wrap items-end gap-2">
               <select value={edit.staffId} onChange={(e) => loadDay(e.target.value, edit.date)} className="rounded-md border border-slate-300 px-2 py-1.5 text-sm" aria-label="Person">
@@ -221,6 +345,12 @@ export default function AttendanceDialog({ onClose }) {
             </div>
             {daySessions && (
               <div className="mt-2 rounded-lg bg-slate-50 p-2.5">
+                {dayAbsence ? (
+                  <div className="mb-1 flex items-center justify-between gap-2 text-sm"><span>Abwesenheit: <b>{ABSENCE[dayAbsence.kind].label}</b>{dayAbsence.note ? ` · ${dayAbsence.note}` : ""}</span>
+                    <span className="whitespace-nowrap"><button onClick={() => setAbsForm({ staffId: edit.staffId, date: edit.date, kind: dayAbsence.kind, note: dayAbsence.note || "" })} className="mr-1 rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs text-slate-700">Ändern</button><button onClick={() => voidAbsence(dayAbsence)} className="rounded-md border border-rose-200 bg-white px-2.5 py-1 text-xs text-rose-700">Aufheben</button></span></div>
+                ) : (
+                  <button onClick={() => setAbsForm({ staffId: edit.staffId, date: edit.date, kind: "krank", note: "" })} className="mb-1 rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs text-slate-700 hover:bg-slate-50">Abwesenheit eintragen …</button>
+                )}
                 {daySessions.length === 0 && <div className="text-xs text-slate-500">An diesem Tag gibt es keine Stempelung.</div>}
                 {daySessions.map((x) => (
                   <div key={x.id} className="flex items-center justify-between gap-2 py-1 text-sm">

@@ -7,6 +7,7 @@ import PublishPanel from "./PublishPanel";
 import { fetchAll } from "../lib/fetchAll";
 import { computeChanges } from "../lib/planDiff";
 import { openPrintView } from "../lib/printPlan";
+import { scorePlan, VARIANTS } from "../lib/planScore";
 import { Calendar, Users, AlertTriangle, RefreshCw, Plus, Trash2, Copy, Check, ClipboardList, Info, Printer } from "lucide-react";
 import { genericStorage as storage } from "../lib/storage";
 
@@ -942,6 +943,7 @@ function buildScheduleXlsx(input) {
       if (reduced && (input.skipKeys.has(col.key) || col.slotIndex >= 1)) xlsxSet(ws1, r, 3 + i, "–", sSkip); // weekends/holidays: 1 person per shift
       else if (id) xlsxSet(ws1, r, 3 + i, input.nameOf[id] || "", shiftCell(s));
       else if (input.quotaKeys && input.quotaKeys.has(col.key)) xlsxSet(ws1, r, 3 + i, "–", sSkip); // monthly-quota shift: most days are simply not needed
+      else if (input.wanted && col.slotIndex >= (input.wanted[col.key] || 1)) xlsxSet(ws1, r, 3 + i, "–", sSkip); // extra place beyond the wanted number
       else xlsxSet(ws1, r, 3 + i, "unbesetzt", sOpen);
     });
     xlsxSet(ws1, r, nCols, (input.absentByDay[d.day] || []).join(", "), sAbsent);
@@ -1624,12 +1626,12 @@ function LabShiftSchedulerInner() {
   const loadStaffFromDb = (rows) => {
     setStaffList(rows.map((r) => ({
       id: r.id, name: r.name, weeklyHours: Number(r.weekly_hours) || 38.5, employmentType: r.employment_type || "full",
-      nightExempt: !!r.night_exempt, weekendExempt: !!r.weekend_exempt, isTeamLead: !!r.is_team_lead, email: r.email || "",
+      nightExempt: !!r.night_exempt, weekendExempt: !!r.weekend_exempt, isTeamLead: !!r.is_team_lead, email: r.email || "", personnelNo: r.personnel_no || "",
     })));
     setLeaveEntries([]); setSickEntries([]); setWishEntries([]); setSchedule(null); setEditMode(false);
   };
   const staffToDb = (s) => ({
-    email: s.email ? String(s.email).trim() : null, weekly_hours: Number(s.weeklyHours) || 0, employment_type: s.employmentType || "full",
+    email: s.email ? String(s.email).trim() : null, personnel_no: s.personnelNo && String(s.personnelNo).trim() ? String(s.personnelNo).trim() : null, weekly_hours: Number(s.weeklyHours) || 0, employment_type: s.employmentType || "full",
     night_exempt: !!s.nightExempt, weekend_exempt: !!s.weekendExempt, is_team_lead: !!s.isTeamLead,
   });
   // after saving, local ids ("s3") are replaced by the database ids everywhere they are used
@@ -1667,7 +1669,7 @@ function LabShiftSchedulerInner() {
     }
     const people = staffRows.map((r) => ({
       id: r.id, name: r.name, weeklyHours: Number(r.weekly_hours) || 38.5, employmentType: r.employment_type || "full",
-      nightExempt: !!r.night_exempt, weekendExempt: !!r.weekend_exempt, isTeamLead: !!r.is_team_lead, email: r.email || "",
+      nightExempt: !!r.night_exempt, weekendExempt: !!r.weekend_exempt, isTeamLead: !!r.is_team_lead, email: r.email || "", personnelNo: r.personnel_no || "",
     }));
     setStaffList(people);
     setLeaveEntries([]); setSickEntries([]); setWishEntries([]); setFreiWishByStaff({});
@@ -1879,12 +1881,19 @@ function LabShiftSchedulerInner() {
         if (e.shiftType === "Frei") return; // handled above via leaveMap, not a real shift wish
         parseDayList(e.days, totalDays).forEach((d) => wishes.push({ staffId: e.staffId, day: d, shiftType: e.shiftType }));
       });
-      const result = generateSchedule(staffList, year, monthIdx, holidaySet, shiftHours, shiftLabels, dayShiftDefs, perShiftCount, leaveMap, carryOver, wishes, closedSet, openCount, useLate, { days: halfMap, parts: shiftParts });
+      // "Beste von N Varianten" (lib/planScore.js): same rules for every variant, the best one is shown
+      let result = null, stats = null, bestScore = Infinity;
+      for (let v = 0; v < VARIANTS; v++) {
+        const r = generateSchedule(staffList, year, monthIdx, holidaySet, shiftHours, shiftLabels, dayShiftDefs, perShiftCount, leaveMap, carryOver, wishes, closedSet, openCount, useLate, { days: halfMap, parts: shiftParts });
+        const st = computeStatsAndWarnings(r.days, staffList, leaveMap, shiftHours, dayOrderedKeys, restRequiringKeys, shiftLabels, closedSet, openCount, carryMap(), halfMap);
+        const sc = scorePlan({ days: r.days, hours: st.hours, targetOf: st.targetOf, warnings: [...r.warnings, ...st.warnings], notes: r.notes }, staffList, restRequiringKeys);
+        if (sc < bestScore) { bestScore = sc; result = r; stats = st; }
+      }
+
       // Recompute + validate from the final `days` (same pass used after manual edits) so any
       // rule the generator couldn't fully guarantee up front (e.g. a rare consecutive-workday
       // overrun caused by an already-fixed night block) still surfaces as a warning immediately.
-      const stats = computeStatsAndWarnings(result.days, staffList, leaveMap, shiftHours, dayOrderedKeys, restRequiringKeys, shiftLabels, closedSet, openCount, carryMap(), halfMap);
-      // how much differs from the plan that was on the screen before (so the button visibly does something)
+            // how much differs from the plan that was on the screen before (so the button visibly does something)
       let changed = 0;
       if (schedule && schedule.days) {
         result.days.forEach((nd, i) => {
@@ -1892,7 +1901,7 @@ function LabShiftSchedulerInner() {
           Object.keys(nd.shifts).forEach((k) => { (nd.shifts[k] || []).forEach((id) => { if (!(od.shifts[k] || []).includes(id)) changed++; }); });
         });
       }
-      setGenInfo({ at: new Date(), changed, first: !schedule });
+      setGenInfo({ at: new Date(), changed, first: !schedule, variants: VARIANTS });
       setEditMode(false);
       setSchedule({
         days: result.days,
@@ -2045,6 +2054,7 @@ function LabShiftSchedulerInner() {
       shifts,
       skipKeys: dailyDayShiftKeys,
       quotaKeys: new Set(dayShiftDefs.filter((d) => d.frequency === "quota").map((d) => d.key)),
+      wanted: perShiftCount, // places per shift that are wanted; more people (filled up) is extra, not "unbesetzt"
       matrix: staffDayMatrix,
       nameOf: staffMap,
       absentByDay,
@@ -2401,6 +2411,13 @@ function LabShiftSchedulerInner() {
                     placeholder="name@firma.de"
                     className="border border-slate-300 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
                   />
+                  <input
+                    value={s.personnelNo || ""}
+                    onChange={(e) => updateStaffField(s.id, "personnelNo", e.target.value.slice(0, 30))}
+                    placeholder="Personal-Nr."
+                    aria-label={`Personalnummer ${s.name}`}
+                    className="w-28 border border-slate-300 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
+                  />
                   <div className="flex items-center gap-1">
                     <input
                       type="number"
@@ -2457,6 +2474,18 @@ function LabShiftSchedulerInner() {
             </div>
             <button onClick={addStaff} className="mt-2 inline-flex items-center gap-1 text-sm text-teal-700 hover:text-teal-800 font-medium">
               <Plus size={15} /> Mitarbeiter hinzufügen
+            </button>
+            <button
+              onClick={() => setStaffList((prev) => {
+                // fill only the EMPTY ones: next free number after the highest one (start 1001); existing numbers stay
+                const nums = prev.map((x) => parseInt(String(x.personnelNo || "").replace(/\D/g, ""), 10)).filter((n) => !isNaN(n));
+                let next = Math.max(1000, ...nums) + 1;
+                return prev.map((x) => (String(x.personnelNo || "").trim() ? x : { ...x, personnelNo: String(next++) }));
+              })}
+              className="mt-2 ml-4 inline-flex items-center gap-1 text-sm text-slate-600 hover:text-slate-800"
+              title="Nur Personen ohne Personalnummer bekommen eine; vorhandene bleiben. Danach „Personen speichern“."
+            >
+              # Fehlende Personalnummern vergeben
             </button>
           </div>
 
@@ -2720,7 +2749,7 @@ function LabShiftSchedulerInner() {
             </button>
             {genInfo && !genBusy && (
               <span role="status" className="text-xs text-teal-800 bg-teal-50 border border-teal-200 rounded-lg px-2.5 py-1.5">
-                {genInfo.first ? "Plan erstellt" : "Neu erstellt"} um {String(genInfo.at.getHours()).padStart(2, "0")}:{String(genInfo.at.getMinutes()).padStart(2, "0")}:{String(genInfo.at.getSeconds()).padStart(2, "0")} Uhr
+                {genInfo.first ? "Plan erstellt" : "Neu erstellt"} um {String(genInfo.at.getHours()).padStart(2, "0")}:{String(genInfo.at.getMinutes()).padStart(2, "0")}:{String(genInfo.at.getSeconds()).padStart(2, "0")} Uhr{genInfo.variants ? ` · beste von ${genInfo.variants} Varianten` : ""}
                 {!genInfo.first && (genInfo.changed > 0 ? ` – ${genInfo.changed} Einträge anders als vorher` : " – gleiches Ergebnis (mit diesen Personen und Regeln gibt es keine andere Verteilung)")}
               </span>
             )}
@@ -2814,10 +2843,6 @@ function LabShiftSchedulerInner() {
                     {archiveState === "saved" ? <Check size={14} /> : <ClipboardList size={14} />}
                     {archiveState === "saving" ? "Wird gespeichert..." : archiveState === "saved" ? "Gespeichert & Saldo übertragen" : archiveState === "error" ? "Fehler, bitte erneut versuchen" : "Monat abschließen & archivieren"}
                   </button>
-                  <button onClick={copyAsText} className="inline-flex items-center gap-1.5 text-xs text-slate-600 hover:text-teal-700 border border-slate-200 rounded-lg px-2.5 py-1.5 hover:bg-slate-50">
-                    {copyState === "done" ? <Check size={14} /> : <Copy size={14} />}
-                    {copyState === "done" ? "Kopiert" : "Als Text kopieren (für Excel)"}
-                  </button>
                   <button onClick={downloadExcel} title="Schön formatierte Excel-Datei mit Plan, Mitarbeiter-Übersicht und Zusammenfassung" className="inline-flex items-center gap-1.5 text-xs text-emerald-800 hover:text-emerald-900 border border-emerald-200 bg-emerald-50 rounded-lg px-2.5 py-1.5 hover:bg-emerald-100">
                     {excelState === "done" ? <Check size={14} /> : <Copy size={14} />}
                     {excelState === "done" ? "Excel-Datei erstellt" : excelState === "error" ? "Excel-Export fehlgeschlagen" : "Als Excel herunterladen (.xlsx)"}
@@ -2833,15 +2858,6 @@ function LabShiftSchedulerInner() {
                     Alle Änderungen verwerfen
                   </button>
                   {undoMsg && <span role="status" className="text-xs text-slate-600 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5">{undoMsg}</span>}
-                  <a
-                    href={fullTableMailtoUrl()}
-                    onClick={copyFullTableForEmail}
-                    title="Kopiert die ganze Tabelle und öffnet eine leere E-Mail zum Einfügen"
-                    className="inline-flex items-center gap-1.5 text-xs text-slate-600 hover:text-teal-700 border border-slate-200 rounded-lg px-2.5 py-1.5 hover:bg-slate-50 no-underline"
-                  >
-                    {emailTableState === "copied" ? <Check size={14} /> : <Info size={14} />}
-                    {emailTableState === "copied" ? "Kopiert — jetzt in die E-Mail einfügen" : "Ganze Tabelle per E-Mail"}
-                  </a>
                 </div>
               </div>
               {orgCtx && <PublishPanel schedule={schedule} staffList={staffList} year={year} monthIdx={monthIdx} shiftList={shiftListForDb} holidays={holidays} changeCount={changeCount} editMode={editMode} />}
@@ -2855,12 +2871,12 @@ function LabShiftSchedulerInner() {
                   )}
                   <div className="text-rose-600">
                     Diese Funktionen speichern Daten lokal in diesem Browser. In einem anderen Browser oder auf einem anderen Gerät sind sie nicht sichtbar.
-                    Bis das geklärt ist, am besten „Als Text kopieren" nutzen, um die Daten extern (z. B. in Excel) zu sichern.
+                    Bis das geklärt ist, am besten „Als Excel herunterladen" nutzen, um die Daten extern zu sichern.
                   </div>
                 </div>
               )}
               {viewMode === "byStaff" ? (
-              <div className="overflow-x-auto">
+              <div className="overflow-auto plan-scroll">
                 <table className="text-xs border-collapse">
                   <thead>
                     <tr className="bg-slate-50 text-slate-500 border-b border-slate-100">
@@ -2894,7 +2910,7 @@ function LabShiftSchedulerInner() {
                 </p>
               </div>
               ) : (
-              <div className="overflow-x-auto">
+              <div className="overflow-auto plan-scroll">
                 <table className="w-full text-xs">
                   <thead>
                     <tr className="bg-slate-50 text-slate-500 border-b border-slate-100">

@@ -4,6 +4,7 @@ import React, { useState, useMemo, useRef, useEffect } from "react";
 import { OrgContext } from "../lib/orgContext";
 import OrgBar from "./OrgBar";
 import SickCoverDialog from "./SickCoverDialog";
+import { scorePlan, VARIANTS } from "../lib/planScore";
 import PublishPanel from "./PublishPanel";
 import { fetchAll } from "../lib/fetchAll";
 import { computeChanges } from "../lib/planDiff";
@@ -83,7 +84,7 @@ function extraShiftRuns(def, day) {
   return true;
 }
 
-function generateSchedule(staffList, year, monthIdx, holidaySet, shiftHours, shiftLabels, dayShiftDefs, perShiftCount, leaveMap, carryOver, wishes) {
+function generateSchedule(staffList, year, monthIdx, holidaySet, shiftHours, shiftLabels, dayShiftDefs, perShiftCount, leaveMap, carryOver, wishes, fillUp) {
   carryOver = carryOver || {};
   wishes = wishes || [];
   dayShiftDefs = dayShiftDefs || [];
@@ -107,8 +108,11 @@ function generateSchedule(staffList, year, monthIdx, holidaySet, shiftHours, shi
   const MAX_CONSECUTIVE_WORKDAYS = 6;
   const NIGHT_COOLDOWN_EXTRA_DAYS = 2;
   ids.forEach((id) => { hours[id] = 0; satCount[id] = 0; sunCount[id] = 0; forcedRest[id] = new Set(); consecutiveWorkDays[id] = 0; nightCooldown[id] = new Set(); shiftCount[id] = 0; nightCountSoFar[id] = 0; });
+  // Fortbildung (Wunsch): the day is blocked like leave, but counts like a Frühdienst (hours + goal unchanged)
+  const credit = (leaveMap && leaveMap.__credit) || {};
+  ids.forEach((id) => { if (credit[id]) hours[id] += credit[id].size * (shiftHours.F || 0); });
   staffList.forEach((s) => {
-    const leaveDays = (leaveMap[s.id] && leaveMap[s.id].size) || 0;
+    const leaveDays = ((leaveMap[s.id] && leaveMap[s.id].size) || 0) - ((leaveMap.__credit && leaveMap.__credit[s.id] && leaveMap.__credit[s.id].size) || 0);
     const availableDays = Math.max(0, total - leaveDays);
     targetOf[s.id] = Math.min((s.weeklyHours || 38.5) * (availableDays / 7), MONTHLY_HOUR_CAP);
   });
@@ -159,6 +163,8 @@ function generateSchedule(staffList, year, monthIdx, holidaySet, shiftHours, shi
   let nightPool = staffList.filter((s) => !s.nightExempt).map((s) => s.id);
   const fullTimeSet = new Set(staffList.filter((s) => (s.weeklyHours || 38.5) >= 35).map((s) => s.id));
   const FULLTIME_OVERTIME_CEILING = 190;
+  const miniSet = new Set(staffList.filter((s) => s.employmentType === "mini" || (s.weeklyHours || 0) < 12).map((s) => s.id));
+  const MINI_MAX_NIGHTS = 2; // Minijob: at most 2 nights a month
   function hardCapFor(id) {
     return fullTimeSet.has(id) ? Math.max(MONTHLY_HOUR_CAP, FULLTIME_OVERTIME_CEILING) : targetOf[id];
   }
@@ -219,6 +225,7 @@ function generateSchedule(staffList, year, monthIdx, holidaySet, shiftHours, shi
           if (nightOf[dayIdx].includes(satPerson) || dayNightUsed[dayIdx].has(satPerson)) continue;
           if (isOnLeave(satPerson, dayIdx + 1)) continue;
           if (hours[satPerson] + shiftHours.N > hardCapFor(satPerson)) continue;
+          if (miniSet.has(satPerson) && nightCountSoFar[satPerson] >= MINI_MAX_NIGHTS) continue;
           let priorLen = 0, dd = dayIdx - 1;
           while (dd >= 0 && nightOf[dd].includes(satPerson)) { priorLen++; dd--; }
           if (priorLen >= 4) continue;
@@ -248,6 +255,7 @@ function generateSchedule(staffList, year, monthIdx, holidaySet, shiftHours, shi
           for (let d = dayIdx; d < Math.min(dayIdx + 4, total); d++) {
             if (forcedRest[c].has(d) || dayNightUsed[d].has(c) || isOnLeave(c, d + 1) || nightOf[d].length >= nightCapForDay(d) || hours[c] + shiftHours.N * (len + 1) > hourCapFor(c)) break;
             if (keepNightMax && nightCountSoFar[c] + len + 1 > nightMaxOf(c)) break;
+            if (miniSet.has(c) && (nightCountSoFar[c] + len + 1 > MINI_MAX_NIGHTS || (days[d].weekday === 6 && nightCountSoFar[c] + len + 2 > MINI_MAX_NIGHTS))) break;
             if (keepNightMax && days[d].weekday === 6 && d + 1 < total && nightCountSoFar[c] + len + 2 > nightMaxOf(c)) break; // Saturday night needs room for Sunday too
             len++;
           }
@@ -359,8 +367,11 @@ function generateSchedule(staffList, year, monthIdx, holidaySet, shiftHours, shi
     }
     quotaTargetDaysByKey[qd.key] = targetDays;
   });
+  // "Befreit von Büro": never planned for the Büro shift (key B or a shift called "Büro")
+  const noOfficeSet = new Set(staffList.filter((s) => s.noOffice).map((s) => s.id));
   function pickQuotaPerson(qd, day, todayAssigned) {
-    const eligible = ids.filter((id) => !todayAssigned.has(id) && !forcedRest[id].has(day.day - 1) && !isOnLeave(id, day.day) && hours[id] + shiftHours[qd.key] <= hardCapFor(id));
+    const officeShift = qd.key === "B" || /büro/i.test(qd.label || "");
+    const eligible = ids.filter((id) => !(officeShift && noOfficeSet.has(id)) && !todayAssigned.has(id) && !forcedRest[id].has(day.day - 1) && !isOnLeave(id, day.day) && hours[id] + shiftHours[qd.key] <= hardCapFor(id));
     if (eligible.length === 0) return null;
     const preferred = qd.preferLead ? eligible.filter((id) => leadMTLASet.has(id)) : [];
     const pool = preferred.length > 0 ? preferred : eligible;
@@ -498,6 +509,73 @@ function generateSchedule(staffList, year, monthIdx, holidaySet, shiftHours, shi
     }
   }
 
+  // ---- after the plan: (A) fill wanted places that stayed empty, (B) use free hours ----
+  // Only the CORE rules apply here (user decision): Saturday and Sunday the same person, 2 free days after
+  // nights, no Frühdienst after Spätdienst, at most MAX_CONSECUTIVE_WORKDAYS days in a row, leave/wishes, Minijob never above goal.
+  const keyOn = (id, d) => (d < 0 || d >= total ? null : allKeys.find((k) => (days[d].shifts[k] || []).includes(id)) || null);
+  const runLenIf = (id, d) => { let n = 1; for (let i = d - 1; i >= 0 && keyOn(id, i); i--) n++; for (let i = d + 1; i < total && keyOn(id, i); i++) n++; return n; };
+  const coreOk = (id, d, key) => {
+    if (keyOn(id, d) || isOnLeave(id, d + 1) || days[d].isClosed) return false;
+    if (keyOn(id, d - 1) === "N") return false;                                   // 1st free day after nights
+    if (keyOn(id, d - 2) === "N" && keyOn(id, d - 1) !== "N") return false;       // 2nd free day after nights
+    if (key === "F" && keyOn(id, d - 1) === "S") return false;                    // no Früh after Spät
+    if (key === "S" && keyOn(id, d + 1) === "F") return false;
+    if (keyOn(id, d + 1) === "N" && key === "N") return false;
+    if (runLenIf(id, d) > MAX_CONSECUTIVE_WORKDAYS) return false;
+    if (hours[id] + shiftHours[key] > (miniSet.has(id) ? targetOf[id] : hardCapFor(id))) return false;
+    return true;
+  };
+  const putOn = (id, d, key) => {
+    days[d].shifts[key].push(id); hours[id] += shiftHours[key]; shiftCount[id]++;
+    if (days[d].weekday === 6) satCount[id]++; if (days[d].weekday === 0) sunCount[id]++;
+  };
+  const byDeficit = (list) => list.sort((a, b) => ((hours[a] - targetOf[a]) / (targetOf[a] || 1)) - ((hours[b] - targetOf[b]) / (targetOf[b] || 1)) || Math.random() - 0.5);
+  const wantedOn = (day) => (day.isClosed ? [] : ["F", ...dailyKeys.filter((k) => extraShiftRuns(extraDefByKey[k], day)), "S"]);
+  const desiredOn = (day, k) => ((day.isWeekend || day.isHoliday) ? 1 : Math.max(1, perShiftCount[k] || 1));
+  // (A) empty wanted places
+  for (let d = 0; d < total; d++) {
+    const day = days[d];
+    if (day.weekday === 0 && d > 0 && days[d - 1].weekday === 6) continue; // Sundays are filled together with Saturday
+    for (const k of wantedOn(day)) {
+      while ((day.shifts[k] || []).filter(Boolean).length < desiredOn(day, k)) {
+        const pair = day.weekday === 6 && d + 1 < total && days[d + 1].weekday === 0 && wantedOn(days[d + 1]).includes(k) && (days[d + 1].shifts[k] || []).filter(Boolean).length < desiredOn(days[d + 1], k);
+        const cand = byDeficit(ids.filter((id) => coreOk(id, d, k) && (!pair || (coreOk(id, d + 1, k) && runLenIf(id, d) + 1 <= MAX_CONSECUTIVE_WORKDAYS && hours[id] + 2 * shiftHours[k] <= (miniSet.has(id) ? targetOf[id] : hardCapFor(id))))));
+        if (!cand.length) break;
+        putOn(cand[0], d, k); if (pair) putOn(cand[0], d + 1, k);
+      }
+    }
+  }
+  // (B) [switched off by default] everyone still below the goal: extra people on the day shifts of normal workdays, step by step
+  //     1st extra in the Frühdienst, then 1st extra in the Mitteldienst (and other daily day shifts),
+  //     then a 2nd extra in the Frühdienst – always the person furthest below the goal first, only core rules,
+  //     never above the goal, never Minijob.
+  // OFF by decision of the user (10/2026): no extra people – missing hours go to the next month (Saldo).
+  // Kept for a customer who wants it: generateSchedule(..., fillUp = true).
+  if (fillUp === true) {
+    const addedBy = {};
+    const layers = [["F", 1], ...dailyKeys.map((k) => [k, 1]), ["F", 2]];
+    for (const [k, extra] of layers) {
+      for (let round = 0; round < 3; round++) {
+        for (let d = 0; d < total; d++) {
+          const day = days[d];
+          if (day.isWeekend || day.isHoliday || day.isClosed || !wantedOn(day).includes(k)) continue;
+          if ((day.shifts[k] || []).filter(Boolean).length >= desiredOn(day, k) + extra) continue;
+          const cand = byDeficit(ids.filter((id) => !miniSet.has(id) && targetOf[id] - hours[id] >= shiftHours[k] && coreOk(id, d, k)));
+          if (cand.length) { putOn(cand[0], d, k); addedBy[k] = (addedBy[k] || 0) + 1; }
+        }
+      }
+    }
+    Object.keys(addedBy).forEach((k) => notes.push(`${addedBy[k]}× eine zusätzliche Person im ${labelOf(k)}, damit die Stunden besser zum Ziel passen (alle lagen darunter)`));
+  }
+  // notes about places that are full now are no longer true
+  for (let i = notes.length - 1; i >= 0; i--) {
+    const m = notes[i].match(/^Tag (\d+): (Frühdienst mit 1 Person|(.+) wurde mit \d+ statt (\d+) Personen)/);
+    if (!m) continue;
+    const day = days[Number(m[1]) - 1];
+    const key = m[2].startsWith("Frühdienst") ? "F" : Object.keys(shiftLabels || {}).find((k) => labelOf(k) === m[3]);
+    if (key && (day.shifts[key] || []).filter(Boolean).length >= desiredOn(day, key)) notes.splice(i, 1);
+  }
+
   return { days, hours, satCount, sunCount, targetOf, warnings, notes };
 }
 
@@ -506,6 +584,8 @@ function computeStatsAndWarnings(days, staffList, leaveMap, shiftHours, allKeys)
   const ids = staffList.map((s) => s.id);
   const hours = {}, satCount = {}, sunCount = {};
   ids.forEach((id) => { hours[id] = 0; satCount[id] = 0; sunCount[id] = 0; });
+  const creditMap = leaveMap.__credit || {};
+  ids.forEach((id) => { if (creditMap[id]) hours[id] += creditMap[id].size * (shiftHours.F || 0); }); // Fortbildung = like a Frühdienst
   days.forEach((day) => {
     allKeys.forEach((st) => {
       (day.shifts[st] || []).forEach((id) => {
@@ -519,7 +599,7 @@ function computeStatsAndWarnings(days, staffList, leaveMap, shiftHours, allKeys)
   const total = days.length;
   const targetOf = {};
   staffList.forEach((s) => {
-    const leaveDays = (leaveMap[s.id] && leaveMap[s.id].size) || 0;
+    const leaveDays = ((leaveMap[s.id] && leaveMap[s.id].size) || 0) - ((leaveMap.__credit && leaveMap.__credit[s.id] && leaveMap.__credit[s.id].size) || 0);
     const availableDays = Math.max(0, total - leaveDays);
     targetOf[s.id] = Math.min((s.weeklyHours || 38.5) * (availableDays / 7), MONTHLY_HOUR_CAP);
   });
@@ -858,6 +938,7 @@ function buildScheduleXlsx(input) {
       if ((d.skipKeys ? d.skipKeys.includes(col.key) : reduced && input.skipKeys.has(col.key)) || (reduced && col.slotIndex >= 1)) xlsxSet(ws1, r, 3 + i, "–", sSkip); // extra shift not that day / weekends: 1 person per shift
       else if (id) xlsxSet(ws1, r, 3 + i, input.nameOf[id] || "", shiftCell(s));
       else if (input.quotaKeys && input.quotaKeys.has(col.key)) xlsxSet(ws1, r, 3 + i, "–", sSkip); // monthly-quota shift: most days are simply not needed
+      else if (input.wanted && col.slotIndex >= (input.wanted[col.key] || 1)) xlsxSet(ws1, r, 3 + i, "–", sSkip); // extra place beyond the wanted number
       else if (input.softSecondSlot && input.softSecondSlot.includes(col.key) && col.slotIndex >= 1) xlsxSet(ws1, r, 3 + i, "(1 Person)", sSkip); // 2nd Frühdienst may stay empty
       else xlsxSet(ws1, r, 3 + i, "unbesetzt", sOpen);
     });
@@ -1099,6 +1180,8 @@ function LabShiftSchedulerInner() {
   const [emailTableState, setEmailTableState] = useState("idle"); // idle | copied
   const [balances, setBalances] = useState({}); // name(trimmed) -> { hours, satDeficit, sunDeficit, nightDeficit }
   const [balancesLoaded, setBalancesLoaded] = useState(false);
+  const dbBalanceRef = useRef(false); // true when the saldo comes from the database (company login)
+  const [balanceBump, setBalanceBump] = useState(0);
   const [saveState, setSaveState] = useState("idle"); // idle | saving | saved | error
   const [saveErrorMsg, setSaveErrorMsg] = useState("");
   const [archiveList, setArchiveList] = useState([]); // [{monthValue, staffCount, savedAt}]
@@ -1147,7 +1230,7 @@ function LabShiftSchedulerInner() {
             }
           } catch (_) { /* skip unreadable key */ }
         }
-        if (!cancelled) { setBalances(map); setBalancesLoaded(true); }
+        if (!cancelled && !dbBalanceRef.current) { setBalances(map); setBalancesLoaded(true); }
       } catch (_) {
         if (!cancelled) setBalancesLoaded(true);
       }
@@ -1185,6 +1268,26 @@ function LabShiftSchedulerInner() {
       const nightCountOf = {};
       staffList.forEach((s) => { nightCountOf[s.id] = schedule.days.filter((d) => (d.shifts.N || []).includes(s.id)).length; });
       const avgNightCount = nightEligible.length > 0 ? nightEligible.reduce((sum, s) => sum + nightCountOf[s.id], 0) / nightEligible.length : 0;
+
+      if (orgCtx) {
+        // company login: one row per person and month in the database (pressing again overwrites the month)
+        const openSat = schedule.days.filter((d) => d.weekday === 6).length;
+        const openSun = schedule.days.filter((d) => d.weekday === 0).length;
+        const rows = staffList.filter((x) => /^[0-9a-f-]{36}$/i.test(String(x.id))).map((x) => ({
+          staff_id: x.id,
+          contract_hours: Math.round((schedule.targetOf[x.id] || 0) * 100) / 100,
+          planned_hours: Math.round((schedule.hours[x.id] || 0) * 100) / 100,
+          sat_short: x.weekendExempt || openSat < 2 ? 0 : Math.max(0, 2 - (schedule.satCount[x.id] || 0)),
+          sun_short: x.weekendExempt || openSun < 2 ? 0 : Math.max(0, 2 - (schedule.sunCount[x.id] || 0)),
+          night_short: x.nightExempt ? 0 : Math.round(Math.max(0, avgNightCount - nightCountOf[x.id]) * 100) / 100,
+        }));
+        const { error: balErr } = await orgCtx.supabase.rpc("save_month_balances", { p_org: orgCtx.orgId, p_year: year, p_month: monthIdx + 1, p_rows: rows });
+        if (balErr) throw new Error("Saldo nicht gespeichert: " + balErr.message);
+        setBalanceBump((b) => b + 1);
+        setArchiveState("saved");
+        setTimeout(() => setArchiveState("idle"), 2500);
+        return;
+      }
 
       const updated = { ...balances };
       for (const s of staffList) {
@@ -1283,6 +1386,32 @@ function LabShiftSchedulerInner() {
 
   // ---- connection to the shared database (only active when the page runs behind the login gate) ----
   const orgCtx = React.useContext(OrgContext);
+  dbBalanceRef.current = !!orgCtx;
+  // With a company login the saldo comes from the database (staff_month_balance, script 12), like in the
+  // general planner: sum of all months BEFORE the month on screen – the same on every device and browser.
+  const staffIdKey = staffList.map((s) => s.id + ":" + s.name).join("|");
+  useEffect(() => {
+    if (!orgCtx) return undefined;
+    let cancelled = false;
+    (async () => {
+      let rows = [];
+      try { rows = await fetchAll(() => orgCtx.supabase.from("staff_month_balance").select("staff_id, year, month, contract_hours, planned_hours, sat_short, sun_short, night_short").eq("org_id", orgCtx.orgId)); }
+      catch (_) { rows = []; }
+      if (cancelled) return;
+      const nowKey = year * 12 + monthIdx;
+      const byId = {};
+      rows.forEach((x) => {
+        if (x.year * 12 + (x.month - 1) >= nowKey) return; // only earlier months
+        const b = byId[x.staff_id] || (byId[x.staff_id] = { hours: 0, satDeficit: 0, sunDeficit: 0, nightDeficit: 0 });
+        b.hours += Number(x.contract_hours) - Number(x.planned_hours);
+        b.satDeficit += Number(x.sat_short) || 0; b.sunDeficit += Number(x.sun_short) || 0; b.nightDeficit += Number(x.night_short) || 0;
+      });
+      const byName = {};
+      staffList.forEach((s) => { if (byId[s.id]) byName[s.name.trim()] = byId[s.id]; });
+      setBalances(byName); setBalancesLoaded(true);
+    })();
+    return () => { cancelled = true; };
+  }, [orgCtx, year, monthIdx, staffIdKey, balanceBump]); // eslint-disable-line react-hooks/exhaustive-deps
   // What the employees currently see for the shown month. Every difference of the plan on screen to this
   // published version is marked yellow — no matter whether the plan was generated or opened with "Plan bearbeiten".
   const [publishedTick, setPublishedTick] = useState(0);
@@ -1326,13 +1455,13 @@ function LabShiftSchedulerInner() {
   const loadStaffFromDb = (rows) => {
     setStaffList(rows.map((r) => ({
       id: r.id, name: r.name, weeklyHours: Number(r.weekly_hours) || 38.5, employmentType: r.employment_type || "full",
-      nightExempt: !!r.night_exempt, weekendExempt: !!r.weekend_exempt, isLeadMTLA: !!r.is_team_lead, email: r.email || "",
+      nightExempt: !!r.night_exempt, weekendExempt: !!r.weekend_exempt, isLeadMTLA: !!r.is_team_lead, noOffice: !!r.no_office, email: r.email || "", personnelNo: r.personnel_no || "",
     })));
     setLeaveEntries([]); setSickEntries([]); setWishEntries([]); setSchedule(null); setEditMode(false);
   };
   const staffToDb = (s) => ({
-    email: s.email ? String(s.email).trim() : null, weekly_hours: Number(s.weeklyHours) || 0, employment_type: s.employmentType || "full",
-    night_exempt: !!s.nightExempt, weekend_exempt: !!s.weekendExempt, is_team_lead: !!s.isLeadMTLA,
+    email: s.email ? String(s.email).trim() : null, personnel_no: s.personnelNo && String(s.personnelNo).trim() ? String(s.personnelNo).trim() : null, weekly_hours: Number(s.weeklyHours) || 0, employment_type: s.employmentType || "full",
+    night_exempt: !!s.nightExempt, weekend_exempt: !!s.weekendExempt, is_team_lead: !!s.isLeadMTLA, no_office: !!s.noOffice,
   });
   // after saving, local ids ("s3") are replaced by the database ids everywhere they are used
   const applyStaffIds = (idMap) => {
@@ -1367,7 +1496,7 @@ function LabShiftSchedulerInner() {
     }
     const people = staffRows.map((r) => ({
       id: r.id, name: r.name, weeklyHours: Number(r.weekly_hours) || 38.5, employmentType: r.employment_type || "full",
-      nightExempt: !!r.night_exempt, weekendExempt: !!r.weekend_exempt, isLeadMTLA: !!r.is_team_lead, email: r.email || "",
+      nightExempt: !!r.night_exempt, weekendExempt: !!r.weekend_exempt, isLeadMTLA: !!r.is_team_lead, noOffice: !!r.no_office, email: r.email || "", personnelNo: r.personnel_no || "",
     }));
     setStaffList(people);
     setLeaveEntries([]); setSickEntries([]); setWishEntries([]); setFreiWishByStaff({});
@@ -1522,7 +1651,7 @@ function LabShiftSchedulerInner() {
   }
 
   function importWishes(list) {
-    const valid = new Set([...Object.keys(shiftMeta), "Frei"]);
+    const valid = new Set([...Object.keys(shiftMeta), "Frei", "Fortbildung"]);
     const have = new Set(wishEntries.map((e) => e.dbId).filter(Boolean));
     const staffIds = new Set(staffList.map((x) => x.id));
     const add = []; let already = 0, noPerson = 0, noShift = 0;
@@ -1549,10 +1678,15 @@ function LabShiftSchedulerInner() {
       if (!leaveMap[e.staffId]) return;
       parseDayList(e.days, totalDays).forEach((d) => leaveMap[e.staffId].add(d));
     });
+    const credit = {};
     wishEntries.forEach((e) => {
-      if (e.shiftType !== "Frei" || !leaveMap[e.staffId]) return;
-      parseDayList(e.days, totalDays).forEach((d) => leaveMap[e.staffId].add(d));
+      if ((e.shiftType !== "Frei" && e.shiftType !== "Fortbildung") || !leaveMap[e.staffId]) return;
+      parseDayList(e.days, totalDays).forEach((d) => {
+        if (e.shiftType === "Fortbildung" && !leaveMap[e.staffId].has(d)) (credit[e.staffId] = credit[e.staffId] || new Set()).add(d);
+        leaveMap[e.staffId].add(d);
+      });
     });
+    Object.defineProperty(leaveMap, "__credit", { value: credit, enumerable: false }); // not a person, just extra info
     return leaveMap;
   }
 
@@ -1574,14 +1708,19 @@ function LabShiftSchedulerInner() {
       staffList.forEach((s) => { carryOver[s.id] = balances[s.name.trim()] || { hours: 0, satDeficit: 0, sunDeficit: 0, nightDeficit: 0 }; });
       const wishes = [];
       wishEntries.forEach((e) => {
-        if (e.shiftType === "Frei") return; // handled above via leaveMap, not a real shift wish
+        if (e.shiftType === "Frei" || e.shiftType === "Fortbildung") return; // handled above via leaveMap, not a real shift wish
         parseDayList(e.days, totalDays).forEach((d) => wishes.push({ staffId: e.staffId, day: d, shiftType: e.shiftType }));
       });
-      const result = generateSchedule(staffList, year, monthIdx, holidaySet, shiftHours, shiftLabels, dayShiftDefs, perShiftCount, leaveMap, carryOver, wishes);
-      // Recompute + validate from the final `days` (same pass used after manual edits) so any
-      // rule the generator couldn't fully guarantee up front (e.g. a rare consecutive-workday
-      // overrun caused by an already-fixed night block) still surfaces as a warning immediately.
-      const stats = computeStatsAndWarnings(result.days, staffList, leaveMap, shiftHours, dayOrderedKeys);
+      // "Beste von N Varianten": build the plan many times (ties are decided by chance) and keep the one
+      // that fits ALL rules best (lib/planScore.js). Every variant is built by the same rules.
+      let result = null, stats = null, bestScore = Infinity;
+      for (let v = 0; v < VARIANTS; v++) {
+        const r = generateSchedule(staffList, year, monthIdx, holidaySet, shiftHours, shiftLabels, dayShiftDefs, perShiftCount, leaveMap, carryOver, wishes);
+        // Recompute + validate from the final `days` (same pass used after manual edits)
+        const st = computeStatsAndWarnings(r.days, staffList, leaveMap, shiftHours, dayOrderedKeys);
+        const sc = scorePlan({ days: r.days, hours: st.hours, targetOf: st.targetOf, warnings: [...r.warnings, ...st.warnings], notes: r.notes }, staffList, ["N"]);
+        if (sc < bestScore) { bestScore = sc; result = r; stats = st; }
+      }
       // how much differs from the plan that was on the screen before (so the button visibly does something)
       let changed = 0;
       if (schedule && schedule.days) {
@@ -1590,7 +1729,7 @@ function LabShiftSchedulerInner() {
           Object.keys(nd.shifts).forEach((k) => { (nd.shifts[k] || []).forEach((id) => { if (!(od.shifts[k] || []).includes(id)) changed++; }); });
         });
       }
-      setGenInfo({ at: new Date(), changed, first: !schedule });
+      setGenInfo({ at: new Date(), changed, first: !schedule, variants: VARIANTS });
       setEditMode(false);
       setSchedule({
         days: result.days,
@@ -1761,6 +1900,7 @@ function LabShiftSchedulerInner() {
       skipKeys: dailyDayShiftKeys,
       softSecondSlot: ["F"], // Frühdienst with 1 person is allowed in the lab (print: no red "unbesetzt")
       quotaKeys: new Set(dayShiftDefs.filter((d) => d.frequency === "quota").map((d) => d.key)),
+      wanted: perShiftCount, // places per shift that are wanted; more people (filled up) is extra, not "unbesetzt"
       matrix: staffDayMatrix,
       nameOf: staffMap,
       absentByDay,
@@ -2096,6 +2236,13 @@ function LabShiftSchedulerInner() {
                     placeholder="name@firma.de"
                     className="border border-slate-300 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
                   />
+                  <input
+                    value={s.personnelNo || ""}
+                    onChange={(e) => updateStaffField(s.id, "personnelNo", e.target.value.slice(0, 30))}
+                    placeholder="Personal-Nr."
+                    aria-label={`Personalnummer ${s.name}`}
+                    className="w-28 border border-slate-300 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
+                  />
                   <div className="flex items-center gap-1">
                     <input
                       type="number"
@@ -2139,6 +2286,10 @@ function LabShiftSchedulerInner() {
                       <input type="checkbox" checked={!!s.weekendExempt} onChange={(e) => updateStaffField(s.id, "weekendExempt", e.target.checked)} />
                       Befreit von Wochenendquote
                     </label>
+                    <label className="flex items-center gap-1 text-slate-500">
+                      <input type="checkbox" checked={!!s.noOffice} onChange={(e) => updateStaffField(s.id, "noOffice", e.target.checked)} />
+                      Befreit von Büro
+                    </label>
                     <label className="flex items-center gap-1 text-fuchsia-700">
                       <input type="checkbox" checked={!!s.isLeadMTLA} onChange={(e) => updateStaffField(s.id, "isLeadMTLA", e.target.checked)} />
                       Leitende MTLA (übernimmt meist Büro)
@@ -2152,6 +2303,18 @@ function LabShiftSchedulerInner() {
             </div>
             <button onClick={addStaff} className="mt-2 inline-flex items-center gap-1 text-sm text-teal-700 hover:text-teal-800 font-medium">
               <Plus size={15} /> Mitarbeiter hinzufügen
+            </button>
+            <button
+              onClick={() => setStaffList((prev) => {
+                // fill only the EMPTY ones: next free number after the highest one (start 1001); existing numbers stay
+                const nums = prev.map((x) => parseInt(String(x.personnelNo || "").replace(/\D/g, ""), 10)).filter((n) => !isNaN(n));
+                let next = Math.max(1000, ...nums) + 1;
+                return prev.map((x) => (String(x.personnelNo || "").trim() ? x : { ...x, personnelNo: String(next++) }));
+              })}
+              className="mt-2 ml-4 inline-flex items-center gap-1 text-sm text-slate-600 hover:text-slate-800"
+              title="Nur Personen ohne Personalnummer bekommen eine; vorhandene bleiben. Danach „Personen speichern“."
+            >
+              # Fehlende Personalnummern vergeben
             </button>
           </div>
 
@@ -2235,9 +2398,9 @@ function LabShiftSchedulerInner() {
             <div className="flex flex-wrap gap-1.5 mb-2">
               {wishEntries.length === 0 && <span className="text-xs text-slate-400">Noch keine Schichtwünsche eingetragen</span>}
               {wishEntries.map((e) => {
-                const isFrei = e.shiftType === "Frei";
-                const chipClass = isFrei ? "bg-slate-100 text-slate-700 border-slate-300" : shiftMeta[e.shiftType].chip;
-                const label = isFrei ? "Frei" : shiftMeta[e.shiftType].label;
+                const isFrei = e.shiftType === "Frei", isFb = e.shiftType === "Fortbildung";
+                const chipClass = isFrei ? "bg-slate-100 text-slate-700 border-slate-300" : isFb ? "bg-violet-50 text-violet-800 border-violet-200" : shiftMeta[e.shiftType].chip;
+                const label = isFrei ? "Frei" : isFb ? "Fortbildung" : shiftMeta[e.shiftType].label;
                 return (
                   <span key={e.id} className={`inline-flex items-center gap-1.5 border text-xs rounded-full pl-1 pr-2.5 py-1 ${chipClass}`}>
                     {staffMap[e.staffId] || "?"} — {label}, Tag <span className="font-mono">{e.days}</span>
@@ -2268,6 +2431,7 @@ function LabShiftSchedulerInner() {
                   <option key={st} value={st}>{shiftMeta[st].label}</option>
                 ))}
                 <option value="Frei">Frei (kein Dienst, keine Schicht)</option>
+                <option value="Fortbildung">Fortbildung (zählt wie ein Frühdienst)</option>
               </select>
               <input
                 value={wishDraft.days}
@@ -2330,7 +2494,7 @@ function LabShiftSchedulerInner() {
                     );
                   })}
               </div>
-              <button onClick={resetBalances} className="mt-2 text-violet-500 hover:text-rose-600 underline">Alle Salden löschen</button>
+              {!orgCtx && <button onClick={resetBalances} className="mt-2 text-violet-500 hover:text-rose-600 underline">Alle Salden löschen</button>}
             </div>
           )}
 
@@ -2345,7 +2509,7 @@ function LabShiftSchedulerInner() {
             </button>
             {genInfo && !genBusy && (
               <span role="status" className="text-xs text-teal-800 bg-teal-50 border border-teal-200 rounded-lg px-2.5 py-1.5">
-                {genInfo.first ? "Plan erstellt" : "Neu erstellt"} um {String(genInfo.at.getHours()).padStart(2, "0")}:{String(genInfo.at.getMinutes()).padStart(2, "0")}:{String(genInfo.at.getSeconds()).padStart(2, "0")} Uhr
+                {genInfo.first ? "Plan erstellt" : "Neu erstellt"} um {String(genInfo.at.getHours()).padStart(2, "0")}:{String(genInfo.at.getMinutes()).padStart(2, "0")}:{String(genInfo.at.getSeconds()).padStart(2, "0")} Uhr{genInfo.variants ? ` · beste von ${genInfo.variants} Varianten` : ""}
                 {!genInfo.first && (genInfo.changed > 0 ? ` – ${genInfo.changed} Einträge anders als vorher` : " – gleiches Ergebnis (mit diesen Personen und Regeln gibt es keine andere Verteilung)")}
               </span>
             )}
@@ -2439,10 +2603,6 @@ function LabShiftSchedulerInner() {
                     {archiveState === "saved" ? <Check size={14} /> : <ClipboardList size={14} />}
                     {archiveState === "saving" ? "Wird gespeichert..." : archiveState === "saved" ? "Gespeichert & Saldo übertragen" : archiveState === "error" ? "Fehler, bitte erneut versuchen" : "Monat abschließen & archivieren"}
                   </button>
-                  <button onClick={copyAsText} className="inline-flex items-center gap-1.5 text-xs text-slate-600 hover:text-teal-700 border border-slate-200 rounded-lg px-2.5 py-1.5 hover:bg-slate-50">
-                    {copyState === "done" ? <Check size={14} /> : <Copy size={14} />}
-                    {copyState === "done" ? "Kopiert" : "Als Text kopieren (für Excel)"}
-                  </button>
                   <button onClick={downloadExcel} title="Schön formatierte Excel-Datei mit Plan, Mitarbeiter-Übersicht und Zusammenfassung" className="inline-flex items-center gap-1.5 text-xs text-emerald-800 hover:text-emerald-900 border border-emerald-200 bg-emerald-50 rounded-lg px-2.5 py-1.5 hover:bg-emerald-100">
                     {excelState === "done" ? <Check size={14} /> : <Copy size={14} />}
                     {excelState === "done" ? "Excel-Datei erstellt" : excelState === "error" ? "Excel-Export fehlgeschlagen" : "Als Excel herunterladen (.xlsx)"}
@@ -2466,15 +2626,6 @@ function LabShiftSchedulerInner() {
                     <SickCoverDialog schedule={schedule} staffList={staffList} shiftMeta={shiftMeta} totalDays={totalDays} offDays={buildLeaveMap()}
                       orgCtx={orgCtx} year={year} monthIdx={monthIdx} onApply={applySickCover} onClose={() => setSickCoverOpen(false)} />
                   )}
-                  <a
-                    href={fullTableMailtoUrl()}
-                    onClick={copyFullTableForEmail}
-                    title="Kopiert die ganze Tabelle und öffnet eine leere E-Mail zum Einfügen"
-                    className="inline-flex items-center gap-1.5 text-xs text-slate-600 hover:text-teal-700 border border-slate-200 rounded-lg px-2.5 py-1.5 hover:bg-slate-50 no-underline"
-                  >
-                    {emailTableState === "copied" ? <Check size={14} /> : <Info size={14} />}
-                    {emailTableState === "copied" ? "Kopiert — jetzt in die E-Mail einfügen" : "Ganze Tabelle per E-Mail"}
-                  </a>
                 </div>
               </div>
               {orgCtx && <PublishPanel schedule={schedule} staffList={staffList} year={year} monthIdx={monthIdx} shiftList={shiftListForDb} holidays={holidays} changeCount={changeCount} editMode={editMode} />}
@@ -2488,12 +2639,12 @@ function LabShiftSchedulerInner() {
                   )}
                   <div className="text-rose-600">
                     Diese Funktionen speichern Daten lokal in diesem Browser. In einem anderen Browser oder auf einem anderen Gerät sind sie nicht sichtbar.
-                    Bis das geklärt ist, am besten „Als Text kopieren" nutzen, um die Daten extern (z. B. in Excel) zu sichern.
+                    Bis das geklärt ist, am besten „Als Excel herunterladen" nutzen, um die Daten extern zu sichern.
                   </div>
                 </div>
               )}
               {viewMode === "byStaff" ? (
-              <div className="overflow-x-auto">
+              <div className="overflow-auto plan-scroll">
                 <table className="text-xs border-collapse">
                   <thead>
                     <tr className="bg-slate-50 text-slate-500 border-b border-slate-100">
@@ -2524,7 +2675,7 @@ function LabShiftSchedulerInner() {
                 </table>
               </div>
               ) : (
-              <div className="overflow-x-auto">
+              <div className="overflow-auto plan-scroll">
                 <table className="w-full text-xs">
                   <thead>
                     <tr className="bg-slate-50 text-slate-500 border-b border-slate-100">
@@ -2569,7 +2720,7 @@ function LabShiftSchedulerInner() {
                                   onChange={(e) => updateSlot(di, st, slotIndex, e.target.value)}
                                   className={`w-full text-[11px] rounded-md border px-1.5 py-1 ${val ? shiftMeta[st].chip : "bg-slate-50 border-slate-200 text-slate-400"} ${isNewHere ? "ring-2 ring-amber-400" : ""}`}
                                 >
-                                  <option value="">{st === "F" && slotIndex >= 1 ? "— 1 Person (Mangel) —" : "— leer —"}</option>
+                                  <option value="">{slotIndex >= (perShiftCount[st] || 1) ? "— (zusätzlich) —" : st === "F" && slotIndex >= 1 ? "— 1 Person (Mangel) —" : "— leer —"}</option>
                                   {staffList.map((s) => (
                                     <option key={s.id} value={s.id}>{s.name}</option>
                                   ))}

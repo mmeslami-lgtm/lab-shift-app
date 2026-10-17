@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useState } from "react";
+import { absenceMap } from "../lib/absence";
 
 // Pop-up in the employee app: "Kommen vergessen?" 30 minutes after the start of a planned shift
 // without any stamp, and "Gehen vergessen?" when a stamp is open for more than 12 hours.
@@ -14,14 +15,17 @@ export default function StampReminder({ org, onOpenTimes }) {
   const check = useCallback(async () => {
     if (!(org.products || []).includes("time_tracking") || !org.staffId) return;
     const now = Date.now();
-    const sh = await org.supabase.from("scheduled_shifts").select("shift_label, shift_key, planned_start").eq("org_id", org.orgId).eq("staff_id", org.staffId).eq("status", "published")
+    const sh = await org.supabase.from("scheduled_shifts").select("shift_label, shift_key, planned_start, shift_date").eq("org_id", org.orgId).eq("staff_id", org.staffId).eq("status", "published")
       .gte("planned_start", new Date(now - 12 * 3600000).toISOString()).lt("planned_start", new Date(now - 30 * 60000).toISOString());
     const se = await org.supabase.from("attendance_sessions").select("id, check_in, check_out").eq("org_id", org.orgId).eq("staff_id", org.staffId).gte("check_in", new Date(now - 36 * 3600000).toISOString());
     if (sh.error || se.error) return;
     let seen = []; try { seen = JSON.parse(localStorage.getItem(SEEN) || "[]"); } catch (e) { seen = []; }
     const open = (se.data || []).find((x) => x.check_in && !x.check_out && now - new Date(x.check_in).getTime() > 12 * 3600000);
     if (open && !seen.includes("out" + open.id)) { setMsg({ key: "out" + open.id, title: "Gehen vergessen?", text: `Du bist seit ${clock(open.check_in)} eingestempelt. Hast du vergessen auszustempeln?` }); return; }
-    const missed = (sh.data || []).find((x) => !(se.data || []).some((y) => y.check_in && new Date(y.check_in).getTime() >= new Date(x.planned_start).getTime() - 3 * 3600000));
+    const ab = await org.supabase.from("attendance_absences").select("work_date, kind, voided_at").eq("org_id", org.orgId).eq("staff_id", org.staffId);
+    const ap = await org.supabase.from("requests").select("type_key, date_from, date_to, status").eq("org_id", org.orgId).eq("staff_id", org.staffId).eq("status", "approved");
+    const am = absenceMap(ab.error ? [] : ab.data, ap.error ? [] : ap.data);
+    const missed = (sh.data || []).find((x) => !am[String(x.shift_date || "").slice(0, 10)] && !(se.data || []).some((y) => y.check_in && new Date(y.check_in).getTime() >= new Date(x.planned_start).getTime() - 3 * 3600000));
     if (missed && !seen.includes("in" + missed.planned_start)) setMsg({ key: "in" + missed.planned_start, title: "Kommen vergessen?", text: `Dein ${missed.shift_label || missed.shift_key} hat um ${clock(missed.planned_start)} begonnen, aber du bist noch nicht eingestempelt.` });
   }, [org]);
   useEffect(() => { check(); const t = setInterval(check, 5 * 60000); window.addEventListener("focus", check); return () => { clearInterval(t); window.removeEventListener("focus", check); }; }, [check]);

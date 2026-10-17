@@ -93,6 +93,42 @@
 - **اولین کلید:** `terminal_pin_only` = دکمهٔ «Ohne Handy: mit PIN stempeln» روی ترمینال (جای ثابت `SHOW_PIN_ONLY`). تست: فقط برای همان شرکت دیده می‌شود.
 - **روال برای هر خواستهٔ مخصوص مشتری:** کلید در `FEATURES` → در کد `hasFeature(...)` → اول برای Testfirma روشن و تست → بعد برای مشتری. منطق قبلی برای بقیه بدون تغییر.
 
+## ۱۰.۹۹ Stundenzettel برای کارگزینی (ساخته شد)
+- الگو: Stundenzettel «Planerio» کاربر. Leitung/Inhaber در «Anwesenheit → Stundenzettel (für die Lohnabrechnung)»: ماه (پیش‌فرض ماه قبل) + «Alle» یا یک نفر → «Drucken / PDF» (هر نفر یک صفحهٔ A4 عمودی؛ «Als PDF speichern» برای ایمیل به کارگزینی).
+- محتوا (`lib/timesheet.js`): سر صفحه نام شرکت/شخص/ماه + Netto/Soll/Zeitkonto؛ کادرها: Zeitkonto (Stand Monatsanfang/Veränderung/Monatsende)، Abwesenheit (Urlaubstage، Krankheitstage)، Zuschlagsstunden (Nacht ۲۲–۶، Sonntag، Feiertag – فقط ساعت، بدون یورو)؛ جدول روزانه: Datum، Wochentag، Beginn، Ende «(+1)»، Pause قانونی، Netto، Soll (پلن منتشرشده)، Tag، Zeitkonto جاری، Zuschläge، Information (شیفت، Wochenende/Feiertag، نوع غیبت، «korrigiert ✎»، «Gehen fehlt»).
+- همان قواعد اپ کارمند (Netto = حضور − پاوز قانونی؛ Krank/Urlaub/Fortbildung = Soll؛ Zeitkonto از ماه‌های بسته + روزها از روشن‌شدن Zeiterfassung). Feiertage: فقط سراسری آلمان (`germanHolidays`)؛ ایالتی نه.
+- **Personalnummer** (ساخته شد): فیلد «Personal-Nr.» کنار ایمیل هر نفر در هر دو Dienstplaner، دکمهٔ «# Fehlende Personalnummern vergeben» (فقط خالی‌ها، از بالاترین شماره +۱، شروع ۱۰۰۱)؛ ستون `staff.personnel_no` یکتا در هر شرکت (`docs/sql/23-personalnummer-schema.sql`، اجرا شد)؛ در Stundenzettel «Name (Nr.)». تست: `persnr_test`.
+- **Soll = Vertrag** (کلید ویژگی `soll_vertrag`، مثل Planerio؛ کاربر با نمونه‌های مارس/آوریل نشان داد Soll با تعداد روز کاری عوض می‌شود): Soll روز = ساعت هفتگی ÷ ۵ در دوشنبه–جمعهٔ غیرتعطیل، آخر هفته/تعطیل ۰ (مارس ۲۰۲۶: ۲۲ × ۷:۴۲ = ۱۶۹:۲۴؛ آوریل: ۲۰ × ۷:۴۲ = ۱۵۴:۰۰)؛ روز کاری بدون کار = منفی («frei · Soll 7:42 (Zeitausgleich)»)، کار آخر هفته = مثبت. در Stundenzettel و اپ کارمند («− Soll (Vertrag)»)؛ ماه‌های بسته (plan vs. contract) در این حالت جمع نمی‌شوند (تکرار نشود). پیش‌فرض خاموش = Soll از پلن منتشرشده. `lib/timesheet.js` (`sollOf`, `isWorkday`). امروز تا وقتی تمام نشده در Zeitkonto حساب نمی‌شود. تست: `sollvertrag_test`.
+- **نزدیک‌تر به Planerio (نمونهٔ مه ۲۰۲۶ کاربر):** Urlaub/Krank/Fortbildung در Netto هم شمرده می‌شود (Netto = Soll، Tag 00:00)؛ شمار روزهای Urlaub/Krank فقط روزهای کاری؛ Nachtstunden فقط اگر بیش از ۲ ساعت بین ۲۲ و ۶ (Nachtarbeit §۲ ArbZG) و منهای پاوز (۲۲:۰۰–۰۶:۰۰ − ۰۰:۳۰ = ۰۷:۳۰)؛ Sonntag/Feiertag با تعداد روز و ساعت؛ Oster- و Pfingstsonntag هم «Feiertag» (برای Zuschlag).
+- **Zuschläge (اختیاری، خود Leitung):** «Anwesenheit → Zuschläge einstellen»: برای Nacht (۲۲–۶)، Samstag، Sonntag، Feiertag هر کدام «kein Zuschlag» / «Prozent (Stunden)» / «Betrag pro Tag (€)» + Lohnart-Code. ذخیره در `organizations.surcharge_settings` با `set_surcharge_settings` (`docs/sql/24-zuschlaege-schema.sql`، اجرا شد). Stundenzettel: جدول «Zuschläge | Code | Gesamt» مثل Planerio («07:30 Std. × 20 %»، «102,26 € × 3 Tag(e) = 306,78 €»). تنظیم‌نشده = فقط ساعت‌ها؛ همه خاموش = هیچ کادر Zuschlag.
+- **«📷 Stempeln» داخل اپ کارمند** (`components/ScanStamp.jsx`): دکمهٔ شناور، دوربین داخل خود اپ (BarcodeDetector یا کتابخانهٔ `jsqr` – وابستگی جدید در `package.json`)، کد ترمینال را می‌خواند و با ورود همان اپ ثبت می‌کند → دیگر رفتن به Safari و ورود دوباره لازم نیست. کد غیر ترمینال: پیام «kein Stempel-Code». تست: `scanstamp_test` (دوربین ساختگی).
+- ایده‌های باز: حق مرخصی سالانه (Urlaub verfügbar)، کدهای Lohnart، خروجی DATEV. تست: `stundenzettel_test`.
+
+## ۱۱.۰۰ اصلاحات مولد Labor بعد از تست بستهٔ ۱۶ (گزارش کاربر)
+- **پاس‌های پرکننده** بعد از ساخت پلن، فقط با قواعد اصلی (`coreOk`: شنبه=یکشنبه، ۲ روز آزاد بعد از شب، بعد از Spät نه Früh، حداکثر ۶ روز پشت‌سرهم، مرخصی/آرزو، مینی‌جاب هرگز بالای هدف): (A) جاهای خالیِ خواسته‌شده (شنبه و یکشنبه با هم)، (B) نفر اضافه وقتی همه زیر هدف‌اند («۱ اضافه Früh → ۱ اضافه Mittel → ۲ اضافه Früh») — **به تصمیم کاربر خاموش** (`fillUp === true` لازم؛ پیش‌فرض خاموش): هیچ نفر اضافه، کمبود با «Monat abschließen» به ماه بعد (Saldo). ⚠️ با ترکیب فعلی (۶ تمام‌وقت ۱۶۰ + ۱ نفر ~۲۷ ساعت + ۴ مینی) کمبود ساختاری ≈ ‑۲۲ ساعت برای هر تمام‌وقت در هر ماه (شبیه‌سازی) — جبران در ماه بعد عملاً ممکن نیست چون هر ماه همین کمبود هست؛ به کاربر گفته شد.
+- شبیه‌سازی با دادهٔ کاربر: Frühdienst یک‌نفره در روز کاری ۰؛ جفت شنبه/یکشنبه شکسته ۰؛ مینی‌جاب حداکثر ۲ شب (`MINI_MAX_NIGHTS`). (با پاس B روشن، کمبود تمام‌وقت‌ها ‑۳…‑۱۲ می‌شد.)
+- **چاپ/Excel:** جاهای اضافه (بیش از تعداد خواسته‌شده `perShiftCount` → `wanted` در `exportInput`) دیگر «unbesetzt» یا «(1 Person)» نمی‌گیرند؛ روی صفحه «— (zusätzlich) —». (علت بدتر شدن ظاهر چاپ با نفرات اضافه.)
+- **Fortbildung در Wünsche** «zählt wie ein Frühdienst»: روز مثل مرخصی بسته، ولی ساعت Früh (۷٫۵) به ساعت‌ها اضافه و Ziel کم نمی‌شود (`leaveMap.__credit` در مولد و `computeStatsAndWarnings`).
+- دو دکمهٔ «Als Text kopieren (für Excel)» و «Ganze Tabelle per E-Mail» از هر دو Dienstplaner حذف شد.
+- `lib/planScore.js`: جفت شنبه/یکشنبه = ۱۰۰۰ (قانون اصلی)، جای خالی ۱۵۰.
+
+## ۱۱.۰۱ «beste von 60 Varianten» + Saldo Labor در دیتابیس
+- **هر دو Dienstplaner:** «Dienstplan erstellen/Neu generieren» حالا ۶۰ بار با **همان قوانین** پلن می‌سازد (تساوی‌ها تصادفی) و بهترین را نشان می‌دهد (`lib/planScore.js`): ۱) هشدار قانون (۱۰۰۰ هر کدام؛ «weniger als 2 Samstage/Sonntage» نرم ۲۰؛ «Abweichung vom Stundenziel» جدا با ۳ سنجیده می‌شود)، ۲) شیفت کم‌نفر/اضافه‌کاری ۱۵، ۳) **پخش برابر ساعت نسبت به Ziel** (انحراف معیار × ۵۰۰۰)، ۴) ساعت بالای Ziel، ۵) پخش شب نسبت به ساعت قرارداد، ۶) پخش آخر هفته، ۷) جفت شنبه/یکشنبه. پیام: «Neu erstellt um … · beste von 60 Varianten». ~۳ میلی‌ثانیه هر پلن.
+- شبیه‌سازی نوامبر با ۶ تمام‌وقت + ۱ پاره‌وقت + ۴ مینی (کمبود ساختاری ~۱۵۰ ساعت): فاصلهٔ بیشترین تا کمترین کمبود تمام‌وقت‌ها از ~۲۵ به ~۱۵ ساعت؛ هشدار قانون سخت ۰٫۵ → ۰؛ جفت آخر هفته ۰. (کمبود کلی ساعت حل نمی‌شود: شیفت کافی نیست؛ راه: نفر بیشتر برای شیفت یا گزینهٔ «Bis zum Ziel auffüllen» – ساخته نشده.)
+- **Labor: Saldo در دیتابیس** (مثل allgemein، جدول `staff_month_balance`): «Monat abschließen» ردیف‌ها را ذخیره می‌کند، ماه بعد «Saldo aus Vormonaten» از دیتابیس (هر مرورگر/دستگاه، از جمله آدرس آزمایشی). منطق Labor (Ziel ۱۶۰، Saldo فقط روی اولویت) **بدون تغییر**. «Alle Salden löschen» با ورود شرکت پنهان. تست: `saldo_lab_test`.
+- **«Befreit von Büro»** (Labor، تصمیم کاربر: الف): تیک برای هر نفر کنار «Befreit von Nachtdienst/Wochenendquote»؛ ستون `staff.no_office` (`docs/sql/22-kein-buero-schema.sql`، اجرا شد)؛ مولد هرگز شیفت Büro (کلید B یا نام «Büro») به آن نفر نمی‌دهد (تغییر دستی ممکن). تست: ۲۷۰ شیفت Büro در ۳۰ پلن، صفر برای افراد معاف.
+
+## ۱۱.۰۲ جدول پلن در کادر جداگانه (هر دو Dienstplaner)
+- جدول «nach Tag» و «nach Mitarbeitenden» حالا در کادر خودش اسکرول می‌شود (کلاس `plan-scroll` در `globals.css`: حداکثر ۷۲٪ ارتفاع صفحه)، سرستون‌ها هنگام اسکرول بالا می‌مانند؛ دکمه‌های بالای جدول (Krankmeldung، Rückgängig، Drucken …) همیشه همان‌جا در دسترس. در چاپ مرورگر محدودیت ارتفاع برداشته می‌شود. تست: `planscroll_test`.
+
+## ۱۱.۰۳ Abwesenheit (ساخته شد)
+- Leitung/Inhaber در «Anwesenheit»: کنار هر نفر در «Noch nicht eingestempelt» دکمهٔ «Abwesend …»؛ در «Zeiten bearbeiten» برای هر روز «Abwesenheit eintragen …» / «Ändern» / «Aufheben» (با Grund). انواع (`lib/absence.js`): Krank، Urlaub، Fortbildung/Dienstreise، Sonstiges (bezahlt) = ساعت برنامه‌ریزی‌شده **بدون کسر** حساب می‌شود؛ Überstundenabbau و Unentschuldigt = ساعت شیفت از Zeitkonto **کم** می‌شود («Unentschuldigt (−8:00 h)»). بعد از «Krank» راهنما به «Krankmeldung / Ausfall» برای جایگزین. (قواعد حقوقی با مشاور حقوق کار تأیید شود.)
+- **درخواست‌های تأییدشده** (Urlaub/Fortbildung/Krankmeldung در Anträge) خودکار همان اثر را دارند: بدون هشدار، بدون pop-up، در اپ برچسب نوع.
+- اپ کارمند: برچسب نوع به‌جای «Kommen fehlt»، در جزئیات روز «(eingetragen von der Leitung)» / «(genehmigter Antrag)». همکاران نمی‌بینند.
+- دیتابیس: `docs/sql/21-abwesenheit-schema.sql` (اجرا و با نقش‌های واقعی تست شد، ۷ بررسی): جدول `attendance_absences` (هر نفر/روز یک فعال؛ تغییر = قدیمی «ersetzt» باطل؛ هیچ حذف)، `set_absence`، `void_absence` (Grund اجباری).
+- **Zeitkonto حالا از روز روشن‌شدن Zeiterfassung برای شرکت** (`org_products.created_at`) شمرده می‌شود (قبلاً از اولین ثبت خود شخص).
+- تست: `abwesend_test`.
+
 ## ۱۱.۰۴ خوش‌آمدگویی در صفحهٔ ورود
 - `components/LoginForm.jsx` (همهٔ صفحه‌های ورود): «Guten Morgen/Tag/Abend» (بر اساس ساعت دستگاه) + «Herzlich willkommen!» (بدون دست و جملهٔ دوم، تصمیم کاربر)
 
