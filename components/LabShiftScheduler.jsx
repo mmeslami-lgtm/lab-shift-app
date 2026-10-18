@@ -1666,19 +1666,36 @@ function LabShiftSchedulerInner() {
   // Approved wishes from the employee app ("Wünsche" in the bar above) -> wish list of this plan.
   // Only when the Leitung presses the button there; wishes already taken over are not added twice.
   // approved Anträge -> Urlaub (U) / Krank (A) of this month; nothing twice (dbId)
-  function importRequests(list) {
+  // Leave / sick days taken over from the database belong to ONE month (ym); switching the month drops them,
+  // OrgBar then takes over the approved ones of the new month automatically.
+  useEffect(() => {
+    const ym = `${year}-${String(monthIdx + 1).padStart(2, "0")}`;
+    setLeaveEntries((prev) => (prev.some((e) => e.ym && e.ym !== ym) ? prev.filter((e) => !e.ym || e.ym === ym) : prev));
+    setSickEntries((prev) => (prev.some((e) => e.ym && e.ym !== ym) ? prev.filter((e) => !e.ym || e.ym === ym) : prev));
+  }, [year, monthIdx]);
+
+  function importRequests(list, opts) {
+    // opts.sync (automatic takeover): entries of this month whose request is no longer approved
+    // (storniert / abgelehnt / wieder geöffnet) or whose absence was cancelled are removed again
+    let removed = 0;
+    if (opts && opts.sync && opts.ym) {
+      const keep = new Set(list.map((r) => r.dbId));
+      const drop = (e) => e.ym === opts.ym && e.dbId && !keep.has(e.dbId);
+      removed = [...leaveEntries, ...sickEntries].filter(drop).length;
+      if (removed) { setLeaveEntries((prev) => prev.filter((e) => !drop(e))); setSickEntries((prev) => prev.filter((e) => !drop(e))); }
+    }
     const have = new Set([...leaveEntries, ...sickEntries].map((e) => e.dbId).filter(Boolean));
     const staffIds = new Set(staffList.map((x) => x.id));
     const leave = [], sick = []; let already = 0, noPerson = 0;
     list.forEach((r) => {
       if (have.has(r.dbId)) { already++; return; }
       if (!staffIds.has(r.staffId)) { noPerson++; return; }
-      const e = { id: `ra${nextEntryIdRef.current++}`, staffId: r.staffId, days: r.days, dbId: r.dbId };
+      const e = { id: `ra${nextEntryIdRef.current++}`, staffId: r.staffId, days: r.days, dbId: r.dbId, ym: r.ym };
       (r.kind === "sick" ? sick : leave).push(e);
     });
     if (leave.length) setLeaveEntries((prev) => [...prev, ...leave]);
     if (sick.length) setSickEntries((prev) => [...prev, ...sick]);
-    return { added: leave.length + sick.length, already, noPerson };
+    return { added: leave.length + sick.length, already, noPerson, removed };
   }
 
   function importWishes(list) {
