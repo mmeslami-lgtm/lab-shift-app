@@ -33,6 +33,9 @@ export default function OrgBar({ onLoadStaff, staffList, toDb, onIdsChanged, yea
   const [versions, setVersions] = useState([]);
   const [openJumps, setOpenJumps] = useState(0); // Einspringer entries the Leitung has not looked at yet
   const [wishesOpen, setWishesOpen] = useState(false); // popup "Wünsche"
+  const [loadBump, setLoadBump] = useState(0);
+  const autoYmRef = React.useRef("");
+  const [autoMsg, setAutoMsg] = useState(""); // "n genehmigte Abwesenheiten automatisch übernommen"
   // plans sent by the Schichtplaner, waiting for Leitung/Inhaber (checked every minute and when the window gets focus)
   const isLeader = org && (org.role === "owner" || org.role === "supervisor");
   const [pendingMonths, setPendingMonths] = useState([]);
@@ -44,6 +47,46 @@ export default function OrgBar({ onLoadStaff, staffList, toDb, onIdsChanged, yea
   const [reqBump, setReqBump] = useState(0);
   const hasApp = org && (org.products || []).includes("employee_app");
   const hasTime = org && (org.products || []).includes("time_tracking");
+
+  // Approved requests (Urlaub, Fortbildung, Krankmeldung) and absences entered by the Leitung are taken over
+  // into the plan's Urlaub/Krank lists automatically – only APPROVED ones, never open requests – as soon as the
+  // people are loaded and for every month that is chosen. So nobody can be planned on a day of approved leave.
+  const staffKey = (staffList || []).map((x) => x.id).sort().join(",");
+  useEffect(() => {
+    if (!org || !org.supabase || !onImportRequests || !staffKey) return;
+    let cancelled = false;
+    (async () => {
+      const pad = (n) => String(n).padStart(2, "0");
+      const ym = `${year}-${pad(monthIdx + 1)}`;
+      const lastDay = new Date(year, monthIdx + 1, 0).getDate();
+      const first = `${ym}-01`, last = `${ym}-${pad(lastDay)}`;
+      try {
+        const [rq, ab] = await Promise.all([
+          org.supabase.from("requests").select("id, staff_id, type_key, date_from, date_to, status").eq("org_id", org.orgId).eq("status", "approved").lte("date_from", last).gte("date_to", first),
+          org.supabase.from("attendance_absences").select("id, staff_id, work_date, kind, voided_at").eq("org_id", org.orgId).gte("work_date", first).lte("work_date", last),
+        ]);
+        if (cancelled) return;
+        const list = [];
+        (rq.data || []).forEach((r) => {
+          const a = r.date_from < first ? 1 : Number(r.date_from.slice(8));
+          const b = r.date_to > last ? lastDay : Number(r.date_to.slice(8));
+          list.push({ dbId: `${r.id}@${ym}`, ym, staffId: r.staff_id, days: a === b ? String(a) : `${a}-${b}`, kind: r.type_key === "krank" ? "sick" : "leave" });
+        });
+        (ab.data || []).forEach((x) => {
+          if (x.voided_at || x.kind === "unentschuldigt") return;
+          list.push({ dbId: `abs${x.id}@${ym}`, ym, staffId: x.staff_id, days: String(Number(String(x.work_date).slice(8, 10))), kind: x.kind === "krank" ? "sick" : "leave" });
+        });
+        const res = onImportRequests(list, { sync: true, ym });
+        const parts = [];
+        if (res && res.added) parts.push(`${res.added} genehmigte Abwesenheit(en) für ${pad(monthIdx + 1)}/${year} automatisch übernommen (Urlaub/Krank)`);
+        if (res && res.removed) parts.push(`${res.removed} stornierte entfernt – bitte den Plan für diese Tage prüfen`);
+        if (autoYmRef.current !== ym) { autoYmRef.current = ym; setAutoMsg(parts.join(" · ")); } // new month: fresh notice
+        else if (parts.length) setAutoMsg(parts.join(" · "));            // same month: keep the last notice unless something changed
+      } catch (e) { /* the manual button in „Anträge“ still works */ }
+    })();
+    return () => { cancelled = true; };
+  }, [staffKey, year, monthIdx, reqBump, loadBump]); // eslint-disable-line react-hooks/exhaustive-deps
+
   useEffect(() => {
     if (!org || !hasApp) return undefined;
     let alive = true;
@@ -208,6 +251,7 @@ export default function OrgBar({ onLoadStaff, staffList, toDb, onIdsChanged, yea
     if (error) { setMsg("Fehler: " + error.message); return; }
     if (!data.length) { setMsg("In der Datenbank sind für diese Firma noch keine Personen gespeichert. Trage Personen unten ein und tippe auf „Personen in Datenbank speichern“."); return; }
     onLoadStaff(data);
+    setLoadBump((n) => n + 1); // loading clears Urlaub/Krank -> take the approved ones over again
     setMsg(`${data.length} Personen aus der Datenbank geladen. Urlaub, Krankheit und Wünsche wurden zurückgesetzt.`);
   }
 
@@ -315,6 +359,7 @@ export default function OrgBar({ onLoadStaff, staffList, toDb, onIdsChanged, yea
         </div>
       )}
       {msg && <div className="mt-1.5 text-xs text-slate-700">{msg}</div>}
+      {autoMsg && <div className="mt-1.5 text-xs text-teal-800">✓ {autoMsg}</div>}
       {row && row.status === "pending" && <div className="mt-2 rounded-lg bg-amber-50 p-2 text-xs text-amber-800">{MONTHS[monthIdx]} {year} wartet auf Freigabe durch die Leitung.</div>}
       {row && row.status === "draft" && row.review_note && <div className="mt-2 rounded-lg bg-rose-50 p-2 text-xs font-medium text-rose-700">{MONTHS[monthIdx]} {year} wurde zurückgewiesen: {row.review_note}</div>}
     </div>

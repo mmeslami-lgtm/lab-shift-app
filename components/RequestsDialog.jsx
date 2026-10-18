@@ -48,7 +48,8 @@ export default function RequestsDialog({ year, monthIdx, onImport, onChanged, on
     const list = (rows || []).filter((r) => r.status === "approved" && r.date_to >= first && r.date_from <= last).map((r) => {
       const a = r.date_from < first ? 1 : Number(r.date_from.slice(8));
       const b = r.date_to > last ? lastDay : Number(r.date_to.slice(8));
-      return { dbId: r.id, staffId: r.staff_id, days: a === b ? String(a) : `${a}-${b}`, kind: r.type_key === "krank" ? "sick" : "leave" };
+      const ym = `${year}-${pad(monthIdx + 1)}`;
+      return { dbId: `${r.id}@${ym}`, ym, staffId: r.staff_id, days: a === b ? String(a) : `${a}-${b}`, kind: r.type_key === "krank" ? "sick" : "leave" };
     });
     if (!onImport) return;
     const res = onImport(list);
@@ -91,16 +92,16 @@ export default function RequestsDialog({ year, monthIdx, onImport, onChanged, on
                 {isLeader && (
                   <div className="mt-2 flex flex-wrap gap-2">
                     {r.status !== "approved" && <button onClick={() => decide(r.id, "approved", r.decision_note)} disabled={busy === r.id} className="rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 active:translate-y-px">Genehmigen</button>}
-                    {r.status !== "denied" && <button onClick={() => setDeny({ id: r.id, note: "" })} disabled={busy === r.id} className="rounded-md border border-rose-200 px-3 py-1.5 text-xs text-rose-700 hover:bg-rose-50 active:translate-y-px">Ablehnen</button>}
+                    {r.status !== "denied" && <button onClick={() => setDeny({ id: r.id, note: "", cancel: r.status === "approved" })} disabled={busy === r.id} className="rounded-md border border-rose-200 px-3 py-1.5 text-xs text-rose-700 hover:bg-rose-50 active:translate-y-px">{r.status === "approved" ? "Stornieren" : "Ablehnen"}</button>}
                     {r.status !== "open" && <button onClick={() => decide(r.id, "open", null)} disabled={busy === r.id} className="rounded-md border border-slate-200 px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-50 active:translate-y-px">Wieder öffnen</button>}
                   </div>
                 )}
                 {deny && deny.id === r.id && (
                   <div className="mt-2 flex flex-wrap items-end gap-2 rounded-lg bg-slate-50 p-2">
-                    <label className="text-xs text-slate-600">Grund (optional, sieht die Person)
+                    <label className="text-xs text-slate-600">{deny.cancel ? "Grund der Stornierung (Pflicht, sieht die Person)" : "Grund (optional, sieht die Person)"}
                       <input autoFocus value={deny.note} maxLength={500} onChange={(e) => setDeny({ ...deny, note: e.target.value })} className="mt-1 block w-64 rounded-md border border-slate-300 px-2 py-1.5 text-sm" />
                     </label>
-                    <button onClick={() => decide(r.id, "denied", deny.note)} className="rounded-md bg-rose-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-rose-700 active:translate-y-px">Ablehnen</button>
+                    <button onClick={() => { if (deny.cancel && !String(deny.note || "").trim()) { setMsg("Bitte einen Grund für die Stornierung angeben."); return; } decide(r.id, "denied", deny.cancel ? `Storniert: ${deny.note.trim()}` : deny.note); }} className="rounded-md bg-rose-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-rose-700 active:translate-y-px">{deny.cancel ? "Stornieren" : "Ablehnen"}</button>
                     <button onClick={() => setDeny(null)} className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-600">Abbrechen</button>
                   </div>
                 )}

@@ -28,7 +28,7 @@
 
 ## ۳. آخرین بسته
 
-- **`Upload-KOMPLETT-27.zip`**: همهٔ کارهای زیر (شامل همین خلاصه در `docs/`). بسته‌های قدیمی‌تر بی‌اعتبارند.
+- **`Upload-NUR-30-Aenderungen (روی ۲۶).zip`**: همهٔ کارهای زیر (شامل همین خلاصه در `docs/`). بسته‌های قدیمی‌تر بی‌اعتبارند.
 - بستهٔ ۲۳ امتحان و در main است. **بستهٔ ۲۶ (حق مرخصی + Ziel ماهانه + اضافه‌کاری نقدی) باید در test آپلود و امتحان شود.**
 
 ## ۴. مهاجرت‌های دیتابیس (`docs/sql/`) – همه روی Supabase واقعی اجرا شده‌اند
@@ -62,6 +62,7 @@
 - ⚠️ کمبود ساختاری: با ترکیب فعلی (۶ تمام‌وقت + ۱ نفر ~۲۷ ساعت + ۴ مینی‌جاب) هر تمام‌وقت حدود **−۲۲ ساعت در ماه** کم می‌آورد؛ راه‌حل مدیریتی است (قرارداد/نفر/شیفت).
 - Fortbildung در Wünsche مثل Frühdienst حساب می‌شود؛ مینی‌جاب حداکثر ۲ شب؛ «Befreit von Büro»؛ جدول پلن در کادر اسکرول‌شونده؛ Saldo در دیتابیس.
 - **«Ziel» در «Zusammenfassung pro Mitarbeiter» با Soll = Vertrag:** اگر کلید `soll_vertrag` روشن باشد، هدف ماهانه دیگر ثابت ۱۶۰ نیست: ساعت هفتگی ÷ ۵ × روزهای دوشنبه–جمعهٔ غیرتعطیل منهای روزهای مرخصی (مارس ۲۰۲۶ = ۱۶۹٫۴، آوریل = ۱۵۴٫۰)، در هر دو برنامه‌ریز (`contractMonthTarget`, `sollCtx`). کلید خاموش = مثل قبل. تست: `zielvertrag_test`.
+- **مرخصی تأییدشده خودکار در پلن:** بعد از «Personen aus Datenbank laden» و با هر انتخاب ماه، درخواست‌های **تأییدشده** (Urlaub/Fortbildung/Krank) و غیبت‌های ثبت‌شده توسط Leitung (به‌جز Unentschuldigt) آن ماه خودکار در فهرست Urlaub/Krank برنامه‌ریز می‌آیند (`OrgBar`، پیام «✓ n genehmigte Abwesenheit(en) … automatisch übernommen»). درخواست‌های باز **نه**. ورودی‌ها برچسب ماه دارند (`ym`، `dbId = id@ym`)؛ عوض‌کردن ماه آن‌ها را برمی‌دارد؛ تکرار نمی‌شوند؛ بعد از تصمیم در «Anträge» دوباره اجرا می‌شود. **لغو مرخصی تأییدشده:** Leitung در «Anträge» روی درخواست تأییدشده «Stornieren» (دلیل اجباری، متن «Storniert: …» برای کارمند؛ وضعیت denied) → در پلن خودکار برداشته می‌شود («n stornierte entfernt – bitte den Plan für diese Tage prüfen»)؛ پلنی که قبلاً ساخته شده خودکار عوض نمی‌شود. هر دو برنامه‌ریز. تست: `autourlaub_test`.
 - **Personalnummer:** فیلد «Personal-Nr.» کنار ایمیل + دکمهٔ «# Fehlende Personalnummern vergeben» (فقط خالی‌ها، از ۱۰۰۱).
 - چاپ/Excel پلن؛ جاهای اضافه «— (zusätzlich) —».
 
@@ -95,6 +96,9 @@
 ### کلیدهای ویژگی هر شرکت
 `lib/features.js` + جدول `org_features` + بخش «Funktionen nur für diese Firma» در `/admin`. کلیدها: `terminal_pin_only`، `soll_vertrag`.
 
+### Keep-alive سوپابیس
+- `app/api/keepalive/route.js` + `vercel.json` → `crons`: هر روز ساعت ۵ صبح (UTC) یک خواندن کوچک از دیتابیس تا پروژهٔ رایگان سوپابیس به‌خاطر بی‌استفادگی متوقف نشود. اختیاری: متغیر `CRON_SECRET` در Vercel (آن‌وقت فقط Vercel می‌تواند صدا بزند).
+
 ### امنیت و حقوقی
 هدرهای امنیتی، `/impressum`، `/datenschutz`، فوتر، robots/sitemap؛ RLS روی همهٔ جدول‌ها.
 
@@ -124,6 +128,6 @@
 
 ## ۹. کار بعدی
 
-1. آپلود `Upload-KOMPLETT-27.zip` در **test** و امتحان: «Urlaubsanspruch eintragen» و کادرهای Urlaub/Krankheit در Stundenzettel؛ «📷 Stempeln» روی آیفون واقعی.
+1. آپلود `Upload-NUR-30-Aenderungen (روی ۲۶).zip` در **test** و امتحان: «Urlaubsanspruch eintragen» و کادرهای Urlaub/Krankheit در Stundenzettel؛ «📷 Stempeln» روی آیفون واقعی.
 2. بعد PR از test به main.
 3. برای شرکت واقعی آزمایشگاه در `/admin` کلید «Zeitkonto: Soll = Vertrag» را روشن کنید و Zuschläge (مثلاً Nacht ۲۰٪ کد 8027، Sonntag/Feiertag ۱۰۲٫۲۶ € در روز کد 1070/8002) و حق مرخصی را وارد کنید.
