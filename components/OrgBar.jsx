@@ -7,6 +7,9 @@ import WishesDialog from "./WishesDialog";
 import AttendanceDialog from "./AttendanceDialog";
 import RequestsDialog from "./RequestsDialog";
 import ZugaengeDialog from "./ZugaengeDialog";
+import MobileStamp from "./MobileStamp";
+import ScanStamp from "./ScanStamp";
+import EmployeeTimes from "./EmployeeTimes";
 
 const ROLE_LABEL = { owner: "Inhaber", supervisor: "Leitung", planner: "Schichtplaner", employee: "Mitarbeitende" };
 const PRODUCT_LABEL = { lab_planner: "Dienstplaner Labor", generic_planner: "Dienstplaner allgemein", employee_app: "Mitarbeiter-App" };
@@ -40,6 +43,10 @@ export default function OrgBar({ onLoadStaff, staffList, toDb, onIdsChanged, yea
   const isLeader = org && (org.role === "owner" || org.role === "supervisor");
   const [pendingMonths, setPendingMonths] = useState([]);
   const [attOpen, setAttOpen] = useState(false); // popup "Anwesenheit" (Zeiterfassung)
+  // Leitung/Inhaber who also work in the plan (account linked to a person): stamp themselves and see "Meine Zeiten".
+  // Own corrections are requests – the owner or another Leitung decides them (database rule).
+  const [selfStamp, setSelfStamp] = useState(null); // null | "mobil" | "qr"
+  const [myTimesOpen, setMyTimesOpen] = useState(false);
   const [reqOpen, setReqOpen] = useState(false); // popup "Anträge"
   const [zugOpen, setZugOpen] = useState(false); // popup "Zugänge"
   const [openReq, setOpenReq] = useState(0);
@@ -318,6 +325,12 @@ export default function OrgBar({ onLoadStaff, staffList, toDb, onIdsChanged, yea
           </button>
           {hasApp && <button onClick={() => setReqOpen(true)} className={`rounded-lg border px-3 py-2 text-sm active:translate-y-px ${openReq ? "border-rose-300 bg-rose-50 text-rose-800 hover:bg-rose-100" : "border-slate-200 text-slate-700 hover:bg-slate-50"}`}>Anträge{openReq ? ` (${openReq})` : ""}</button>}
           {isLeader && hasApp && <button onClick={() => setZugOpen(true)} className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 active:translate-y-px">Zugänge</button>}
+          {hasTime && org && org.staffId && (
+            <>
+              <button onClick={() => setSelfStamp((org.features || []).includes("mobil_stempeln") ? "mobil" : "qr")} className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 active:translate-y-px">⏱ Stempeln</button>
+              <button onClick={() => setMyTimesOpen(true)} className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 active:translate-y-px">Meine Zeiten</button>
+            </>
+          )}
           {isLeader && hasTime && <button onClick={() => setAttOpen(true)} className={`rounded-lg border px-3 py-2 text-sm active:translate-y-px ${openCorr ? "border-amber-300 bg-amber-50 text-amber-900 hover:bg-amber-100" : "border-slate-200 text-slate-700 hover:bg-slate-50"}`}>Anwesenheit{openCorr ? ` (${openCorr})` : ""}</button>}
           <button onClick={() => setWishesOpen(true)} className={`rounded-lg border px-3 py-2 text-sm active:translate-y-px ${openWishes > 0 ? "border-rose-200 bg-rose-50 font-medium text-rose-800 hover:bg-rose-100" : "border-slate-200 text-slate-700 hover:bg-slate-50"}`}>Wünsche{openWishes > 0 ? ` · ${openWishes} offen` : ""}</button>
           <a href="/freigaben" className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">Freigaben &amp; Archiv{openJumps > 0 ? ` · ${openJumps} Einspringen offen` : ""}</a>
@@ -325,6 +338,20 @@ export default function OrgBar({ onLoadStaff, staffList, toDb, onIdsChanged, yea
       </div>
       <div className="mt-2 text-[11px] text-slate-500">Neue oder geänderte Personen sind erst nach „Personen in Datenbank speichern“ in der Datenbank. Nur Personen aus der Datenbank können Pläne veröffentlicht bekommen.</div>
       {attOpen && <AttendanceDialog onClose={() => { setAttOpen(false); setReqBump((b) => b + 1); }} />}
+      {selfStamp === "mobil" && <MobileStamp org={org} withLocation={(org.features || []).includes("mobil_standort")} onClose={() => setSelfStamp(null)} onOpenTimes={() => setMyTimesOpen(true)} onScanQr={() => setSelfStamp("qr")} />}
+      {selfStamp === "qr" && <ScanStamp org={org} onClose={() => setSelfStamp(null)} onOpenTimes={() => setMyTimesOpen(true)} />}
+      {myTimesOpen && (
+        <div role="dialog" aria-modal="true" aria-label="Meine Zeiten" className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-900/40 p-3 sm:p-6" onClick={(e) => { if (e.target === e.currentTarget) setMyTimesOpen(false); }}>
+          <div className="w-full max-w-lg rounded-2xl bg-white p-3 shadow-xl sm:p-4">
+            <div className="mb-2 flex items-center justify-between">
+              <h2 className="text-lg font-semibold text-slate-800">Meine Zeiten</h2>
+              <button onClick={() => setMyTimesOpen(false)} className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50">Schließen</button>
+            </div>
+            <p className="mb-2 text-xs text-slate-500">Eigene Korrekturen und vergessene Zeiten beantragen Sie hier. Bestätigen kann sie der Inhaber oder eine andere Leitung.</p>
+            <EmployeeTimes org={org} />
+          </div>
+        </div>
+      )}
       {reqOpen && <RequestsDialog year={year} monthIdx={monthIdx} onImport={onImportRequests} onChanged={() => setReqBump((b) => b + 1)} onClose={() => { setReqOpen(false); setReqBump((b) => b + 1); }} />}
       {zugOpen && <ZugaengeDialog onClose={() => setZugOpen(false)} />}
       {wishesOpen && <WishesDialog year={year} monthIdx={monthIdx} onImport={onImportWishes} onChanged={() => setWishBump((b) => b + 1)} onClose={() => { setWishesOpen(false); setWishBump((b) => b + 1); }} />}

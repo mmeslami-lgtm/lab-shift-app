@@ -13,6 +13,14 @@ const dur = (a, b) => { if (!a || !b) return "–"; const m = Math.round((new Da
 
 // Popup "Anwesenheit" (Leitung / Inhaber): who is here now, today's stamps, terminals, PIN reset.
 // Read only for the times – corrections come in step 2 (with reason, logged).
+// "📱 mobil" next to a time that was stamped in the app without a terminal; with a location: link to the map
+function MobilMark({ ev }) {
+  if (!ev) return null;
+  if (ev.lat == null) return <span className="ml-1 text-xs text-sky-700" title="Mobil gestempelt (ohne Terminal)">📱</span>;
+  const url = `https://www.openstreetmap.org/?mlat=${ev.lat}&mlon=${ev.lng}#map=17/${ev.lat}/${ev.lng}`;
+  return <a className="ml-1 text-xs text-sky-700 underline" href={url} target="_blank" rel="noopener noreferrer" title={`Mobil gestempelt, Standort ±${ev.acc || "?"} m`}>📍 Karte</a>;
+}
+
 export default function AttendanceDialog({ onClose }) {
   const org = useContext(OrgContext);
   const [rows, setRows] = useState(null);
@@ -42,12 +50,18 @@ export default function AttendanceDialog({ onClose }) {
   const [payForm, setPayForm] = useState(null); // { staffId, hours, note }
   const [payList, setPayList] = useState([]);   // payouts of the month shown // { year, rows: { staffId: { entitlement, carryover } } }
   const [pairName, setPairName] = useState(null); // null = closed, string = form open
+  const [mobilEv, setMobilEv] = useState({}); // event id -> { lat, lng } for "mobil" stamps
   const [pairCode, setPairCode] = useState(null); // { code, name, expiresAt }
   const closeRef = useRef(onClose); closeRef.current = onClose;
 
   const load = useCallback(async () => {
     const since = new Date(); since.setHours(0, 0, 0, 0); since.setTime(since.getTime() - 20 * 3600000); // includes night shifts from yesterday
-    const s = await org.supabase.from("attendance_sessions").select("id, staff_id, check_in, check_out").eq("org_id", org.orgId).gte("check_in", since.toISOString()).order("check_in", { ascending: false });
+    const s = await org.supabase.from("attendance_sessions").select("id, staff_id, check_in, check_out, in_event_id, out_event_id").eq("org_id", org.orgId).gte("check_in", since.toISOString()).order("check_in", { ascending: false });
+    // mobile stamps (Mitarbeiter-App ohne Terminal): method + optional location of that one moment
+    const evIds = (s.data || []).flatMap((x) => [x.in_event_id, x.out_event_id]).filter(Boolean);
+    const ev = evIds.length ? await org.supabase.from("attendance_events").select("id, badge_code, raw_payload").in("id", evIds) : { data: [] };
+    const em = {}; (ev.data || []).forEach((e) => { if (e.badge_code === "mobil") em[e.id] = e.raw_payload || {}; });
+    setMobilEv(em);
     const st = await org.supabase.from("staff").select("id, name, personnel_no, weekly_hours").eq("org_id", org.orgId);
     const dv = await org.supabase.from("devices").select("id, serial, name, active, created_at").eq("org_id", org.orgId).order("created_at");
     const bg = await org.supabase.from("badges").select("id, staff_id, badge_code, revoked_at, issued_at").eq("org_id", org.orgId);
@@ -179,7 +193,7 @@ export default function AttendanceDialog({ onClose }) {
       const from = new Date(`${fromIso}T00:00:00`), to = new Date(y, month + 1, 1);
       const people = staffList.filter((x) => tsWho === "all" || x.id === tsWho);
       const [ses, sh, ab, ap, cl, co] = await Promise.all([
-        fetchAll(() => sb.from("attendance_sessions").select("id, staff_id, check_in, check_out").eq("org_id", org.orgId).gte("check_in", from.toISOString()).lt("check_in", to.toISOString())),
+        fetchAll(() => sb.from("attendance_sessions").select("id, staff_id, check_in, check_out, in_event_id, out_event_id").eq("org_id", org.orgId).gte("check_in", from.toISOString()).lt("check_in", to.toISOString())),
         fetchAll(() => sb.from("scheduled_shifts").select("staff_id, shift_date, shift_key, shift_label, planned_start, planned_end").eq("org_id", org.orgId).eq("status", "published").gte("shift_date", fromIso).lt("shift_date", `${to.getFullYear()}-${String(to.getMonth() + 1).padStart(2, "0")}-01`)),
         fetchAll(() => sb.from("attendance_absences").select("staff_id, work_date, kind, note, voided_at").eq("org_id", org.orgId)),
         fetchAll(() => sb.from("requests").select("staff_id, type_key, date_from, date_to, status").eq("org_id", org.orgId).eq("status", "approved")),
@@ -189,12 +203,16 @@ export default function AttendanceDialog({ onClose }) {
       const pays = overtimeMode(ot) === "gemischt" ? await fetchAll(() => sb.from("overtime_payouts").select("staff_id, year, month, hours, voided_at").eq("org_id", org.orgId)) : [];
       const vac = await sb.from("staff_vacation").select("staff_id, entitlement, carryover").eq("org_id", org.orgId).eq("year", y);
       const corrected = new Set((co || []).map((x) => x.session_id));
+      // sessions stamped "mobil" in the app (no terminal) – shown as "mobil" on the time sheet
+      const mobEv = await fetchAll(() => sb.from("attendance_events").select("id").eq("org_id", org.orgId).eq("badge_code", "mobil").gte("scanned_at", from.toISOString()).lt("scanned_at", new Date(to.getTime() + 36 * 3600000).toISOString()));
+      const mobIds = new Set((mobEv || []).map((e) => e.id));
+      const mobile = new Set((ses || []).filter((x) => mobIds.has(x.in_event_id) || mobIds.has(x.out_event_id)).map((x) => x.id));
       const hol = {}; const holidaysOf = (yy) => hol[yy] || (hol[yy] = germanHolidays(yy));
       const sheets = people.map((p) => {
         const days = computeDays({ sessions: (ses || []).filter((x) => x.staff_id === p.id), shifts: (sh || []).filter((x) => x.staff_id === p.id), absences: (ab || []).filter((x) => x.staff_id === p.id), approved: (ap || []).filter((x) => x.staff_id === p.id), holidaysOf });
         const closedRows = (cl || []).filter((r) => r.staff_id === p.id && r.year * 12 + r.month - 1 <= y * 12 + month);
         const overtime = { mode: overtimeMode(ot), code: ot && ot.code, stored: payoutMinutesByMonth(pays, p.id) };
-        return buildSheet({ name: p.personnel_no ? `${p.name} (${p.personnel_no})` : p.name, year: y, month, days, startIso, closedRows, overtime, corrected, mode: sollMode, weeklyHours: p.weekly_hours, vacation: (vac.data || []).find((v) => v.staff_id === p.id) || null });
+        return buildSheet({ name: p.personnel_no ? `${p.name} (${p.personnel_no})` : p.name, year: y, month, days, startIso, closedRows, overtime, corrected, mobile, mode: sollMode, weeklyHours: p.weekly_hours, vacation: (vac.data || []).find((v) => v.staff_id === p.id) || null });
       });
       if (!sheets.length) { setMsg("Keine Personen gefunden."); setBusy(""); return; }
       const ok = openHtmlPrint(buildTimesheetHtml(sheets, { orgName: org.orgName, year: y, month, mode: sollMode, surcharges: zus }));
@@ -344,8 +362,8 @@ export default function AttendanceDialog({ onClose }) {
                   {today.map((r) => (
                     <tr key={r.id} className="border-t border-slate-100">
                       <td className="py-1.5 pr-2 font-medium">{names[r.staff_id] || "?"}</td>
-                      <td className={`py-1.5 pr-2 ${r.check_in ? "" : "text-amber-700"}`}>{r.check_in ? clock(r.check_in) : "fehlt"}</td>
-                      <td className="py-1.5 pr-2">{r.check_out ? clock(r.check_out) : Date.now() - new Date(r.check_in).getTime() > 12 * 3600000 ? <span className="font-semibold text-amber-700">Gehen fehlt</span> : <span className="text-emerald-700">läuft</span>}</td>
+                      <td className={`py-1.5 pr-2 ${r.check_in ? "" : "text-amber-700"}`}>{r.check_in ? clock(r.check_in) : "fehlt"}<MobilMark ev={mobilEv[r.in_event_id]} /></td>
+                      <td className="py-1.5 pr-2">{r.check_out ? <>{clock(r.check_out)}<MobilMark ev={mobilEv[r.out_event_id]} /></> : Date.now() - new Date(r.check_in).getTime() > 12 * 3600000 ? <span className="font-semibold text-amber-700">Gehen fehlt</span> : <span className="text-emerald-700">läuft</span>}</td>
                       <td className="py-1.5 pr-2">{dur(r.check_in, r.check_out)}</td>
                       <td className="py-1.5 text-right"><button onClick={() => resetPin(r.staff_id)} disabled={!!busy} className="text-xs text-slate-500 underline">PIN zurücksetzen</button></td>
                     </tr>

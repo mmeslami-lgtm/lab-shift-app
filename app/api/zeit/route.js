@@ -47,7 +47,7 @@ async function userFrom(request) {
   return error || !data || !data.user ? null : data.user;
 }
 
-async function stamp({ orgId, staffId, direction, device, method }) {
+async function stamp({ orgId, staffId, direction, device, method, extra }) {
   // double tap protection: same person, same direction within 60 s
   const last = await supabaseAdmin.from("attendance_events").select("direction, scanned_at").eq("staff_id", staffId).order("scanned_at", { ascending: false }).limit(1);
   const prev = last.data && last.data[0];
@@ -55,7 +55,7 @@ async function stamp({ orgId, staffId, direction, device, method }) {
     return { error: direction === "in" ? "Du bist schon eingestempelt." : "Du bist schon ausgestempelt.", status: 409 };
   }
   const ins = await supabaseAdmin.from("attendance_events")
-    .insert({ org_id: orgId, staff_id: staffId, direction, badge_code: method, device_id: device ? device.serial : "app", raw_payload: { method } })
+    .insert({ org_id: orgId, staff_id: staffId, direction, badge_code: method, device_id: device ? device.serial : "app", raw_payload: { method, ...(extra || {}) } })
     .select("id, scanned_at").single();
   if (ins.error) return { error: "Speichern fehlgeschlagen: " + ins.error.message, status: 500 };
   return { ok: true, time: ins.data.scanned_at };
@@ -198,6 +198,33 @@ export async function POST(request) {
       const r = await stamp({ orgId: tok.org_id, staffId, direction, device: dev.data[0], method: "qr" });
       if (r.error) return json({ error: r.error }, r.status);
       return json({ ok: true, direction, time: r.time });
+    }
+
+    // ---------------- mobil stempeln (Mitarbeiter-App ohne Terminal; Firmen-Schalter mobil_stempeln) ----------------
+    // Die Zeit kommt vom Server. Mit mobil_standort wird der Standort NUR in diesem Moment mitgespeichert.
+    if (action === "mobil") {
+      const u = await userFrom(request);
+      if (!u) return json({ error: "Bitte neu anmelden." }, 401);
+      const direction = body.direction === "out" ? "out" : body.direction === "in" ? "in" : null;
+      if (!direction) return json({ error: "Kommen oder Gehen?" }, 400);
+      const ms = await supabaseAdmin.from("memberships").select("org_id, staff_id").eq("user_id", u.id);
+      const mine = (ms.data || []).filter((m) => m.staff_id && (!body.org || m.org_id === body.org));
+      const feats = mine.length ? await supabaseAdmin.from("org_features").select("org_id, feature, enabled").in("org_id", mine.map((m) => m.org_id)) : { data: [] };
+      const on = (org, f) => (feats.data || []).some((x) => x.org_id === org && x.feature === f && x.enabled !== false);
+      const m = mine.find((x) => on(x.org_id, "mobil_stempeln"));
+      if (!m) return json({ error: "Mobil stempeln ist für deine Firma nicht freigeschaltet." }, 403);
+      if (!(await hasProduct(m.org_id))) return json({ error: "Zeiterfassung ist nicht freigeschaltet" }, 403);
+      let extra = {};
+      if (on(m.org_id, "mobil_standort")) {
+        const lat = Number(body.lat), lng = Number(body.lng), acc = Number(body.acc);
+        if (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) {
+          return json({ error: "Deine Firma verlangt beim Stempeln den Standort. Bitte den Standort für diese Seite erlauben und noch einmal tippen.", needLocation: true }, 400);
+        }
+        extra = { lat: Math.round(lat * 1e5) / 1e5, lng: Math.round(lng * 1e5) / 1e5, acc: Number.isFinite(acc) ? Math.round(acc) : null };
+      }
+      const r = await stamp({ orgId: m.org_id, staffId: m.staff_id, direction, device: { serial: "mobil" }, method: "mobil", extra });
+      if (r.error) return json({ error: r.error }, r.status);
+      return json({ ok: true, direction, time: r.time, located: !!extra.lat });
     }
 
     return json({ error: "Unbekannte Aktion" }, 400);

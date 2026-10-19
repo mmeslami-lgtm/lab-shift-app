@@ -8,6 +8,7 @@ import EmployeeTimes from "./EmployeeTimes";
 import EmployeeRequests from "./EmployeeRequests";
 import StampReminder from "./StampReminder";
 import ScanStamp from "./ScanStamp";
+import MobileStamp from "./MobileStamp";
 
 // ---------------------------------------------------------------------------------------------
 // Employee app on REAL data. Reads only what the database rules allow for this login:
@@ -77,6 +78,8 @@ export default function EmployeeLive() {
   const todayIso = isoOf(now.getFullYear(), now.getMonth(), now.getDate());
   const [tab, setTab] = useState("plan");
   const [scanOpen, setScanOpen] = useState(false); // "📷 Stempeln": camera inside the app
+  const [mobilOpen, setMobilOpen] = useState(false); // "Mobil stempeln" (company feature mobil_stempeln)
+  const mobil = (org.features || []).includes("mobil_stempeln");
   const [view, setView] = useState({ y: now.getFullYear(), m: now.getMonth() });
   const [selIso, setSelIso] = useState(todayIso);
   const [teamMode, setTeamMode] = useState("people");
@@ -378,12 +381,13 @@ export default function EmployeeLive() {
 
         <StampReminder org={org} onOpenTimes={() => setTab("time")} />
         {(org.products || []).includes("time_tracking") && org.staffId && (
-          <button onClick={() => setScanOpen(true)} aria-label="Stempeln: QR-Code am Terminal scannen"
+          <button onClick={() => (mobil ? setMobilOpen(true) : setScanOpen(true))} aria-label={mobil ? "Stempeln: Kommen oder Gehen" : "Stempeln: QR-Code am Terminal scannen"}
             style={{ position: "fixed", right: 16, bottom: "calc(84px + env(safe-area-inset-bottom))", zIndex: 40, border: 0, borderRadius: 999, background: "#243B6B", color: "#fff", fontSize: 16, fontWeight: 700, padding: "14px 18px", boxShadow: "0 6px 18px rgba(15,34,56,.35)", cursor: "pointer" }}>
-            📷 Stempeln
+            {mobil ? "⏱ Stempeln" : "📷 Stempeln"}
           </button>
         )}
         {scanOpen && <ScanStamp org={org} onClose={() => setScanOpen(false)} onOpenTimes={() => setTab("time")} />}
+        {mobilOpen && <MobileStamp org={org} withLocation={(org.features || []).includes("mobil_standort")} onClose={() => setMobilOpen(false)} onOpenTimes={() => setTab("time")} onScanQr={() => { setMobilOpen(false); setScanOpen(true); }} />}
         {tab === "time" && <EmployeeTimes org={org} />}
 
         {tab === "requests" && <EmployeeRequests org={org} />}
