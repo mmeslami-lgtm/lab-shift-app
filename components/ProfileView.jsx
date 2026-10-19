@@ -9,7 +9,7 @@ const INK = "#1B2433", PRIMARY = "#243B6B", PAPER = "#E9EEF8", MUTED = "#6B7588"
 const ROLE_LABEL = { owner: "Inhaber", supervisor: "Leitung", planner: "Schichtplaner", employee: "Mitarbeitende" };
 // the three modules: Labor / Allgemein / Personnel
 const MODULES = [
-  { product: "lab_planner", short: "Labor", long: "Dienstplaner Labor", href: "/", planningOnly: true },
+  { product: "lab_planner", short: "Labor", long: "Dienstplaner Labor", href: "/labor", planningOnly: true },
   { product: "generic_planner", short: "Allgemein", long: "Dienstplaner allgemein", href: "/allgemein", planningOnly: true },
   { product: "employee_app", short: "Personnel", long: "Mitarbeiter-App", href: "/mitarbeiter", planningOnly: false },
 ];
@@ -88,7 +88,7 @@ export default function ProfileView({ forced = false }) {
   function homeFor() {
     const firms = (info && info.firms) || [];
     const plans = (p) => firms.some((x) => x.role !== "employee" && x.products.includes(p));
-    if (plans("lab_planner")) return "/";
+    if (plans("lab_planner")) return "/labor";
     if (plans("generic_planner")) return "/allgemein";
     if (firms.some((x) => x.products.includes("employee_app"))) return "/mitarbeiter";
     return "/profil";
@@ -117,7 +117,7 @@ export default function ProfileView({ forced = false }) {
         const target = await (async () => {
           const mem = await supabase.from("memberships").select("user_id, role"); const prod = await supabase.from("org_products").select("org_id, product, enabled").eq("enabled", true);
           const mine = (mem.data || []).filter((m) => m.user_id === session.user.id);
-          if (mine.some((m) => m.role !== "employee") && (prod.data || []).some((p) => p.product === "lab_planner")) return "/";
+          if (mine.some((m) => m.role !== "employee") && (prod.data || []).some((p) => p.product === "lab_planner")) return "/labor";
           if (mine.some((m) => m.role !== "employee") && (prod.data || []).some((p) => p.product === "generic_planner")) return "/allgemein";
           if ((prod.data || []).some((p) => p.product === "employee_app")) return "/mitarbeiter";
           return "/profil";

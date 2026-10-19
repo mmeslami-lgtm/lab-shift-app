@@ -99,6 +99,14 @@
 ### Keep-alive سوپابیس
 - `app/api/keepalive/route.js` + `vercel.json` → `crons`: هر روز ساعت ۵ صبح (UTC) یک خواندن کوچک از دیتابیس تا پروژهٔ رایگان سوپابیس به‌خاطر بی‌استفادگی متوقف نشود. اختیاری: متغیر `CRON_SECRET` در Vercel (آن‌وقت فقط Vercel می‌تواند صدا بزند).
 
+### دامنه و صفحهٔ شروع (Dienstigo)
+- نام محصول: **Dienstigo**؛ دامنه `dienstigo.de` (IONOS، با Mail Basic: `info@dienstigo.de`) + `dienstigo.com`. DNS در IONOS: A `@` → `216.198.79.1`، CNAME `www` → مقدار ورسل؛ ورسل `dienstigo.de` را با 308 به `www.dienstigo.de` می‌برد.
+- **`/`** = صفحهٔ معرفی عمومی (`app/page.js`، فونت‌ها با next/font: Bricolage Grotesque + Atkinson Hyperlegible؛ بدون قیمت). کسی که وارد شده خودکار به بخش خودش می‌رود (`components/SignedInRedirect.jsx`).
+- **`/login`** = ورود برای همه، بعد هدایت بر اساس نقش (`lib/homeRoute.js`): Labor → `/labor`، عمومی → `/allgemein`، کارمند → `/mitarbeiter`، ادمین بدون شرکت → `/admin`، وگرنه `/profil`.
+- **برنامه‌ریز آزمایشگاه از `/` به `/labor` منتقل شد** (لینک‌ها در ProfileView و ScheduleReview به‌روز شد). manifest: نام Dienstigo، `start_url: /login`. robots/sitemap/layout با `https://www.dienstigo.de`.
+- **`/demo` = رندگانگ (تور تعاملی)**: `components/DemoTour.jsx`، پنج فصل (Dienstplan Labor، Dienstplan allgemein، Mitarbeiter-App، Stempeln، Stundenzettel؛ فصل allgemein یک «Beispielansicht» کشیده‌شده است، نه عکس – بعداً با عکس واقعی جایگزین شود)، عکس‌های واقعی در `public/demo/*.webp` (از راهنماها)، کادر هایلایت با درصد، Weiter/Zurück/پیکان‌ها، «Abspielen» خودکار هر ۶٫۵ ثانیه. صفحهٔ قدیمی پیش‌نمایش کارمند از `/demo` برداشته شد. لینک «Rundgang» در صفحهٔ شروع.
+- سوپابیس → Authentication → URL Configuration: Site URL `https://www.dienstigo.de` + Redirect URLs `https://www.dienstigo.de/**`, `https://dienstigo.de/**` (آدرس‌های قدیمی بمانند).
+
 ### امنیت و حقوقی
 هدرهای امنیتی، `/impressum`، `/datenschutz`، فوتر، robots/sitemap؛ RLS روی همهٔ جدول‌ها.
 

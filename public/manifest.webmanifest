@@ -1,8 +1,8 @@
 {
-  "name": "Dienstplaner",
-  "short_name": "Dienstplan",
+  "name": "Dienstigo",
+  "short_name": "Dienstigo",
   "description": "Dienstplaner für die Leitung",
-  "start_url": "/",
+  "start_url": "/login",
   "scope": "/",
   "display": "standalone",
   "orientation": "any",
