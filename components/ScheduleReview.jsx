@@ -290,7 +290,7 @@ export default function ScheduleReview() {
             <h1 style={{ fontSize: 24, fontWeight: 750, letterSpacing: -0.4, margin: 0 }}>Freigaben &amp; Archiv</h1>
           </div>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-            <a href="/" style={{ ...btnGhost, textDecoration: "none" }}>Zum Dienstplaner</a>
+            <a href="/labor" style={{ ...btnGhost, textDecoration: "none" }}>Zum Dienstplaner</a>
             <span style={{ width: 28 }} aria-hidden="true" />
             <button onClick={() => sb.auth.signOut()} style={btnGhost}>Abmelden</button>
           </div>
