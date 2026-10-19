@@ -1,13 +1,10 @@
-import { Bricolage_Grotesque, Atkinson_Hyperlegible } from "next/font/google";
 import DemoTour from "../../components/DemoTour";
 
 // /demo – Rundgang durch Dienstigo mit echten Bildschirmfotos (Klick oder "Abspielen").
-const display = Bricolage_Grotesque({ subsets: ["latin"], weight: ["600", "700"], variable: "--dg-display", display: "swap" });
-const body = Atkinson_Hyperlegible({ subsets: ["latin"], weight: ["400", "700"], variable: "--dg-body", display: "swap" });
 const DEMO = "mailto:info@dienstigo.de?subject=Demo%20Dienstigo";
 
 const CSS = `
-.dgd{background:#F3F5F9;color:#18233A;font-family:var(--dg-body),system-ui,sans-serif;font-size:1.0625rem;line-height:1.6;min-height:100vh}
+.dgd{--dg-display:"Avenir Next","Segoe UI Variable Display","Segoe UI",system-ui,-apple-system,Roboto,"Helvetica Neue",Arial,sans-serif;--dg-body:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;background:#F3F5F9;color:#18233A;font-family:var(--dg-body),system-ui,sans-serif;font-size:1.0625rem;line-height:1.6;min-height:100vh}
 .dgd *{box-sizing:border-box}
 .dgd-wrap{max-width:1120px;margin:0 auto;padding:0 22px 56px}
 .dgd-top{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:22px 0}
@@ -25,7 +22,7 @@ const CSS = `
 
 export default function DemoPage() {
   return (
-    <div className={`dgd ${display.variable} ${body.variable}`}>
+    <div className="dgd">
       <style dangerouslySetInnerHTML={{ __html: CSS }} />
       <div className="dgd-wrap">
         <header className="dgd-top">

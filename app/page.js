@@ -1,11 +1,8 @@
-import { Bricolage_Grotesque, Atkinson_Hyperlegible } from "next/font/google";
 import SignedInRedirect from "../components/SignedInRedirect";
 
 // Public start page (dienstigo.de). Visitors see what Dienstigo does; whoever is signed in is sent to their
 // own area right away (SignedInRedirect). The Labor planner lives at /labor, sign-in at /login.
-// Fonts are self-hosted by Next (allowed by the CSP: font-src 'self').
-const display = Bricolage_Grotesque({ subsets: ["latin"], weight: ["600", "700"], variable: "--dg-display", display: "swap" });
-const body = Atkinson_Hyperlegible({ subsets: ["latin"], weight: ["400", "700"], variable: "--dg-body", display: "swap" });
+// Schriften: System-Schriften des Geräts (keine Google-Fonts – die brachten den Vercel-Build zum Absturz).
 
 export const metadata = {
   title: { absolute: "Dienstigo – Dienstplan und Zeiterfassung für Praxen, Labore und kleine Teams" },
@@ -42,7 +39,7 @@ const STEPS = [
 ];
 
 const CSS = `
-.dg{--paper:#F3F5F9;--ink:#18233A;--navy:#243B6B;--muted:#56617A;--line:#DCE2EC;--f:#D6EAF8;--f-t:#0E5E8C;--s:#D8F0E0;--s-t:#1E6B3E;--n:#24345A;--n-t:#E9EEF8;--u:#ECE3FA;--u-t:#5B3A99;--now:#E3A72F;
+.dg{--dg-display:"Avenir Next","Segoe UI Variable Display","Segoe UI",system-ui,-apple-system,Roboto,"Helvetica Neue",Arial,sans-serif;--dg-body:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;--paper:#F3F5F9;--ink:#18233A;--navy:#243B6B;--muted:#56617A;--line:#DCE2EC;--f:#D6EAF8;--f-t:#0E5E8C;--s:#D8F0E0;--s-t:#1E6B3E;--n:#24345A;--n-t:#E9EEF8;--u:#ECE3FA;--u-t:#5B3A99;--now:#E3A72F;
   background:var(--paper);color:var(--ink);font-family:var(--dg-body),system-ui,sans-serif;font-size:1.0625rem;line-height:1.6;-webkit-font-smoothing:antialiased}
 .dg *{box-sizing:border-box}
 .dg a{color:inherit}
@@ -134,7 +131,7 @@ const CSS = `
 export default function StartPage() {
   let i = 0;
   return (
-    <div className={`dg ${display.variable} ${body.variable}`}>
+    <div className="dg">
       <SignedInRedirect />
       <style dangerouslySetInnerHTML={{ __html: CSS }} />
       <div className="dg-wrap">
