@@ -221,7 +221,15 @@ export default function AdminDashboard() {
                   <tr key={m.userId} style={{ borderTop: "1px solid #EEF0F4" }}>
                     <td style={{ padding: "6px", fontWeight: 600 }}>{m.email}</td>
                     <td style={{ padding: "6px" }}>{ROLE_LABEL[m.role] || m.role}</td>
-                    <td style={{ padding: "6px", color: MUTED }}>{m.staffName || "–"}</td>
+                    <td style={{ padding: "6px", color: MUTED }}>
+                      {m.role === "employee" ? (m.staffName || "–") : (
+                        <select aria-label={`Person für ${m.email}`} value={m.staffId || ""} disabled={busy} style={{ ...fld, marginTop: 0, padding: "4px 6px", fontSize: 12, width: "auto" }}
+                          onChange={(e) => act({ action: "link_staff", orgId: f.id, userId: m.userId, staffId: e.target.value || null }, { key: "ls" + m.userId, okText: e.target.value ? "Person verknüpft – dieses Konto kann jetzt stempeln und „Meine Zeiten“ sehen." : "Verknüpfung entfernt." })}>
+                          <option value="">– arbeitet nicht im Plan –</option>
+                          {f.staff.filter((s) => !s.hasLogin || s.id === m.staffId).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                        </select>
+                      )}
+                    </td>
                     <td style={{ padding: "6px", color: MUTED }}>{m.lastSignIn ? fmt(m.lastSignIn) : "noch nie"}</td>
                     <td style={{ padding: "6px", whiteSpace: "nowrap", textAlign: "right" }}>
                       <button style={{ ...ghost, marginRight: 6 }} disabled={busy} onClick={() => {
@@ -249,10 +257,10 @@ export default function AdminDashboard() {
                     <option value="supervisor">Leitung</option><option value="employee">Mitarbeitende</option><option value="planner">Schichtplaner</option>
                   </select>
                 </label>
-                {mf.role === "employee" && (
-                  <label style={{ fontSize: 12, color: MUTED }}>Person
+                {(
+                  <label style={{ fontSize: 12, color: MUTED }}>{mf.role === "employee" ? "Person" : "Person (optional, wenn im Plan)"}
                     <select value={mf.staffId} onChange={(e) => setMf({ ...mf, staffId: e.target.value })} style={fld}>
-                      <option value="">– wählen –</option>
+                      <option value="">{mf.role === "employee" ? "– wählen –" : "– arbeitet nicht im Plan –"}</option>
                       {f.staff.filter((s) => !s.hasLogin).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
                     </select>
                   </label>

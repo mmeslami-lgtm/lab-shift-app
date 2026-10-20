@@ -1,0 +1,6 @@
+-- 28-antragsarten-mutterschutz-elternzeit.sql  (schon auf der echten Datenbank ausgeführt, 20.10.2026)
+-- requests.cut_vacation (§ 17 BEEG), attendance_absences.kind erweitert,
+-- seed_request_types(org): Urlaub, Fortbildung/Weiterbildung, Krank mit/ohne Attest, Freizeitausgleich, Sonderurlaub,
+-- Dienstreise, Kur/Reha, Mutterschutz/Beschäftigungsverbot, Elternzeit – für alle Firmen; create_organization ruft es auf.
+-- set_time_modes(org, mobil, nur_mobil, standort) – Leitung wählt Terminal/Handy/beides.
+-- Vollständiger Text: Supabase-Migrationen "request_types_extended_mutterschutz_elternzeit", "set_time_modes_by_leitung".

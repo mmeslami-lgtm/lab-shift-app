@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { ABSENCE, absenceMap } from "../lib/absence";
+import { ABSENCE, absenceMap, isNeutral } from "../lib/absence";
 import { sollOf } from "../lib/timesheet";
 import { overtimeMode, payoutMinutesByMonth, walkBalance } from "../lib/overtime";
 
@@ -100,7 +100,7 @@ export default function EmployeeTimes({ org }) {
       d.missing = d.sessions.some((s) => !s.check_in);
       d.pause = breakFor(d.gross);
       d.worked = Math.max(0, d.gross - d.pause);
-      d.planned = sollOf(sollMode, weekly, d.iso, d.shifts.reduce((t, s) => t + plannedOf(s), 0));
+      d.planned = isNeutral(d.absence) ? 0 : sollOf(sollMode, weekly, d.iso, d.shifts.reduce((t, s) => t + plannedOf(s), 0)); // Mutterschutz/Elternzeit: no Soll
       // Abwesenheit: krank / urlaub / fortbildung / sonstiges count as the planned time (no minus)
       const credit = d.absence && ABSENCE[d.absence.kind] && ABSENCE[d.absence.kind].credit;
       d.daily = credit ? Math.max(d.worked, d.planned) - d.planned : d.worked - d.planned;

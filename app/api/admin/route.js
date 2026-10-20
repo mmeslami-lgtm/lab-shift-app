@@ -140,7 +140,8 @@ export async function POST(request) {
         const org = await supabaseAdmin.from("organizations").select("id, name").eq("id", body.orgId);
         if (!org.data || !org.data[0]) return json({ error: "Firma nicht gefunden." }, 404);
         let staffId = null;
-        if (body.role === "employee") {
+        // employees must belong to a person; Leitung/Inhaber may (optional), so they can stamp and see "Meine Zeiten"
+        if (body.role === "employee" || body.staffId) {
           if (!body.staffId) return json({ error: "Bitte die Person wählen, zu der dieses Konto gehört." }, 400);
           const st = await supabaseAdmin.from("staff").select("id").eq("id", body.staffId).eq("org_id", body.orgId);
           if (!st.data || !st.data[0]) return json({ error: "Diese Person gehört nicht zu dieser Firma." }, 400);
@@ -216,6 +217,23 @@ export async function POST(request) {
         const r = await supabaseAdmin.from("organizations").update({ active: !!body.active }).eq("id", body.orgId);
         if (r.error) throw r.error;
         await log(me, "set_org_active", body.orgId, null, { active: !!body.active });
+        return json({ ok: true });
+      }
+      case "link_staff": {
+        // link (or unlink) an existing account to a person of the plan – e.g. a Leitung who also works shifts
+        const mem = await supabaseAdmin.from("memberships").select("user_id, role, staff_id").eq("org_id", body.orgId).eq("user_id", body.userId);
+        if (!mem.data || !mem.data[0]) return json({ error: "Konto nicht gefunden." }, 404);
+        if (!body.staffId) {
+          if (mem.data[0].role === "employee") return json({ error: "Mitarbeitende brauchen immer eine Person." }, 400);
+        } else {
+          const st = await supabaseAdmin.from("staff").select("id").eq("id", body.staffId).eq("org_id", body.orgId);
+          if (!st.data || !st.data[0]) return json({ error: "Diese Person gehört nicht zu dieser Firma." }, 400);
+          const taken = await supabaseAdmin.from("memberships").select("user_id").eq("staff_id", body.staffId);
+          if (taken.data && taken.data.some((t) => t.user_id !== body.userId)) return json({ error: "Diese Person hat schon ein anderes Konto." }, 409);
+        }
+        const up = await supabaseAdmin.from("memberships").update({ staff_id: body.staffId || null }).eq("org_id", body.orgId).eq("user_id", body.userId);
+        if (up.error) throw new Error(up.error.message);
+        await log(me, "link_staff", body.orgId, body.userId, { staffId: body.staffId || null });
         return json({ ok: true });
       }
       case "remove_member": {

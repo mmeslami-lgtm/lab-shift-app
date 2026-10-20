@@ -1,0 +1,5 @@
+-- 27-eigene-zeiten-schema.sql  (Leitung darf eigene Arbeitszeiten nicht selbst bestätigen/ändern)
+-- Run ONCE in the Supabase SQL Editor, after scripts 1-26. Already applied on the live database (19.10.2026).
+-- my_role(org); decide_correction_request / correct_attendance / add_attendance_session: if the target person is the
+-- caller's own person and the caller is not the owner -> error. The owner may correct own times (logged with reason).
+-- (Full function bodies: see migration "no_self_approval_for_supervisors" in Supabase.)

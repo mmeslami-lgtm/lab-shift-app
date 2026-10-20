@@ -93,8 +93,32 @@
 - Stundenzettel در حالت پلن «Monatsabschluss (Plan/Vertrag)» را آخر ماه نشان می‌دهد تا پایان ماه = شروع ماه بعد. تست: `ueberstunden_test`.
 - **Ziel در برنامه‌ریز عمومی بدون Soll=Vertrag:** ساعت هفتگی × روزهای باز ماه ÷ روزهای باز هفته (مثلاً چهارشنبه بسته در مارس ۲۰۲۶ → ۱۷۳٫۳). با کلید `soll_vertrag` همیشه دوشنبه–جمعه (۱۶۹٫۴) مثل سیستم قبلی. به کاربر توضیح داده شد.
 
+### Mobil stempeln (برای کارهای بدون محل ثابت، مثل پرستاری سیار)
+- کلید ویژگی `mobil_stempeln`: در اپ کارمند دکمهٔ «⏱ Stempeln» → `components/MobileStamp.jsx` با Kommen/Gehen بزرگ، بدون ترمینال (و لینک «QR am Terminal scannen»). سرور: `/api/zeit` action `mobil` (زمان سرور، محافظت دوبار زدن ۶۰ ثانیه، رویداد با `badge_code = device_id = "mobil"`).
+- کلید `mobil_standort` (اختیاری): فقط در لحظهٔ ثبت یک بار موقعیت گوشی گرفته می‌شود (`raw_payload: {lat, lng, acc}`، گرد به ۵ رقم)، بدون ردیابی مداوم؛ اگر کاربر اجازه ندهد، ثبت انجام نمی‌شود. Datenschutz به‌روز شد. ⚠️ برای مشتری: اطلاع به کارمندان و در صورت وجود موافقت Betriebsrat.
+- Leitung در «Anwesenheit → Heute»: «📱» کنار ثبت موبایل یا «📍 Karte» (لینک OpenStreetMap). Stundenzettel: «mobil» در ستون Information.
+- بدون مهاجرت دیتابیس (از `attendance_events.raw_payload` استفاده می‌شود).
+
+### همه (کارمند، Leitung، Inhaber) خودشان ساعت می‌زنند
+- در `/admin` هر حساب Leitung/Inhaber را می‌شود به یک «Person» از پلن وصل کرد (ستون Person، action `link_staff`؛ در ساخت حساب هم اختیاری).
+- حساب وصل‌شده در برنامه‌ریز دکمه‌های «⏱ Stempeln» (موبایل یا QR) و «Meine Zeiten» (همان EmployeeTimes با Korrektur/Zeit beantragen) دارد.
+- قانون دیتابیس (`my_role`, اسکریپت ۲۷، اجرا شد): Leitung نمی‌تواند زمان‌های **خودش** را تأیید/ویرایش/اضافه کند → Inhaber یا Leitung دیگر؛ Inhaber می‌تواند (با دلیل، ثبت‌شده). درخواست‌ها نیاز به محصول employee_app دارند.
+
+### Erfassungsart توسط خود Leitung/Inhaber
+- «Anwesenheit → Wie wird gestempelt?»: Nur Terminal / Nur Handy / Terminal und Handy + چک‌باکس Standort → RPC `set_time_modes` (کلیدهای `mobil_stempeln`, `nur_mobil`, `mobil_standort` در org_features). «Nur Handy» لینک QR را در MobileStamp پنهان می‌کند.
+- صفحهٔ شروع: «Anmelden» یک منوی کشویی است (`components/LoginMenu.jsx`؛ hover روی کامپیوتر، لمس روی گوشی) با Mitarbeiter / Leitung / Inhaber → `/login?als=…`.
+- `/login`: انتخاب نقش با کلید کشویی (Mitarbeiter / Leitung / Inhaber، در localStorage)، بعد ایمیل و رمز؛ `homeRoute(..., prefer)`.
+
+### انواع درخواست + Mutterschutz/Elternzeit + Einspringen (اسکریپت ۲۸، اجرا شد)
+- انواع: Urlaub، Fortbildung/Weiterbildung، Krank mit/ohne Attest، Freizeitausgleich (= ueberstunden، منفی)، Sonderurlaub، Dienstreise، Kur/Reha (credit)، **Mutterschutz** و **Elternzeit** (neutral: Soll 0). `lib/absence.js`: ABSENCE، REQUEST_TO_ABSENCE، اولویت (Mutterschutz > Elternzeit > Krank > …)، `elternzeitCut` (۱/۱۲ برای هر ماه کامل، فقط با `requests.cut_vacation` که Leitung در «Anträge» تیک می‌زند).
+- اپ کارمند «Anträge»: کادر Urlaub verfügbar (Anspruch/Genommen/Beantragt)، کاشی‌های Urlaub/Krank/Freizeitausgleich، راهنمای هر نوع، هشدار بیش از مانده.
+- Stundenzettel: Krankheit = krank + krank_ohne؛ Urlaub فقط urlaub؛ «Anspruch gekürzt (§ 17 BEEG)»؛ **eingesprungen** از `shift_changes` (kind cover/extra) + Zuschlag اختیاری «Einspringen» (پرسنت یا مبلغ در روز).
+
+### Schulung (رایگان، بدون KI)
+- `components/Schulung.jsx`: دوره‌ها برای Mitarbeiter (۷)، Leitung (۸)، Inhaber (۳)؛ عکس واقعی با هایلایت، «👉 Zeig mir» (اپ: تب‌ها؛ برنامه‌ریز: Anträge/Anwesenheit/Zugänge)، یک سؤال کوتاه در هر درس، پیشرفت در localStorage، جستجو در درس‌ها و FAQ. دکمه «🎓 Hilfe» در اپ کارمند و «🎓 Schulung» در برنامه‌ریز. فعلاً آلمانی؛ بعداً EN/FA و دستیار KI (Claude) روی همین.
+
 ### کلیدهای ویژگی هر شرکت
-`lib/features.js` + جدول `org_features` + بخش «Funktionen nur für diese Firma» در `/admin`. کلیدها: `terminal_pin_only`، `soll_vertrag`.
+`lib/features.js` + جدول `org_features` + بخش «Funktionen nur für diese Firma» در `/admin`. کلیدها: `terminal_pin_only`، `soll_vertrag`، `mobil_stempeln`، `mobil_standort`.
 
 ### Keep-alive سوپابیس
 - `app/api/keepalive/route.js` + `vercel.json` → `crons`: هر روز ساعت ۵ صبح (UTC) یک خواندن کوچک از دیتابیس تا پروژهٔ رایگان سوپابیس به‌خاطر بی‌استفادگی متوقف نشود. اختیاری: متغیر `CRON_SECRET` در Vercel (آن‌وقت فقط Vercel می‌تواند صدا بزند).

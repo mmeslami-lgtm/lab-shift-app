@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useState } from "react";
+import { elternzeitCut } from "../lib/absence";
 
 const INK = "#1B2433", PRIMARY = "#243B6B", MUTED = "#6B7588", LINE = "#D9DEE7";
 const pad = (n) => String(n).padStart(2, "0");
@@ -10,6 +11,7 @@ const fld = { display: "block", width: "100%", boxSizing: "border-box", marginTo
 const STATUS = { open: ["Offen – wartet auf die Leitung", "#7A4E00", "#FFF4D6"], approved: ["Genehmigt ✓", "#1F6347", "#DDF2E8"], denied: ["Abgelehnt", "#8A2A3E", "#FCE5EA"] };
 
 // Mon-Fri between two dates (a suggestion; holidays are not known here)
+const fmt = (n) => String(Math.round(Number(n) * 10) / 10).replace(".", ",");
 function workdays(a, b) {
   if (!a || !b || b < a) return 0;
   let n = 0; const d = new Date(a + "T12:00:00"); const end = new Date(b + "T12:00:00");
@@ -17,7 +19,17 @@ function workdays(a, b) {
   return n;
 }
 
-// Tab "Anträge" of the employee app: Urlaub / Fortbildung / Krankmeldung to the Leitung.
+// Hints shown under the form per type (German rules; details decide the company)
+const HINT = {
+  urlaub: "Die Tage werden von deinem Urlaubskonto abgezogen, sobald die Leitung genehmigt.",
+  krank: "Die Krankmeldung sieht nur die Leitung. Die ärztliche Bescheinigung gibst du wie bisher ab.",
+  krank_ohne: "Ab wann ein Attest nötig ist, regelt deine Firma. Die Meldung sieht nur die Leitung.",
+  freizeitausgleich: "Die Stunden werden von deinem Zeitkonto abgezogen.",
+  mutterschutz: "Mutterschutz: 6 Wochen vor bis 8 Wochen nach der Geburt (bei Früh- oder Mehrlingsgeburt 12 Wochen). Dein Urlaubsanspruch wird dadurch nicht gekürzt (§ 24 MuSchG); schon genehmigter Urlaub in dieser Zeit wird zurückgebucht.",
+  elternzeit: "Elternzeit bitte rechtzeitig schriftlich bei der Leitung anmelden (in der Regel 7 Wochen vorher). Ob der Urlaub für volle Monate gekürzt wird, entscheidet die Leitung (§ 17 BEEG).",
+};
+
+// Tab "Anträge" of the employee app: Urlaub, Krank, Fortbildung, Elternzeit … to the Leitung.
 // The person sees only own requests; an open request can be withdrawn.
 export default function EmployeeRequests({ org }) {
   const sb = org.supabase;
@@ -26,11 +38,24 @@ export default function EmployeeRequests({ org }) {
   const [form, setForm] = useState(null);
   const [msg, setMsg] = useState({ text: "", bad: false });
   const [busy, setBusy] = useState(false);
+  const [vac, setVac] = useState(null); // { ent, cut, taken, pending, avail } for this year
 
   const load = useCallback(async () => {
     const t = await sb.from("request_types").select("key, label, active, sort_order").eq("org_id", org.orgId).order("sort_order");
-    const r = await sb.from("requests").select("id, type_key, date_from, date_to, days, note, status, decision_note, created_at").eq("org_id", org.orgId).eq("staff_id", org.staffId).order("date_from", { ascending: false });
+    const r = await sb.from("requests").select("id, type_key, date_from, date_to, days, note, status, decision_note, created_at, cut_vacation").eq("org_id", org.orgId).eq("staff_id", org.staffId).order("date_from", { ascending: false });
     setTypes((t.data || []).filter((x) => x.active !== false)); setRows(r.error ? [] : r.data || []);
+    // Urlaubskonto dieses Jahres (Anspruch + Rest Vorjahr − Kürzung Elternzeit − genommen/beantragt)
+    const y = new Date().getFullYear();
+    const v = await sb.from("staff_vacation").select("entitlement, carryover").eq("org_id", org.orgId).eq("staff_id", org.staffId).eq("year", y);
+    const row = v.data && v.data[0];
+    if (!row) { setVac(null); return; }
+    const all = r.data || [];
+    const inYear = (x) => x.type_key === "urlaub" && String(x.date_from).slice(0, 4) === String(y);
+    const taken = all.filter((x) => inYear(x) && x.status === "approved").reduce((t, x) => t + Number(x.days || 0), 0);
+    const pending = all.filter((x) => inYear(x) && x.status === "open").reduce((t, x) => t + Number(x.days || 0), 0);
+    const cut = elternzeitCut(all, y, row.entitlement).cut;
+    const ent = Number(row.entitlement || 0) + Number(row.carryover || 0) - cut;
+    setVac({ ent, cut, taken, pending, avail: ent - taken });
   }, [sb, org.orgId, org.staffId]);
   useEffect(() => { load(); }, [load]);
 
@@ -59,6 +84,29 @@ export default function EmployeeRequests({ org }) {
       <div style={{ fontSize: 22, fontWeight: 750, padding: "4px 4px 12px" }}>Anträge</div>
       {msg.text && <div role={msg.bad ? "alert" : "status"} style={{ ...card, background: msg.bad ? "#FCE5EA" : "#DDF2E8", color: msg.bad ? "#8A2A3E" : "#1F6347", fontSize: 14 }}>{msg.text}</div>}
 
+      {vac && (
+        <div style={{ ...card, padding: 0, overflow: "hidden" }}>
+          <div style={{ background: "#DDF2E8", color: "#1F6347", display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 16px" }}>
+            <span style={{ fontWeight: 700 }}>Urlaub verfügbar {new Date().getFullYear()}</span><span style={{ fontSize: 26, fontWeight: 800 }}>{fmt(vac.avail - vac.pending)}</span>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", padding: "10px 16px", fontSize: 13, color: MUTED, gap: 6 }}>
+            <div>Anspruch<div style={{ fontSize: 17, fontWeight: 700, color: INK }}>{fmt(vac.ent)}</div></div>
+            <div>Genommen<div style={{ fontSize: 17, fontWeight: 700, color: INK }}>{fmt(vac.taken)}</div></div>
+            <div>Beantragt<div style={{ fontSize: 17, fontWeight: 700, color: INK }}>{fmt(vac.pending)}</div></div>
+          </div>
+          {vac.cut ? <div style={{ fontSize: 12, color: MUTED, padding: "0 16px 10px" }}>Anspruch gekürzt um {fmt(vac.cut)} Tag(e) wegen Elternzeit (§ 17 BEEG).</div> : null}
+        </div>
+      )}
+      {!form && types.length > 0 && (
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 12 }}>
+          {[["urlaub", "🏖️", "Urlaub"], ["krank", "🤒", "Krank"], ["freizeitausgleich", "⏳", "Freizeit­ausgleich"]].filter(([k]) => types.some((t) => t.key === k)).map(([k, ic, l]) => (
+            <button key={k} onClick={() => { setMsg({ text: "", bad: false }); setForm({ type: k, from: today, to: today, note: "" }); }}
+              style={{ ...card, marginBottom: 0, padding: "12px 6px", cursor: "pointer", textAlign: "center", fontSize: 14, fontWeight: 650, color: INK }}>
+              <div style={{ fontSize: 26 }}>{ic}</div>{l}
+            </button>
+          ))}
+        </div>
+      )}
       {form ? (
         <div style={card}>
           <div style={{ fontSize: 17, fontWeight: 700, marginBottom: 8 }}>Neuer Antrag</div>
@@ -76,7 +124,8 @@ export default function EmployeeRequests({ org }) {
           <label style={{ display: "block", fontSize: 13, color: MUTED, marginTop: 10 }}>Notiz (optional)
             <textarea value={form.note} maxLength={500} rows={2} onChange={(e) => setForm({ ...form, note: e.target.value })} style={{ ...fld, resize: "vertical" }} />
           </label>
-          {form.type === "krank" && <div style={{ fontSize: 13, color: MUTED, marginTop: 6 }}>Die Krankmeldung sieht nur die Leitung. Eine ärztliche Bescheinigung gibst du wie bisher ab.</div>}
+          {HINT[form.type] && <div style={{ fontSize: 13, color: MUTED, marginTop: 6 }}>{HINT[form.type]}</div>}
+          {form.type === "urlaub" && vac && form.from && form.to && workdays(form.from, form.to) > vac.avail - vac.pending && <div role="alert" style={{ fontSize: 13, color: "#8A2A3E", marginTop: 6 }}>Achtung: mehr Tage als noch verfügbar ({fmt(vac.avail - vac.pending)}).</div>}
           <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
             <button onClick={submit} disabled={busy} style={{ flex: 1, border: 0, borderRadius: 14, background: PRIMARY, color: "#fff", fontSize: 16, fontWeight: 650, padding: "12px 0", cursor: "pointer", opacity: busy ? 0.6 : 1 }}>{busy ? "Moment …" : "An die Leitung senden"}</button>
             <button onClick={() => setForm(null)} style={{ border: "1.5px solid #9AAED0", borderRadius: 14, background: "#fff", fontSize: 15, padding: "12px 14px", cursor: "pointer" }}>Abbrechen</button>

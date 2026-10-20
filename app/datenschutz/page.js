@@ -40,6 +40,7 @@ export default function Page() {
           <li>Beschäftigtendaten: Name, Wochenstunden, Beschäftigungsart, Dienstpläne, Schichtänderungen, Wünsche, Urlaub und Abwesenheiten.</li>
           <li>Krankmeldungen werden nur der Leitung angezeigt; Kolleginnen und Kollegen sehen weder den Grund einer Abwesenheit noch, wer vertreten wurde.</li>
           <li>Zeiterfassung: Zeitpunkt (Serverzeit, UTC) und Richtung der Stempelung, verwendetes Gerät. Einträge sind unveränderlich; Korrekturen nur durch die Leitung mit Begründung, protokolliert.</li>
+          <li>Mobiles Stempeln (nur wenn die Firma es einschaltet): Hat die Firma zusätzlich die Standortspeicherung aktiviert, wird beim Tippen auf „Kommen“ oder „Gehen“ einmalig der Standort des Geräts (Breiten- und Längengrad, Genauigkeit) zusammen mit der Stempelung gespeichert. Es findet keine laufende Ortung statt. Zweck: Nachweis des Arbeitsbeginns und -endes bei Tätigkeiten ohne festen Arbeitsort. Sichtbar nur für die Leitung der eigenen Firma.</li>
           <li>Technische Daten: IP-Adresse und Zeitpunkt des Zugriffs (Server-Logdateien), kurzfristig zur Sicherheit und Fehlersuche.</li>
         </ul>
       </Section>
