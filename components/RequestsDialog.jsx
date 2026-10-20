@@ -23,7 +23,7 @@ export default function RequestsDialog({ year, monthIdx, onImport, onChanged, on
   const closeRef = useRef(onClose); closeRef.current = onClose;
 
   const load = useCallback(async () => {
-    const r = await org.supabase.from("requests").select("id, staff_id, type_key, date_from, date_to, days, note, status, decision_note, created_at, decided_at").eq("org_id", org.orgId).order("date_from", { ascending: true });
+    const r = await org.supabase.from("requests").select("id, staff_id, type_key, date_from, date_to, days, note, status, decision_note, created_at, decided_at, cut_vacation").eq("org_id", org.orgId).order("date_from", { ascending: true });
     const st = await org.supabase.from("staff").select("id, name").eq("org_id", org.orgId);
     const t = await org.supabase.from("request_types").select("key, label").eq("org_id", org.orgId);
     const n = {}; (st.data || []).forEach((x) => { n[x.id] = x.name; });
@@ -32,6 +32,14 @@ export default function RequestsDialog({ year, monthIdx, onImport, onChanged, on
   }, [org]);
   useEffect(() => { load(); }, [load]);
   useEffect(() => { const k = (e) => { if (e.key === "Escape") closeRef.current(); }; window.addEventListener("keydown", k); return () => window.removeEventListener("keydown", k); }, []);
+
+  // § 17 BEEG: Leitung decides whether the leave entitlement is cut by 1/12 per full month of Elternzeit
+  async function setCut(id, on) {
+    setBusy(id);
+    const { error } = await org.supabase.from("requests").update({ cut_vacation: on }).eq("id", id);
+    setBusy(""); if (error) { setMsg(error.message); return; }
+    await load();
+  }
 
   async function decide(id, status, note) {
     setBusy(id); setMsg("");
@@ -49,7 +57,7 @@ export default function RequestsDialog({ year, monthIdx, onImport, onChanged, on
       const a = r.date_from < first ? 1 : Number(r.date_from.slice(8));
       const b = r.date_to > last ? lastDay : Number(r.date_to.slice(8));
       const ym = `${year}-${pad(monthIdx + 1)}`;
-      return { dbId: `${r.id}@${ym}`, ym, staffId: r.staff_id, days: a === b ? String(a) : `${a}-${b}`, kind: r.type_key === "krank" ? "sick" : "leave" };
+      return { dbId: `${r.id}@${ym}`, ym, staffId: r.staff_id, days: a === b ? String(a) : `${a}-${b}`, kind: ["krank", "krank_ohne", "kur"].includes(r.type_key) ? "sick" : "leave" };
     });
     if (!onImport) return;
     const res = onImport(list);
@@ -91,6 +99,12 @@ export default function RequestsDialog({ year, monthIdx, onImport, onChanged, on
                 </div>
                 {isLeader && (
                   <div className="mt-2 flex flex-wrap gap-2">
+                    {r.type_key === "elternzeit" && (
+                      <label className="flex items-center gap-1.5 text-xs text-slate-700" title="Nur für volle Kalendermonate; muss dem Mitarbeiter erklärt werden">
+                        <input type="checkbox" checked={!!r.cut_vacation} disabled={busy === r.id} onChange={(e) => setCut(r.id, e.target.checked)} />
+                        Urlaub kürzen (§ 17 BEEG, 1/12 je vollem Monat)
+                      </label>
+                    )}
                     {r.status !== "approved" && <button onClick={() => decide(r.id, "approved", r.decision_note)} disabled={busy === r.id} className="rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 active:translate-y-px">Genehmigen</button>}
                     {r.status !== "denied" && <button onClick={() => setDeny({ id: r.id, note: "", cancel: r.status === "approved" })} disabled={busy === r.id} className="rounded-md border border-rose-200 px-3 py-1.5 text-xs text-rose-700 hover:bg-rose-50 active:translate-y-px">{r.status === "approved" ? "Stornieren" : "Ablehnen"}</button>}
                     {r.status !== "open" && <button onClick={() => decide(r.id, "open", null)} disabled={busy === r.id} className="rounded-md border border-slate-200 px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-50 active:translate-y-px">Wieder öffnen</button>}

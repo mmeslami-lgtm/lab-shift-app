@@ -19,7 +19,8 @@ function getPosition() {
   });
 }
 
-export default function MobileStamp({ org, withLocation, onClose, onOpenTimes, onScanQr }) {
+export default function MobileStamp({ org, withLocation, onClose, onOpenTimes, onScanQr: scanQr }) {
+  const onScanQr = (org.features || []).includes("nur_mobil") ? null : scanQr; // "Nur Handy": no terminal link
   const [state, setState] = useState({ phase: "choose" }); // choose | busy | done | error
 
   async function stamp(direction) {

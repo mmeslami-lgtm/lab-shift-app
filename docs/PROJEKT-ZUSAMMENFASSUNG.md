@@ -104,6 +104,18 @@
 - حساب وصل‌شده در برنامه‌ریز دکمه‌های «⏱ Stempeln» (موبایل یا QR) و «Meine Zeiten» (همان EmployeeTimes با Korrektur/Zeit beantragen) دارد.
 - قانون دیتابیس (`my_role`, اسکریپت ۲۷، اجرا شد): Leitung نمی‌تواند زمان‌های **خودش** را تأیید/ویرایش/اضافه کند → Inhaber یا Leitung دیگر؛ Inhaber می‌تواند (با دلیل، ثبت‌شده). درخواست‌ها نیاز به محصول employee_app دارند.
 
+### Erfassungsart توسط خود Leitung/Inhaber
+- «Anwesenheit → Wie wird gestempelt?»: Nur Terminal / Nur Handy / Terminal und Handy + چک‌باکس Standort → RPC `set_time_modes` (کلیدهای `mobil_stempeln`, `nur_mobil`, `mobil_standort` در org_features). «Nur Handy» لینک QR را در MobileStamp پنهان می‌کند.
+- `/login`: انتخاب نقش با کلید کشویی (Mitarbeiter / Leitung / Inhaber، در localStorage)، بعد ایمیل و رمز؛ `homeRoute(..., prefer)`.
+
+### انواع درخواست + Mutterschutz/Elternzeit + Einspringen (اسکریپت ۲۸، اجرا شد)
+- انواع: Urlaub، Fortbildung/Weiterbildung، Krank mit/ohne Attest، Freizeitausgleich (= ueberstunden، منفی)، Sonderurlaub، Dienstreise، Kur/Reha (credit)، **Mutterschutz** و **Elternzeit** (neutral: Soll 0). `lib/absence.js`: ABSENCE، REQUEST_TO_ABSENCE، اولویت (Mutterschutz > Elternzeit > Krank > …)، `elternzeitCut` (۱/۱۲ برای هر ماه کامل، فقط با `requests.cut_vacation` که Leitung در «Anträge» تیک می‌زند).
+- اپ کارمند «Anträge»: کادر Urlaub verfügbar (Anspruch/Genommen/Beantragt)، کاشی‌های Urlaub/Krank/Freizeitausgleich، راهنمای هر نوع، هشدار بیش از مانده.
+- Stundenzettel: Krankheit = krank + krank_ohne؛ Urlaub فقط urlaub؛ «Anspruch gekürzt (§ 17 BEEG)»؛ **eingesprungen** از `shift_changes` (kind cover/extra) + Zuschlag اختیاری «Einspringen» (پرسنت یا مبلغ در روز).
+
+### Schulung (رایگان، بدون KI)
+- `components/Schulung.jsx`: دوره‌ها برای Mitarbeiter (۷)، Leitung (۸)، Inhaber (۳)؛ عکس واقعی با هایلایت، «👉 Zeig mir» (اپ: تب‌ها؛ برنامه‌ریز: Anträge/Anwesenheit/Zugänge)، یک سؤال کوتاه در هر درس، پیشرفت در localStorage، جستجو در درس‌ها و FAQ. دکمه «🎓 Hilfe» در اپ کارمند و «🎓 Schulung» در برنامه‌ریز. فعلاً آلمانی؛ بعداً EN/FA و دستیار KI (Claude) روی همین.
+
 ### کلیدهای ویژگی هر شرکت
 `lib/features.js` + جدول `org_features` + بخش «Funktionen nur für diese Firma» در `/admin`. کلیدها: `terminal_pin_only`، `soll_vertrag`، `mobil_stempeln`، `mobil_standort`.
 

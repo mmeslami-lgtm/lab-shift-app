@@ -2,7 +2,7 @@
 
 import React, { useCallback, useContext, useEffect, useRef, useState } from "react";
 import { OrgContext } from "../lib/orgContext";
-import { ABSENCE, absenceMap } from "../lib/absence";
+import { ABSENCE, absenceMap, elternzeitCut } from "../lib/absence";
 import { fetchAll } from "../lib/fetchAll";
 import { OVERTIME_MODES, overtimeMode, payoutMinutesByMonth } from "../lib/overtime";
 import { computeDays, buildSheet, buildTimesheetHtml, openHtmlPrint, germanHolidays, isoOf, MONTHS, SURCHARGES } from "../lib/timesheet";
@@ -181,6 +181,18 @@ export default function AttendanceDialog({ onClose }) {
 
   // ---- Stundenzettel (monthly time sheet for the payroll office) ----
   const sollMode = (org.features || []).includes("soll_vertrag") ? "vertrag" : "plan";
+  // Erfassungsart – Inhaber/Leitung entscheiden selbst (set_time_modes): Terminal, Handy oder beides (+ Standort)
+  const f0 = org.features || [];
+  const [mode, setMode] = useState(f0.includes("mobil_stempeln") ? (f0.includes("nur_mobil") ? "handy" : "beides") : "terminal");
+  const [standort, setStandort] = useState(f0.includes("mobil_standort"));
+  async function saveModes(nextMode, nextStandort) {
+    setBusy("modes");
+    const { error } = await org.supabase.rpc("set_time_modes", { p_org: org.orgId, p_mobil: nextMode !== "terminal", p_nur_mobil: nextMode === "handy", p_standort: nextMode !== "terminal" && nextStandort });
+    setBusy("");
+    if (error) { setMsg(error.message); return; }
+    setMode(nextMode); setStandort(nextStandort);
+    setMsg("Gespeichert ✓ – die Mitarbeitenden sehen die Änderung nach dem nächsten Öffnen der App.");
+  }
   async function printTimesheets() {
     const [y, m] = tsMonth.split("-").map(Number); const month = m - 1;
     setBusy("ts"); setMsg("");
@@ -196,7 +208,7 @@ export default function AttendanceDialog({ onClose }) {
         fetchAll(() => sb.from("attendance_sessions").select("id, staff_id, check_in, check_out, in_event_id, out_event_id").eq("org_id", org.orgId).gte("check_in", from.toISOString()).lt("check_in", to.toISOString())),
         fetchAll(() => sb.from("scheduled_shifts").select("staff_id, shift_date, shift_key, shift_label, planned_start, planned_end").eq("org_id", org.orgId).eq("status", "published").gte("shift_date", fromIso).lt("shift_date", `${to.getFullYear()}-${String(to.getMonth() + 1).padStart(2, "0")}-01`)),
         fetchAll(() => sb.from("attendance_absences").select("staff_id, work_date, kind, note, voided_at").eq("org_id", org.orgId)),
-        fetchAll(() => sb.from("requests").select("staff_id, type_key, date_from, date_to, status").eq("org_id", org.orgId).eq("status", "approved")),
+        fetchAll(() => sb.from("requests").select("staff_id, type_key, date_from, date_to, status, cut_vacation").eq("org_id", org.orgId).eq("status", "approved")),
         fetchAll(() => sb.from("staff_month_balance").select("staff_id, year, month, contract_hours, planned_hours").eq("org_id", org.orgId)),
         fetchAll(() => sb.from("attendance_corrections").select("session_id").eq("org_id", org.orgId)),
       ]);
@@ -207,12 +219,16 @@ export default function AttendanceDialog({ onClose }) {
       const mobEv = await fetchAll(() => sb.from("attendance_events").select("id").eq("org_id", org.orgId).eq("badge_code", "mobil").gte("scanned_at", from.toISOString()).lt("scanned_at", new Date(to.getTime() + 36 * 3600000).toISOString()));
       const mobIds = new Set((mobEv || []).map((e) => e.id));
       const mobile = new Set((ses || []).filter((x) => mobIds.has(x.in_event_id) || mobIds.has(x.out_event_id)).map((x) => x.id));
+      // eingesprungen: shifts added after publication (Ersatz für jemanden / Zusatzschicht)
+      const lastIso = isoOf(new Date(y, month + 1, 0));
+      const chg = await fetchAll(() => sb.from("shift_changes").select("staff_id, change_date, kind, voided_at").eq("org_id", org.orgId).in("kind", ["cover", "extra"]).gte("change_date", `${y}-${String(month + 1).padStart(2, "0")}-01`).lte("change_date", lastIso));
+      const coversOf = (sid) => new Set((chg || []).filter((c) => c.staff_id === sid && !c.voided_at).map((c) => String(c.change_date).slice(0, 10)));
       const hol = {}; const holidaysOf = (yy) => hol[yy] || (hol[yy] = germanHolidays(yy));
       const sheets = people.map((p) => {
         const days = computeDays({ sessions: (ses || []).filter((x) => x.staff_id === p.id), shifts: (sh || []).filter((x) => x.staff_id === p.id), absences: (ab || []).filter((x) => x.staff_id === p.id), approved: (ap || []).filter((x) => x.staff_id === p.id), holidaysOf });
         const closedRows = (cl || []).filter((r) => r.staff_id === p.id && r.year * 12 + r.month - 1 <= y * 12 + month);
         const overtime = { mode: overtimeMode(ot), code: ot && ot.code, stored: payoutMinutesByMonth(pays, p.id) };
-        return buildSheet({ name: p.personnel_no ? `${p.name} (${p.personnel_no})` : p.name, year: y, month, days, startIso, closedRows, overtime, corrected, mobile, mode: sollMode, weeklyHours: p.weekly_hours, vacation: (vac.data || []).find((v) => v.staff_id === p.id) || null });
+        return buildSheet({ name: p.personnel_no ? `${p.name} (${p.personnel_no})` : p.name, year: y, month, days, startIso, closedRows, overtime, corrected, mobile, mode: sollMode, weeklyHours: p.weekly_hours, covers: coversOf(p.id), vacation: (() => { const v = (vac.data || []).find((x) => x.staff_id === p.id); if (!v) return null; const c = elternzeitCut((ap || []).filter((x) => x.staff_id === p.id), y, v.entitlement); return { ...v, entitlement: Number(v.entitlement || 0) - c.cut, cut: c.cut }; })() });
       });
       if (!sheets.length) { setMsg("Keine Personen gefunden."); setBusy(""); return; }
       const ok = openHtmlPrint(buildTimesheetHtml(sheets, { orgName: org.orgName, year: y, month, mode: sollMode, surcharges: zus }));
@@ -371,6 +387,21 @@ export default function AttendanceDialog({ onClose }) {
                 </tbody>
               </table>
             </div>
+            <h3 className="mt-4 text-xs font-semibold uppercase tracking-wide text-slate-500">Wie wird gestempelt?</h3>
+            <div className="mt-1 flex flex-wrap gap-2" role="radiogroup" aria-label="Erfassungsart">
+              {[["terminal", "Nur Terminal"], ["handy", "Nur Handy"], ["beides", "Terminal und Handy"]].map(([k, l]) => (
+                <button key={k} role="radio" aria-checked={mode === k} disabled={busy === "modes"} onClick={() => saveModes(k, standort)}
+                  className={`rounded-lg border px-3 py-1.5 text-sm active:translate-y-px ${mode === k ? "border-teal-600 bg-teal-600 font-semibold text-white" : "border-slate-200 text-slate-700 hover:bg-slate-50"}`}>{l}</button>
+              ))}
+            </div>
+            {mode !== "terminal" && (
+              <label className="mt-2 flex items-start gap-2 text-sm text-slate-700">
+                <input type="checkbox" className="mt-1" checked={standort} disabled={busy === "modes"} onChange={(e) => saveModes(mode, e.target.checked)} />
+                <span>Beim Stempeln mit dem Handy einmalig den Standort speichern <span className="text-slate-500">(keine laufende Ortung; Mitarbeitende informieren, ggf. Betriebsrat fragen)</span></span>
+              </label>
+            )}
+            <div className="mt-1 text-[11px] text-slate-500">Vergessene oder falsche Zeiten tragen alle selbst in der App ein („Zeit beantragen“, „Korrektur beantragen“); Sie bestätigen sie hier.</div>
+
             <h3 className="mt-4 text-xs font-semibold uppercase tracking-wide text-slate-500">Stundenzettel (für die Lohnabrechnung)</h3>
             <div className="mt-1 flex flex-wrap items-end gap-2">
               <label className="text-xs text-slate-600">Monat<input type="month" value={tsMonth} onChange={(e) => setTsMonth(e.target.value)} className="mt-1 block rounded-md border border-slate-300 px-2 py-1.5 text-sm" /></label>

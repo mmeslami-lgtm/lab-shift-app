@@ -8,6 +8,7 @@ import AttendanceDialog from "./AttendanceDialog";
 import RequestsDialog from "./RequestsDialog";
 import ZugaengeDialog from "./ZugaengeDialog";
 import MobileStamp from "./MobileStamp";
+import Schulung from "./Schulung";
 import ScanStamp from "./ScanStamp";
 import EmployeeTimes from "./EmployeeTimes";
 
@@ -47,6 +48,7 @@ export default function OrgBar({ onLoadStaff, staffList, toDb, onIdsChanged, yea
   // Own corrections are requests – the owner or another Leitung decides them (database rule).
   const [selfStamp, setSelfStamp] = useState(null); // null | "mobil" | "qr"
   const [myTimesOpen, setMyTimesOpen] = useState(false);
+  const [schulung, setSchulung] = useState(false); // 🎓 Schulung (free, no AI)
   const [reqOpen, setReqOpen] = useState(false); // popup "Anträge"
   const [zugOpen, setZugOpen] = useState(false); // popup "Zugänge"
   const [openReq, setOpenReq] = useState(0);
@@ -77,11 +79,11 @@ export default function OrgBar({ onLoadStaff, staffList, toDb, onIdsChanged, yea
         (rq.data || []).forEach((r) => {
           const a = r.date_from < first ? 1 : Number(r.date_from.slice(8));
           const b = r.date_to > last ? lastDay : Number(r.date_to.slice(8));
-          list.push({ dbId: `${r.id}@${ym}`, ym, staffId: r.staff_id, days: a === b ? String(a) : `${a}-${b}`, kind: r.type_key === "krank" ? "sick" : "leave" });
+          list.push({ dbId: `${r.id}@${ym}`, ym, staffId: r.staff_id, days: a === b ? String(a) : `${a}-${b}`, kind: ["krank", "krank_ohne", "kur"].includes(r.type_key) ? "sick" : "leave" });
         });
         (ab.data || []).forEach((x) => {
           if (x.voided_at || x.kind === "unentschuldigt") return;
-          list.push({ dbId: `abs${x.id}@${ym}`, ym, staffId: x.staff_id, days: String(Number(String(x.work_date).slice(8, 10))), kind: x.kind === "krank" ? "sick" : "leave" });
+          list.push({ dbId: `abs${x.id}@${ym}`, ym, staffId: x.staff_id, days: String(Number(String(x.work_date).slice(8, 10))), kind: ["krank", "krank_ohne", "kur"].includes(x.kind) ? "sick" : "leave" });
         });
         const res = onImportRequests(list, { sync: true, ym });
         const parts = [];
@@ -325,6 +327,7 @@ export default function OrgBar({ onLoadStaff, staffList, toDb, onIdsChanged, yea
           </button>
           {hasApp && <button onClick={() => setReqOpen(true)} className={`rounded-lg border px-3 py-2 text-sm active:translate-y-px ${openReq ? "border-rose-300 bg-rose-50 text-rose-800 hover:bg-rose-100" : "border-slate-200 text-slate-700 hover:bg-slate-50"}`}>Anträge{openReq ? ` (${openReq})` : ""}</button>}
           {isLeader && hasApp && <button onClick={() => setZugOpen(true)} className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 active:translate-y-px">Zugänge</button>}
+          {org && <button onClick={() => setSchulung(true)} className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 active:translate-y-px">🎓 Schulung</button>}
           {hasTime && org && org.staffId && (
             <>
               <button onClick={() => setSelfStamp((org.features || []).includes("mobil_stempeln") ? "mobil" : "qr")} className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 active:translate-y-px">⏱ Stempeln</button>
@@ -340,6 +343,11 @@ export default function OrgBar({ onLoadStaff, staffList, toDb, onIdsChanged, yea
       {attOpen && <AttendanceDialog onClose={() => { setAttOpen(false); setReqBump((b) => b + 1); }} />}
       {selfStamp === "mobil" && <MobileStamp org={org} withLocation={(org.features || []).includes("mobil_standort")} onClose={() => setSelfStamp(null)} onOpenTimes={() => setMyTimesOpen(true)} onScanQr={() => setSelfStamp("qr")} />}
       {selfStamp === "qr" && <ScanStamp org={org} onClose={() => setSelfStamp(null)} onOpenTimes={() => setMyTimesOpen(true)} />}
+      {schulung && (
+        <Schulung role={org.role === "owner" ? "inhaber" : org.role === "supervisor" ? "leitung" : "mitarbeiter"} who={`${org.orgId}-${org.role}`}
+          onShow={(k) => { if (k === "antraege") setReqOpen(true); if (k === "anwesenheit" && hasTime) setAttOpen(true); if (k === "zugaenge") setZugOpen(true); }}
+          onClose={() => setSchulung(false)} />
+      )}
       {myTimesOpen && (
         <div role="dialog" aria-modal="true" aria-label="Meine Zeiten" className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-900/40 p-3 sm:p-6" onClick={(e) => { if (e.target === e.currentTarget) setMyTimesOpen(false); }}>
           <div className="w-full max-w-lg rounded-2xl bg-white p-3 shadow-xl sm:p-4">
