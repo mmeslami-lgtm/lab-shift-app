@@ -106,6 +106,7 @@
 
 ### Erfassungsart توسط خود Leitung/Inhaber
 - «Anwesenheit → Wie wird gestempelt?»: Nur Terminal / Nur Handy / Terminal und Handy + چک‌باکس Standort → RPC `set_time_modes` (کلیدهای `mobil_stempeln`, `nur_mobil`, `mobil_standort` در org_features). «Nur Handy» لینک QR را در MobileStamp پنهان می‌کند.
+- صفحهٔ شروع: «Anmelden» یک منوی کشویی است (`components/LoginMenu.jsx`؛ hover روی کامپیوتر، لمس روی گوشی) با Mitarbeiter / Leitung / Inhaber → `/login?als=…`.
 - `/login`: انتخاب نقش با کلید کشویی (Mitarbeiter / Leitung / Inhaber، در localStorage)، بعد ایمیل و رمز؛ `homeRoute(..., prefer)`.
 
 ### انواع درخواست + Mutterschutz/Elternzeit + Einspringen (اسکریپت ۲۸، اجرا شد)

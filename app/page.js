@@ -1,4 +1,5 @@
 import SignedInRedirect from "../components/SignedInRedirect";
+import LoginMenu from "../components/LoginMenu";
 
 // Public start page (dienstigo.de). Visitors see what Dienstigo does; whoever is signed in is sent to their
 // own area right away (SignedInRedirect). The Labor planner lives at /labor, sign-in at /login.
@@ -50,12 +51,23 @@ const CSS = `
 .dg-nav{display:flex;align-items:center;gap:22px;font-size:.98rem}
 .dg-nav a.dg-l{text-decoration:none;color:var(--muted)}
 .dg-nav a.dg-l:hover{color:var(--ink)}
-.dg-btn{display:inline-block;text-decoration:none;font-weight:700;border-radius:12px;padding:12px 20px;font-size:1rem;line-height:1.2;transition:transform .08s ease,background-color .15s ease}
+.dg-btn{display:inline-block;white-space:nowrap;text-decoration:none;font-weight:700;border-radius:12px;padding:12px 20px;font-size:1rem;line-height:1.2;transition:transform .08s ease,background-color .15s ease}
 .dg-btn:active{transform:translateY(1px)}
 .dg-primary{background:var(--navy);color:#fff!important}
 .dg-primary:hover{background:#1B2E57}
 .dg-ghost{border:1.5px solid #AEBBD3;color:var(--ink)!important;background:#fff}
 .dg-ghost:hover{border-color:var(--navy)}
+.dg-menu{position:relative;display:inline-block}
+.dg-menu-btn{cursor:pointer;font-family:inherit}
+.dg-menu-btn::after{content:"";display:inline-block;margin-left:8px;width:7px;height:7px;border-right:2px solid currentColor;border-bottom:2px solid currentColor;transform:translateY(-3px) rotate(45deg);transition:transform .15s}
+.dg-open .dg-menu-btn::after{transform:translateY(1px) rotate(-135deg)}
+.dg-drop{position:absolute;top:calc(100% + 8px);z-index:30;min-width:270px;background:#fff;border:1px solid var(--line);border-radius:16px;padding:6px;box-shadow:0 22px 44px -20px rgba(24,35,58,.45);animation:dg-pop .16s ease-out}
+.dg-drop-right{right:0}.dg-drop-left{left:0}
+.dg-drop::before{content:"";position:absolute;left:0;right:0;top:-10px;height:10px}
+.dg-drop a{display:block;text-decoration:none;color:var(--ink);padding:11px 14px;border-radius:11px}
+.dg-drop a:hover,.dg-drop a:focus-visible{background:#EEF2F8}
+.dg-drop a b{display:block;font-size:1rem}
+.dg-drop a span{display:block;font-size:.85rem;color:var(--muted)}
 .dg-hero{display:grid;grid-template-columns:1.05fr 1fr;gap:56px;align-items:center;padding:40px 0 88px}
 .dg-h1{font-family:var(--dg-display),system-ui,sans-serif;font-weight:700;font-size:clamp(2.5rem,5.4vw,4.3rem);line-height:1.02;letter-spacing:-.035em;margin:0 0 22px;color:var(--ink)}
 .dg-lead{font-size:1.18rem;line-height:1.6;color:#2E3A52;margin:0 0 30px;max-width:34em}
@@ -117,7 +129,7 @@ const CSS = `
   .dg-nav a.dg-l{display:none}
   .dg-nav{gap:10px}
   .dg-btn{padding:11px 15px}
-  .dg-top .dg-ghost{display:none}
+  .dg-top .dg-primary{display:none}
   .dg-steps{grid-template-columns:1fr}
   .dg-step::after{display:none}
   .dg-sec{padding:64px 0}
@@ -140,7 +152,7 @@ export default function StartPage() {
           <nav className="dg-nav" aria-label="Hauptnavigation">
             <a className="dg-l" href="#funktionen">Funktionen</a>
             <a className="dg-l" href="/demo">Rundgang</a>
-            <a className="dg-btn dg-ghost" href="/login">Anmelden</a>
+            <LoginMenu />
             <a className="dg-btn dg-primary" href={DEMO}>Demo anfragen</a>
           </nav>
         </header>
@@ -155,7 +167,7 @@ export default function StartPage() {
               </p>
               <div className="dg-cta">
                 <a className="dg-btn dg-primary" href={DEMO}>Demo anfragen</a>
-                <a className="dg-btn dg-ghost" href="/login">Anmelden</a>
+                <LoginMenu align="left" />
               </div>
               <p className="dg-note"><a href="/demo" style={{ color: "#243B6B", fontWeight: 700 }}>Rundgang ansehen</a>, Schritt für Schritt oder als Film.</p>
               <p className="dg-note" style={{ marginTop: 6 }}>Datenbank in Frankfurt am Main. Die Daten jeder Firma sind strikt getrennt.</p>

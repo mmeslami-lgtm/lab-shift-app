@@ -15,7 +15,12 @@ export default function LoginPage() {
   const [note, setNote] = useState("");
 
   useEffect(() => {
-    try { const r = window.localStorage.getItem("dg-login-role"); if (r && ROLES.some(([k]) => k === r)) setRole(r); } catch (e) { /* ignore */ }
+    try {
+      // ?als=mitarbeiter|leitung|inhaber from the start page menu wins over the remembered choice
+      const q = new URLSearchParams(window.location.search).get("als");
+      const r = q && ROLES.some(([k]) => k === q) ? q : window.localStorage.getItem("dg-login-role");
+      if (r && ROLES.some(([k]) => k === r)) { setRole(r); window.localStorage.setItem("dg-login-role", r); }
+    } catch (e) { /* ignore */ }
   }, []);
 
   useEffect(() => {
