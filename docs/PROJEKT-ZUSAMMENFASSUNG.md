@@ -117,6 +117,10 @@
 ### Schulung (رایگان، بدون KI)
 - `components/Schulung.jsx`: دوره‌ها برای Mitarbeiter (۷)، Leitung (۸)، Inhaber (۳)؛ عکس واقعی با هایلایت، «👉 Zeig mir» (اپ: تب‌ها؛ برنامه‌ریز: Anträge/Anwesenheit/Zugänge)، یک سؤال کوتاه در هر درس، پیشرفت در localStorage، جستجو در درس‌ها و FAQ. دکمه «🎓 Hilfe» در اپ کارمند و «🎓 Schulung» در برنامه‌ریز. فعلاً آلمانی؛ بعداً EN/FA و دستیار KI (Claude) روی همین.
 
+### Anwesenheit «Zu prüfen» (جدول `attendance_review_seen`، اجرا شد)
+- `lib/review.js`: موارد ۳۱ روز اخیر (از شروع Zeiterfassung): 📱/📍 ثبت موبایل، ✎ ورود/تغییر دستی، ⚠️ «Gehen fehlt» (>۱۲ ساعت)، ⚠️ «Nicht erschienen» (شیفت منتشرشده >۱۵ دقیقه شروع شده، بدون Kommen و بدون غیبت). هر مورد تا «Gesehen ✓» (یا «Alle gesehen») می‌ماند؛ مشترک برای همهٔ Leitungen؛ خود ثبت‌ها پاک نمی‌شوند.
+- عدد روی دکمهٔ «Anwesenheit» = درخواست‌های باز + Zu prüfen. جدول «Heute» حالا جمع‌شده («Alle Stempelungen heute»).
+
 ### کلیدهای ویژگی هر شرکت
 `lib/features.js` + جدول `org_features` + بخش «Funktionen nur für diese Firma» در `/admin`. کلیدها: `terminal_pin_only`، `soll_vertrag`، `mobil_stempeln`، `mobil_standort`.
 
