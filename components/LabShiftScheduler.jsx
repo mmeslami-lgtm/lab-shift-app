@@ -342,7 +342,10 @@ function generateSchedule(staffList, year, monthIdx, holidaySet, shiftHours, shi
   const weekendExemptSet = new Set(staffList.filter((s) => s.weekendExempt).map((s) => s.id));
   const leadMTLASet = new Set(staffList.filter((s) => s.isLeadMTLA).map((s) => s.id));
 
-  function pickBest(pool, day) {
+  // shift mix: nobody only mornings, nobody only lates – people who had few of THIS kind so far come first
+  const MIX_KEYS = ["F", "M", "S"];
+  const kindCount = {}; ids.forEach((id) => { kindCount[id] = { F: 0, M: 0, S: 0 }; });
+  function pickBest(pool, day, kind) {
     if (pool.length === 0) return null;
     const scored = pool.map((id) => {
       const t = targetOf[id] > 0 ? targetOf[id] : 1;
@@ -357,6 +360,11 @@ function generateSchedule(staffList, year, monthIdx, holidaySet, shiftHours, shi
       score += (consecutiveWorkDays[id] || 0) * 0.05;
       if (fullTimeSet.has(id)) score += (shiftCount[id] || 0) * 0.01;
       score += Math.random() * 0.01;
+      if (kind && MIX_KEYS.includes(kind) && !day.isWeekend) { // weekends: weekend fairness + Sa=So rules first
+        const kc = kindCount[id] || { F: 0, M: 0, S: 0 };
+        const tot = kc.F + kc.M + kc.S;
+        score += ((kc[kind] + 1) / (tot + 3) - 1 / 3) * 0.1; // above the fair third -> later, below -> earlier
+      }
       if (!weekendExemptSet.has(id)) {
         const satNeed = 2 + (carry.satDeficit || 0);
         const sunNeed = 2 + (carry.sunDeficit || 0);
@@ -467,7 +475,8 @@ function generateSchedule(staffList, year, monthIdx, holidaySet, shiftHours, shi
             const sunOk = pool.filter((id) => !isOnLeave(id, sun.day) && !forcedRest[id].has(d + 1) && (consecutiveWorkDays[id] || 0) + 1 < MAX_CONSECUTIVE_WORKDAYS && !allKeys.some((k) => (sun.shifts[k] || []).includes(id)) && hours[id] + 2 * shiftHours[shiftType] <= hardCapFor(id));
             if (sunOk.length > 0) pool = sunOk;
           }
-          const chosen = pickBest(pool, day);
+          const chosen = pickBest(pool, day, shiftType);
+          if (kindCount[chosen] && MIX_KEYS.includes(shiftType)) kindCount[chosen][shiftType]++;
           if (relaxedNote) warnings.push(`Tag ${d + 1} (${labelOf(shiftType)}): ${relaxedNote}`);
           day.shifts[shiftType].push(chosen);
           todayAssigned.add(chosen);
@@ -1766,7 +1775,7 @@ function LabShiftSchedulerInner() {
         const r = generateSchedule(staffList, year, monthIdx, holidaySet, shiftHours, shiftLabels, dayShiftDefs, perShiftCount, leaveMap, carryOver, wishes);
         // Recompute + validate from the final `days` (same pass used after manual edits)
         const st = computeStatsAndWarnings(r.days, staffList, leaveMap, shiftHours, dayOrderedKeys);
-        const sc = scorePlan({ days: r.days, hours: st.hours, targetOf: st.targetOf, warnings: [...r.warnings, ...st.warnings], notes: r.notes }, staffList, ["N"]);
+        const sc = scorePlan({ days: r.days, hours: st.hours, targetOf: st.targetOf, warnings: [...r.warnings, ...st.warnings], notes: r.notes }, staffList, ["N"], ["F", "M", "S"]);
         if (sc < bestScore) { bestScore = sc; result = r; stats = st; }
       }
       // how much differs from the plan that was on the screen before (so the button visibly does something)

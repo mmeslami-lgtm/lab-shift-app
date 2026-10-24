@@ -1935,7 +1935,7 @@ function LabShiftSchedulerInner() {
       for (let v = 0; v < VARIANTS; v++) {
         const r = generateSchedule(staffList, year, monthIdx, holidaySet, shiftHours, shiftLabels, dayShiftDefs, perShiftCount, leaveMap, carryOver, wishes, closedSet, openCount, useLate, { days: halfMap, parts: shiftParts });
         const st = computeStatsAndWarnings(r.days, staffList, leaveMap, shiftHours, dayOrderedKeys, restRequiringKeys, shiftLabels, closedSet, openCount, carryMap(), halfMap);
-        const sc = scorePlan({ days: r.days, hours: st.hours, targetOf: st.targetOf, warnings: [...r.warnings, ...st.warnings], notes: r.notes }, staffList, restRequiringKeys);
+        const sc = scorePlan({ days: r.days, hours: st.hours, targetOf: st.targetOf, warnings: [...r.warnings, ...st.warnings], notes: r.notes }, staffList, restRequiringKeys, dayShiftDefs.filter((d) => d.frequency !== "quota" && !restRequiringKeys.includes(d.key)).map((d) => d.key));
         if (sc < bestScore) { bestScore = sc; result = r; stats = st; }
       }
 
