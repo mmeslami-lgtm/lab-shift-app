@@ -16,20 +16,19 @@
 | ⚠️ دست نزن | پروژهٔ دوم Supabase به نام `transport-scanner` (`wagdzdzwyypqyvdtxmkd`) مال شرکت **پسر کاربر** است. |
 | وابستگی‌ها | next 14.2.5، react 18.3.1، @supabase/supabase-js 2.45.0، lucide-react، **jsqr 1.4.0** (جدید) |
 
-## ۲. روال کار (تثبیت‌شده)
+## ۲. روال کار (تثبیت‌شده، از ۲۴ اکتبر بدون Pull request)
 
 1. آپلود بسته در شاخهٔ **test** (گزینهٔ «Commit directly to the test branch»).
 2. امتحان روی آدرس آزمایشی.
-3. Pull request با `base: main ← compare: test` و Merge.
-4. چک Vercel → Deployments. اگر خودکار نساخت: روی ردیف Preview «⋯ → Promote».
+3. **همان زیپ** را در شاخهٔ **main** آپلود کنید («Commit directly to the main branch»). Pull request دیگر لازم نیست: چون کاربر قبلاً مستقیم در main آپلود کرده، test و main تاریخچهٔ متفاوت دارند و GitHub «Can't automatically merge» می‌گوید (بی‌خطر، ولی PR نسازید).
+4. چک Vercel → Deployments. اگر خودکار نساخت: روی ردیف «⋯ → Promote».
 5. «Delete branch» هرگز زده نشود.
-
-کاربر بسته‌های امتحان‌شده را گاهی مستقیم به main هم برده؛ چون محتوا یکی است، مشکلی نیست.
+6. بسته‌ها همیشه روی آخرین `main` ساخته می‌شوند و فقط فایل‌های تغییرکرده را دارند.
 
 ## ۳. آخرین بسته
 
-- **`Upload-NUR-32-Monatswechsel.zip`** = همهٔ تغییرات از `main` به بعد: مورد ۲ صف (پیش‌نویس) + قانون اصلی «Monatswechsel» (بخش ۵). جای بستهٔ ۳۱ را می‌گیرد؛ **۳۱ دیگر لازم نیست.** باید در **test** آپلود و امتحان شود (بخش ۹).
-- کارهای قبلی (تا اسکریپت ۲۹، از جمله حق مرخصی، اضافه‌کاری، Zu prüfen) در `main` هستند؛ کاربر در ۲۴ اکتبر زیپ `main` را فرستاد.
+- **`Upload-NUR-33-Einsatzorte.zip`** (مورد ۳ صف: Einsatzorte، فقط Dienstplaner allgemein) – روی `main` با بستهٔ ۳۲. باید در test آپلود و امتحان شود (بخش ۹)، بعد همان زیپ در main.
+- بستهٔ ۳۲ (پیش‌نویس + Monatswechsel) در `main` است.
 
 ## ۴. مهاجرت‌های دیتابیس (`docs/sql/`) – همه روی Supabase واقعی اجرا شده‌اند
 
@@ -54,6 +53,7 @@
 | 27 | `my_role` – Leitung زمان‌های خودش را تأیید/ویرایش نمی‌کند |
 | 28 | انواع درخواست (Mutterschutz، Elternzeit …)، `requests.cut_vacation`، Einspringen |
 | 29 | `attendance_review_seen` («Zu prüfen» در Anwesenheit) |
+| 31 | Einsatzorte: `work_locations`، `location_assignments` (draft/published)، `set_location_mode`، `save_work_location`، `save_location_draft`، تریگر `publish_locations` روی `schedule_months`؛ `discard_draft` محل‌ها را هم برمی‌گرداند |
 | 30 | `discard_draft` (دور ریختن پیش‌نویس پلن)، `save_attendance_edits` (ثبت یکجای تغییرهای ساعت، همه یا هیچ)، رفع باگ `set_absence` (حالا هر ۱۲ نوع غیبت؛ قبلاً فقط ۶) |
 | STAGING-SETUP.sql | اسکریپت‌های ۱–۱۹ یکجا برای دیتابیس آزمایشی جدا در آینده |
 
@@ -75,6 +75,14 @@
 - **«Alle Änderungen verwerfen»** = همه‌چیز مثل قبل: پلن به نسخهٔ منتشرشده برمی‌گردد و اگر پیش‌نویسی (Zwischenspeichern یا منتظر Freigabe) در دیتابیس باشد با `discard_draft` پاک می‌شود (با سؤال). ماه بدون نسخهٔ منتشرشده: برگشت به آخرین ذخیره. مولد پلن و قوانینش دست نخورده.
 - **Anwesenheit → «Zeiten bearbeiten (auch frühere Tage)»:** Korrigieren / Zeit nachtragen / Abwesenheit eintragen·ändern·aufheben فقط «vorgemerkt» می‌شوند. فهرست «n Änderungen für <Monat> – noch nicht gespeichert» با ✕ برای هر مورد، یک «Grund» برای همه، «Speichern (n)» → `save_attendance_edits` (یک تراکنش: همه یا هیچ؛ خطا روز و نفر را نام می‌برد)، «Abbrechen» = هیچ تغییری. فقط یک ماه در هر بار؛ هشدار هنگام رفتن به ماه دیگر، بستن پنجره یا صفحه. فرم «Abwesend …» در بالای پنجره (Nicht erschienen) مثل قبل فوری ثبت می‌کند.
 - تست: کلیک‌به‌کلیک در مرورگر بدون صفحه با دیتابیس ساختگی (Labor ۱۶، Allgemein ۱۶، Anwesenheit ۲۱ مورد) + تست دیتابیس با نقش‌های واقعی در تراکنش لغوشده.
+
+### Einsatzorte – مورد ۳ صف، ۲۴ اکتبر (فقط Dienstplaner allgemein)
+- دکمهٔ «📍 Einsatzorte» در نوار پلن (`components/EinsatzorteDialog.jsx`). تب «Orte & Einstellung» (فقط Inhaber/Leitung): «Ein Arbeitsort» (پیش‌فرض، هیچ تغییری) / «Mehrere Einsatzorte» (`org_features.einsatzorte`)؛ فهرست محل‌ها: نام، آدرس (برای Route)، رنگ؛ هرگز پاک نمی‌شود، فقط «inaktiv». Stammort وجود ندارد (تصمیم کاربر): همه دستی در جدول.
+- تب «Plan»: جدول نفر × روز مثل Wunschplan. محل را انتخاب کنید (قلم)، بعد: خانه = یک روز، اسم = همهٔ روزهای کاری آن نفر، عدد روز = همهٔ کسانی که آن روز شیفت دارند. روزهای بدون شیفت خاکستری؛ محل در روز بدون شیفت یا مرخصی = قرمز («⚠️ … entfernen»)؛ «n Schichten noch ohne Ort». «Übernehmen» فقط پیش‌نویس روی صفحه را عوض می‌کند.
+- پیش‌نویس مثل پلن: محل‌ها جزو «Nicht gespeicherte Änderungen»اند؛ «Zwischenspeichern» → `save_location_draft`؛ «Veröffentlichen» (مستقیم یا از Freigaben) → تریگر نسخهٔ draft را published می‌کند؛ «Plan laden» محل‌های همان نسخه را می‌آورد؛ «Alle Änderungen verwerfen» محل‌ها را هم برمی‌گرداند.
+- نمایش: در جدول پلن برچسب رنگی «📍 Filiale Nord» زیر اسم. اپ کارمند: زیر «nächste Schicht» و زیر روز انتخاب‌شده «📍 نام · آدرس» + دکمهٔ «Route» (آیفون: Apple Maps، بقیه: Google Maps). Stundenzettel: «Ort: …» در ستون Information. کارمند فقط published می‌بیند.
+- ⚠️ هنوز نه: محل در **چاپ/PDF و Excel پلن** (فقط روی صفحه). اگر لازم شد، بستهٔ کوچک بعدی.
+- تست: دیتابیس با نقش‌های واقعی شرکت B در تراکنش لغوشده (کارمند پیش‌نویس را نمی‌بیند، نمی‌تواند بنویسد، Labor رد می‌شود، Verwerfen برمی‌گرداند)؛ مرورگر: برنامه‌ریز ۱۵/۱۵، اپ کارمند آیفون/اندروید ۶/۶، Stundenzettel ۲/۲؛ تست‌های قبلی ۵۵/۵۵ بدون تغییر.
 
 ### Monatswechsel – ماه جدید از جایی شروع می‌شود که ماه قبل تمام شد (۲۴ اکتبر، قانون اصلی)
 - `lib/monthTail.js`: ۷ روز آخر ماه قبل (نسخهٔ منتشرشده، وگرنه پیش‌نویس ذخیره‌شده) خوانده می‌شود (`loadMonthTail` → `tailCtx`) و مولد پلن آن‌ها را «روزهای قبل از روز ۱» می‌بیند. زیر فیلد ماه: «↪ Monatsübergang: Ende Oktober 2026 wird berücksichtigt». بدون پلن ماه قبل = مثل قبل.
@@ -190,13 +198,13 @@
 
 ## ۹. کار بعدی
 
-1. آپلود `Upload-NUR-32-Monatswechsel.zip` در **test** و امتحان با شرکت A (`leitung@test.de`):
-   - ماه **دسامبر** را انتخاب کنید: زیر فیلد ماه «↪ Monatsübergang: Ende November 2026 …» بیاید. «Dienstplan erstellen» → در Hinweise سطرهای «Monatswechsel: …» و در جدول روزهای ۱–۲ دسامبر را با آخر نوامبر مقایسه کنید.
-   - «Plan bearbeiten → Plan laden» برای اکتبر، یک خانه را عوض کنید → کادر زرد؛ با `mitarbeiter@test.de` در گوشی چک کنید که هنوز پلن قبلی دیده می‌شود؛ بعد «Alle Änderungen verwerfen».
-   - ⚠️ نوامبر یک پیش‌نویس ذخیره‌شدهٔ قدیمی دارد که با نسخهٔ منتشرشده خیلی فرق دارد؛ «Verwerfen» آن را پاک می‌کند (پلن کارمندها عوض نمی‌شود).
-   - «Anwesenheit → Zeiten bearbeiten»: دو سه تغییر vormerken، یکی را با ✕ بردارید، «Abbrechen»؛ بعد دوباره و «Speichern» با دلیل.
-2. بعد PR از test به main.
-3. سپس مورد ۳ صف (Einsatzorte).
+1. آپلود `Upload-NUR-33-Einsatzorte.zip` در **test** و امتحان با شرکت B (`b-chef@test.de`):
+   - «📍 Einsatzorte → Orte & Einstellung»: «Mehrere Einsatzorte»، دو محل با آدرس بسازید.
+   - «Plan bearbeiten → Plan laden» (یا پلن جدید)، «📍 Einsatzorte → Plan»: محل را انتخاب، روی اسم یک نفر بزنید، «Übernehmen» → کادر زرد → «Veröffentlichen».
+   - با `clara.b@test.de` در گوشی: زیر شیفت «📍 …» و «Route».
+   - «Anwesenheit → Stundenzettel» برای همان ماه: «Ort: …».
+2. همان زیپ در **main** (بدون PR).
+3. سپس مورد ۴ صف (Wochenrotation).
 
 ## ۱۰. صف کارها (به ترتیب؛ هر کدام یک بستهٔ جدا و تست‌شده)
 
@@ -204,7 +212,7 @@
    - الف) برنامه‌ریز: وقتی ماهِ منتشرشده را «Bearbeiten» می‌کنم، تغییرات فقط پیش‌نویس باشد. کارمندها تا «Speichern / Veröffentlichen» همان پلن قبلی را ببینند. «Verwerfen» یا بستن بدون ذخیره = همه‌چیز مثل قبل. هشدار اگر صفحه با تغییرات ذخیره‌نشده بسته شود.
    - ب) Anwesenheit → «Zeiten bearbeiten (auch frühere Tage)»: تغییرهای یک ماه جمع شوند (فهرست «n Änderungen») و فقط با «Speichern» یکجا با دلیل ثبت شوند. «Abbrechen» = هیچ تغییری.
 
-۳. **Einsatzorte:** در تنظیمات شرکت (دست مدیر) «Ein Arbeitsort» یا «Mehrere Einsatzorte». اگر چند محل: فهرست محل‌ها (اسم، آدرس، رنگ) و پنجرهٔ «Einsatzorte» دقیقاً مثل Wunschplan (جدول کارمند × روز، انتخاب محل، پر کردن سریع). نمایش در پلن، اپ کارمند (با 📍 Route) و Stundenzettel. هشدار اگر محل برای روز بدون شیفت یا مرخصی تعیین شده.
+۳. ✅ **Einsatzorte** – ساخته شد (بستهٔ ۳۳، فقط Allgemein، بدون Stammort، منتظر امتحان کاربر): در تنظیمات شرکت (دست مدیر) «Ein Arbeitsort» یا «Mehrere Einsatzorte». اگر چند محل: فهرست محل‌ها (اسم، آدرس، رنگ) و پنجرهٔ «Einsatzorte» دقیقاً مثل Wunschplan (جدول کارمند × روز، انتخاب محل، پر کردن سریع). نمایش در پلن، اپ کارمند (با 📍 Route) و Stundenzettel. هشدار اگر محل برای روز بدون شیفت یا مرخصی تعیین شده.
 
 ۴. **چرخش هفتگی (Wochenrotation):** کلید دست هر مدیر در برنامه‌ریز، ترتیب شیفت‌ها قابل انتخاب (مثلاً Früh → Mittel → Spät). قانون کار همیشه اول. Wünsche می‌توانند ترتیب را موقتاً به هم بزنند.
 

@@ -237,8 +237,14 @@ export default function OrgBar({ onLoadStaff, staffList, toDb, onIdsChanged, yea
       const baselineRows = source === "published" ? rows : (info.status === "published" ? await q("published") : []);
       const used = new Set([...rows, ...baselineRows].map((r) => r.staff_id));
       const staffRows = st.data.filter((s) => s.active !== false || used.has(s.id));
+      // Einsatzorte (allgemein): the places of the same version (published / draft); missing table = none
+      let locRows = [];
+      if (source !== "version") {
+        const lr = await sb.from("location_assignments").select("staff_id, work_date, location_id").eq("org_id", org.orgId).eq("status", source).gte("work_date", from).lt("work_date", to);
+        if (!lr.error && lr.data) locRows = lr.data;
+      }
       const res = onLoadPlan({
-        year: y, month: m, rows, baselineRows, holidays: (mrow.data[0] && mrow.data[0].holidays) || [], fromArchive: source === "version",
+        year: y, month: m, rows, baselineRows, holidays: (mrow.data[0] && mrow.data[0].holidays) || [], fromArchive: source === "version", locRows,
         defs: [...d.data].sort((a, b) => a.sort_order - b.sort_order), staffRows,
       });
       if (res && res.ok) {

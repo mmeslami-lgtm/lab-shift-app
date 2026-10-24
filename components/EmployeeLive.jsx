@@ -73,6 +73,24 @@ function makeCodes(defs) {
 const navBtn = { width: 34, height: 34, borderRadius: 12, border: `1px solid ${LINE}`, background: "#fff", display: "grid", placeItems: "center", color: INK, cursor: "pointer", padding: 0 };
 const Card = ({ children, style }) => <div style={{ background: "#fff", borderRadius: 20, padding: 16, border: "1px solid #A9BBDA", boxShadow: "0 6px 18px -12px rgba(36,59,107,.35)", ...style }}>{children}</div>;
 
+// Einsatzort of a shift: name, address and „Route“ (opens the maps app of the phone with the address)
+function PlaceLine({ place, dark }) {
+  if (!place) return null;
+  const dest = encodeURIComponent(place.address || place.name);
+  const ios = typeof navigator !== "undefined" && /iPhone|iPad|iPod/i.test(navigator.userAgent || "");
+  const href = ios ? `https://maps.apple.com/?daddr=${dest}` : `https://www.google.com/maps/dir/?api=1&destination=${dest}`;
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 10, padding: "8px 10px", borderRadius: 12, background: dark ? "rgba(255,255,255,0.12)" : "#F3F5F8" }}>
+      <span aria-hidden style={{ width: 10, height: 10, borderRadius: 999, background: place.color, flex: "none" }} />
+      <div style={{ flex: 1, minWidth: 0, fontSize: 13 }}>
+        <div style={{ fontWeight: 700 }}>📍 {place.name}</div>
+        {place.address && <div style={{ opacity: 0.75, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{place.address}</div>}
+      </div>
+      {place.address && <a href={href} target="_blank" rel="noopener noreferrer" style={{ flex: "none", fontSize: 13, fontWeight: 700, padding: "6px 12px", borderRadius: 999, background: dark ? "#FFFFFF" : "#1B2433", color: dark ? "#1B2433" : "#FFFFFF", textDecoration: "none" }}>Route</a>}
+    </div>
+  );
+}
+
 export default function EmployeeLive() {
   const org = useContext(OrgContext);
   const now = useMemo(() => new Date(), []);
@@ -89,6 +107,7 @@ export default function EmployeeLive() {
   const [people, setPeople] = useState([]);
   const [myMonth, setMyMonth] = useState({});   // iso -> shift key, for the viewed month
   const [nextShift, setNextShift] = useState(undefined);
+  const [myPlaces, setMyPlaces] = useState({}); // Einsatzorte: iso -> { name, address, color } (published only)
   const [dayShifts, setDayShifts] = useState([]); // all published shifts on the selected day
   const [myChanges, setMyChanges] = useState({});   // iso -> [{ key, kind }] changes of MY shifts that have not happened yet
   const [error, setError] = useState("");
@@ -146,6 +165,24 @@ export default function EmployeeLive() {
     })();
     return () => { cancelled = true; };
   }, [sb, org.orgId, view]);
+
+  // Einsatzorte (Dienstplaner allgemein, „Mehrere Einsatzorte“): where I work, for the viewed month and the next weeks
+  useEffect(() => {
+    if (!my) return undefined;
+    let alive = true;
+    (async () => {
+      const from = [isoOf(view.y, view.m, 1), todayIso].sort()[0];
+      const nx = new Date(view.y, view.m + 1, 1); const soon = new Date(); soon.setDate(soon.getDate() + 62);
+      const to = [isoOf(nx.getFullYear(), nx.getMonth(), 1), isoOf(soon.getFullYear(), soon.getMonth(), soon.getDate())].sort()[1];
+      const r = await sb.from("location_assignments").select("work_date, location_id").eq("org_id", org.orgId).eq("staff_id", my).eq("status", "published").gte("work_date", from).lt("work_date", to);
+      if (!alive || r.error || !r.data || !r.data.length) { if (alive) setMyPlaces({}); return; } // no places / tables missing: nothing shown
+      const l = await sb.from("work_locations").select("id, name, address, color").eq("org_id", org.orgId);
+      const byId = Object.fromEntries(((!l.error && l.data) || []).map((x) => [x.id, x]));
+      const m = {}; r.data.forEach((x) => { if (byId[x.location_id]) m[String(x.work_date).slice(0, 10)] = byId[x.location_id]; });
+      if (alive) setMyPlaces(m);
+    })();
+    return () => { alive = false; };
+  }, [sb, org.orgId, my, view, todayIso]);
 
   // my next shift from today on
   useEffect(() => {
@@ -257,6 +294,7 @@ export default function EmployeeLive() {
                       </div>
                       <div className="tn" style={{ fontSize: 34, fontWeight: 700, margin: "10px 0 14px", letterSpacing: -0.8 }}>{hhmm(def.start_time)} – {hhmm(def.end_time)}</div>
                       <DayStrip def={def} />
+                      <PlaceLine place={myPlaces[nextShift.shift_date]} dark />
                     </>
                   );
                 })() : <div style={{ fontSize: 15 }}>Für dich ist noch keine Schicht veröffentlicht.</div>}
@@ -319,6 +357,7 @@ export default function EmployeeLive() {
                   </div>
                 );
               })() : <div style={{ fontSize: 14, color: MUTED }}>{closedDays.has(selIso) ? "Der Betrieb ist an diesem Tag geschlossen." : halfDays[selIso] ? `Kein Dienst. Der Betrieb ist an diesem Tag nur ${halfDays[selIso] === "am" ? "vormittags" : "nachmittags"} geöffnet.` : "Kein Dienst. Der Tag ist frei."}</div>}
+              {selKey && defByKey[selKey] && <PlaceLine place={myPlaces[selIso]} />}
               {(myChanges[selIso] || []).map((c, i) => (
                 <div key={i} style={{ marginTop: 10, background: "#FFF1D2", color: "#7A4E00", borderRadius: 12, padding: "9px 12px", fontSize: 13, fontWeight: 600 }}>
                   {c.kind === "cancelled"

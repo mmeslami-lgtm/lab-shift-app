@@ -300,12 +300,18 @@ export default function AttendanceDialog({ onClose }) {
       const lastIso = isoOf(new Date(y, month + 1, 0));
       const chg = await fetchAll(() => sb.from("shift_changes").select("staff_id, change_date, kind, voided_at").eq("org_id", org.orgId).in("kind", ["cover", "extra"]).gte("change_date", `${y}-${String(month + 1).padStart(2, "0")}-01`).lte("change_date", lastIso));
       const coversOf = (sid) => new Set((chg || []).filter((c) => c.staff_id === sid && !c.voided_at).map((c) => String(c.change_date).slice(0, 10)));
+      // Einsatzorte (published) of the month – empty for companies with one place or without the tables
+      const firstIso = `${y}-${String(month + 1).padStart(2, "0")}-01`;
+      const la = await sb.from("location_assignments").select("staff_id, work_date, location_id").eq("org_id", org.orgId).eq("status", "published").gte("work_date", firstIso).lte("work_date", lastIso);
+      const wl = la.error || !la.data || !la.data.length ? null : await sb.from("work_locations").select("id, name").eq("org_id", org.orgId);
+      const locName = Object.fromEntries(((wl && !wl.error && wl.data) || []).map((l) => [l.id, l.name]));
+      const placesOf = (sid) => { const m = {}; ((la && !la.error && la.data) || []).filter((r) => r.staff_id === sid && locName[r.location_id]).forEach((r) => { m[String(r.work_date).slice(0, 10)] = locName[r.location_id]; }); return m; };
       const hol = {}; const holidaysOf = (yy) => hol[yy] || (hol[yy] = germanHolidays(yy));
       const sheets = people.map((p) => {
         const days = computeDays({ sessions: (ses || []).filter((x) => x.staff_id === p.id), shifts: (sh || []).filter((x) => x.staff_id === p.id), absences: (ab || []).filter((x) => x.staff_id === p.id), approved: (ap || []).filter((x) => x.staff_id === p.id), holidaysOf });
         const closedRows = (cl || []).filter((r) => r.staff_id === p.id && r.year * 12 + r.month - 1 <= y * 12 + month);
         const overtime = { mode: overtimeMode(ot), code: ot && ot.code, stored: payoutMinutesByMonth(pays, p.id) };
-        return buildSheet({ name: p.personnel_no ? `${p.name} (${p.personnel_no})` : p.name, year: y, month, days, startIso, closedRows, overtime, corrected, mobile, mode: sollMode, weeklyHours: p.weekly_hours, covers: coversOf(p.id), vacation: (() => { const v = (vac.data || []).find((x) => x.staff_id === p.id); if (!v) return null; const c = elternzeitCut((ap || []).filter((x) => x.staff_id === p.id), y, v.entitlement); return { ...v, entitlement: Number(v.entitlement || 0) - c.cut, cut: c.cut }; })() });
+        return buildSheet({ name: p.personnel_no ? `${p.name} (${p.personnel_no})` : p.name, year: y, month, days, startIso, closedRows, overtime, corrected, mobile, mode: sollMode, weeklyHours: p.weekly_hours, covers: coversOf(p.id), places: placesOf(p.id), vacation: (() => { const v = (vac.data || []).find((x) => x.staff_id === p.id); if (!v) return null; const c = elternzeitCut((ap || []).filter((x) => x.staff_id === p.id), y, v.entitlement); return { ...v, entitlement: Number(v.entitlement || 0) - c.cut, cut: c.cut }; })() });
       });
       if (!sheets.length) { setMsg("Keine Personen gefunden."); setBusy(""); return; }
       const ok = openHtmlPrint(buildTimesheetHtml(sheets, { orgName: org.orgName, year: y, month, mode: sollMode, surcharges: zus }));

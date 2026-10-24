@@ -6,6 +6,7 @@ import { germanHolidays } from "../lib/timesheet";
 import { overtimeMode, payoutMinutesByMonth, planCarryHours } from "../lib/overtime";
 import OrgBar from "./OrgBar";
 import PublishPanel from "./PublishPanel";
+import EinsatzorteDialog, { shortName } from "./EinsatzorteDialog";
 import { fetchAll } from "../lib/fetchAll";
 import { computeChanges } from "../lib/planDiff";
 import { planSig, cloneDays, useUnsavedWarning, LEAVE_MSG } from "../lib/draftGuard";
@@ -1250,6 +1251,14 @@ function LabShiftSchedulerInner() {
   // Entwurf: the plan on screen is only a draft. savedDays = how the plan is stored in the database right now
   // (opened with „Plan laden“, „Zwischenspeichern“ or „Veröffentlichen“). Anything else is an unsaved change.
   const [savedDays, setSavedDays] = useState(null);
+  // Einsatzorte (only this planner): mode „Mehrere Einsatzorte“, the places, and person+day -> place.
+  // locs is part of the draft like the shifts: savedLocs = what is stored; „Zwischenspeichern“ / „Veröffentlichen“ save both.
+  const [locMulti, setLocMulti] = useState(false);
+  const [locations, setLocations] = useState([]);
+  const [locs, setLocs] = useState({});           // { "staffId|day": locationId }
+  const [savedLocs, setSavedLocs] = useState({});
+  const [locOpen, setLocOpen] = useState(false);
+  const [locBump, setLocBump] = useState(0);
   const [generateError, setGenerateError] = useState(null);
   const [freiWishByStaff, setFreiWishByStaff] = useState({}); // staffId -> Set(day) for "Frei" wishes
   const [copyState, setCopyState] = useState("idle");
@@ -1719,9 +1728,24 @@ function LabShiftSchedulerInner() {
     const newRows = []; schedule.days.forEach((d) => Object.entries(d.shifts).forEach(([key, ids]) => (ids || []).filter(Boolean).forEach((id) => newRows.push({ staff_id: id, shift_date: `D${d.day}`, shift_key: key }))));
     return computeChanges(oldRows, newRows).length;
   }, [baseline, schedule]);
+  useEffect(() => {
+    if (!orgCtx) return undefined;
+    let alive = true;
+    (async () => {
+      const f = await orgCtx.supabase.from("org_features").select("enabled").eq("org_id", orgCtx.orgId).eq("feature", "einsatzorte");
+      const l = await orgCtx.supabase.from("work_locations").select("id, name, address, color, active, sort_order").eq("org_id", orgCtx.orgId).order("sort_order");
+      if (!alive) return;
+      setLocMulti(!f.error && !!(f.data && f.data[0] && f.data[0].enabled));
+      setLocations(!l.error && l.data ? l.data : []); // table missing (script 31 not run) = no places
+    })();
+    return () => { alive = false; };
+  }, [orgCtx, locBump]);
+  const locsFromRows = (rows) => { const m = {}; (rows || []).forEach((r) => { m[`${r.staff_id}|${Number(String(r.work_date || r.date).slice(8, 10))}`] = r.location_id; }); return m; };
+  const locRows = useMemo(() => Object.entries(locs).map(([k, loc]) => { const [sid, day] = k.split("|"); return { staff_id: sid, date: `${year}-${String(monthIdx + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`, location_id: loc }; }), [locs, year, monthIdx]);
+  const locSig = (m) => JSON.stringify(Object.entries(m).sort());
   const savedSig = useMemo(() => planSig(savedDays), [savedDays]);
   const curSig = useMemo(() => (schedule ? planSig(schedule.days) : null), [schedule]);
-  const unsaved = !!(orgCtx && schedule && curSig !== savedSig);
+  const unsaved = !!(orgCtx && schedule && (curSig !== savedSig || (locMulti && locSig(locs) !== locSig(savedLocs))));
   useUnsavedWarning(unsaved); // „Seite verlassen?“ while the draft is not saved
   const shiftListForDb = dayOrderedKeys.map((k) => {
     const def = dayShiftDefs.find((d) => d.key === k);
@@ -1750,7 +1774,7 @@ function LabShiftSchedulerInner() {
     setLeaveEntries(remap); setSickEntries(remap); setWishEntries(remap); setSchedule(null); setEditMode(false);
   };
   // Reopen a saved month (draft or published) exactly as stored, so it can be edited (e.g. sick leave)
-  const applyLoadedPlan = ({ year: y, month: m, rows, holidays: hol, defs, staffRows, baselineRows, fromArchive }) => {
+  const applyLoadedPlan = ({ year: y, month: m, rows, holidays: hol, defs, staffRows, baselineRows, fromArchive, locRows: loadedLocs }) => {
     clearUndo();
     const hh = (t) => String(t).slice(0, 5);
     const hasKeys = (...ks) => ks.every((k) => defs.some((d) => d.key === k));
@@ -1800,6 +1824,7 @@ function LabShiftSchedulerInner() {
     const stats = computeStatsAndWarnings(days, people, leaveMap, useHours, keysOrdered, restKeys, labelsByKey, closedSet, openCount, carryMap(), halfMap, tailFor(y, m - 1));
     setSchedule({ days, hours: stats.hours, satCount: stats.satCount, sunCount: stats.sunCount, targetOf: stats.targetOf, warnings: stats.warnings, notes: [] });
     setSavedDays(fromArchive ? null : cloneDays(days)); // what is stored now (an older archived version is not: it counts as a change)
+    { const lm = locsFromRows(loadedLocs); setLocs(lm); setSavedLocs(fromArchive ? {} : lm); }
     // what the employees currently see (published version) — used to mark every manual change
     if (baselineRows && baselineRows.length) {
       const base = {};
@@ -2093,6 +2118,11 @@ function LabShiftSchedulerInner() {
     } else days = cloneDays(savedDays);
     setSchedule({ days, ...computeStatsAndWarnings(days, staffList, buildLeaveMap(), shiftHours, dayOrderedKeys, restRequiringKeys, shiftLabels, closedSet, openCount, carryMap(), halfMap, tailFor(year, monthIdx)) });
     if (baseline) setSavedDays(cloneDays(days)); // the database holds exactly the published version now
+    if (baseline && orgCtx) { // places: back to the published version as well
+      const mm = monthIdx + 1; const from = `${year}-${String(mm).padStart(2, "0")}-01`; const nx = new Date(year, mm, 1);
+      const r = await orgCtx.supabase.from("location_assignments").select("staff_id, work_date, location_id").eq("org_id", orgCtx.orgId).eq("status", "published").gte("work_date", from).lt("work_date", `${nx.getFullYear()}-${String(nx.getMonth() + 1).padStart(2, "0")}-01`);
+      const lm = locsFromRows(!r.error ? r.data : []); setLocs(lm); setSavedLocs(lm);
+    } else if (!baseline) setLocs({ ...savedLocs });
     setUndoMsg(baseline ? "Zurück zur veröffentlichten Fassung" : "Zurück zum gespeicherten Stand");
     setTimeout(() => setUndoMsg(""), 4000);
   }
@@ -2393,7 +2423,7 @@ function LabShiftSchedulerInner() {
               <input
                 type="month"
                 value={monthValue}
-                onChange={(e) => { if (unsaved && !window.confirm(LEAVE_MSG)) return; setMonthValue(e.target.value); setSchedule(null); setSavedDays(null); setEditMode(false); }}
+                onChange={(e) => { if (unsaved && !window.confirm(LEAVE_MSG)) return; setMonthValue(e.target.value); setSchedule(null); setSavedDays(null); setLocs({}); setSavedLocs({}); setEditMode(false); }}
                 className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
               />
               <p className="text-xs text-slate-400 mt-1">{MONTH_DE[monthIdx]} {year} — {totalDays} Tage</p>
@@ -3006,10 +3036,20 @@ function LabShiftSchedulerInner() {
                   <button onClick={discardChanges} disabled={!((baseline && changeCount > 0) || (unsaved && savedDays))} title={baseline ? "Alles wieder so, wie die Mitarbeitenden es sehen (veröffentlichte Fassung)" : "Zurück zum zuletzt gespeicherten Stand"} className="inline-flex items-center gap-1.5 text-xs text-slate-700 border border-slate-200 bg-white rounded-lg px-2.5 py-1.5 hover:bg-slate-50 active:translate-y-px disabled:opacity-40 disabled:cursor-not-allowed">
                     Alle Änderungen verwerfen
                   </button>
+                  {orgCtx && (locMulti || ["owner", "supervisor"].includes(orgCtx.role)) && (
+                    <button onClick={() => setLocOpen(true)} title="Wer arbeitet wo? (mehrere Arbeitsorte)" className="inline-flex items-center gap-1.5 text-xs text-teal-800 border border-teal-200 bg-teal-50 rounded-lg px-2.5 py-1.5 hover:bg-teal-100 active:translate-y-px">
+                      📍 Einsatzorte{locMulti && Object.keys(locs).length > 0 ? ` (${Object.keys(locs).length})` : ""}
+                    </button>
+                  )}
+                  {locOpen && (
+                    <EinsatzorteDialog orgCtx={orgCtx} monthLabel={`${MONTH_DE[monthIdx]} ${year}`} days={schedule.days} staffList={staffList} leaveMap={buildLeaveMap()}
+                      locs={locs} locations={locations} multi={locMulti} canManage={["owner", "supervisor"].includes(orgCtx.role)}
+                      onApply={(m) => { setLocs(m); setLocOpen(false); }} onClose={() => setLocOpen(false)} onChanged={() => setLocBump((n) => n + 1)} />
+                  )}
                   {undoMsg && <span role="status" className="text-xs text-slate-600 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5">{undoMsg}</span>}
                 </div>
               </div>
-              {orgCtx && <PublishPanel schedule={schedule} staffList={staffList} year={year} monthIdx={monthIdx} shiftList={shiftListForDb} holidays={holidays} changeCount={changeCount} editMode={editMode} unsaved={unsaved} onSaved={(d) => setSavedDays(cloneDays(d))} />}
+              {orgCtx && <PublishPanel schedule={schedule} staffList={staffList} year={year} monthIdx={monthIdx} shiftList={shiftListForDb} holidays={holidays} changeCount={changeCount} editMode={editMode} unsaved={unsaved} locRows={locMulti ? locRows : undefined} onSaved={(d, lr) => { setSavedDays(cloneDays(d)); if (lr) setSavedLocs(locsFromRows(lr)); }} />}
               {(archiveState === "error" || saveState === "error") && (
                 <div className="mx-4 mt-3 rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs text-rose-800">
                   {archiveState === "error" && (
@@ -3112,6 +3152,7 @@ function LabShiftSchedulerInner() {
                                   ))}
                                 </select>
                               )}
+                              {locMulti && val && locs[`${val}|${d.day}`] && (() => { const l = locations.find((x) => x.id === locs[`${val}|${d.day}`]); return l ? <div className="mt-0.5 inline-flex items-center gap-1 rounded px-1 text-[10px] font-semibold text-white" style={{ background: l.color }} title={l.address || l.name}>📍 {l.name}</div> : null; })()}
                               {isNewHere && <div className="mt-0.5 text-[10px] font-semibold text-amber-700">Geändert</div>}
                               {goneHere.length > 0 && <div className="mt-0.5 text-[10px] text-amber-700">entfällt: {goneHere.map(nameById).join(", ")}</div>}
                             </td>

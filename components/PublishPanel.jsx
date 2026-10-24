@@ -47,7 +47,8 @@ const ghost = "rounded-xl px-4 py-2 text-sm text-slate-500 hover:bg-slate-50";
 // A question is only asked when it matters: when a month that employees already see is changed.
 // unsaved: the plan on screen differs from what is stored (only a draft in this browser)
 // onSaved(days): called with the saved plan after „Zwischenspeichern“, „Einreichen“ or „Veröffentlichen“
-export default function PublishPanel({ schedule, staffList, year, monthIdx, shiftList, holidays, changeCount, editMode, unsaved, onSaved }) {
+// locRows (Dienstplaner allgemein, „Mehrere Einsatzorte“): [{ staff_id, date, location_id }] – saved with the plan
+export default function PublishPanel({ schedule, staffList, year, monthIdx, shiftList, holidays, changeCount, editMode, unsaved, onSaved, locRows }) {
   const org = useContext(OrgContext);
   const [phase, setPhase] = useState("idle"); // idle | working | done | error
   const [info, setInfo] = useState("");
@@ -117,6 +118,10 @@ export default function PublishPanel({ schedule, staffList, year, monthIdx, shif
     if (!rows.length) throw new Error("Der Plan enthält keine Schichten.");
     r = await sb.rpc("save_draft", { p_org: org.orgId, p_year: year, p_month: month, p_shifts: rows, p_holidays: holidays || [] });
     if (r.error) throw r.error;
+    if (locRows) { // Einsatzorte: same draft, published together with the plan (trigger in the database)
+      r = await sb.rpc("save_location_draft", { p_org: org.orgId, p_year: year, p_month: month, p_rows: locRows });
+      if (r.error) throw r.error;
+    }
     return rows.length;
   }
 
@@ -124,6 +129,7 @@ export default function PublishPanel({ schedule, staffList, year, monthIdx, shif
   async function run(kind, opts = {}) {
     setDialog(null); setPhase("working"); setInfo("");
     const savedDays = schedule.days; // exactly what is written below
+    const savedLocRows = locRows;
     try {
       setInfo("Speichern …");
       const n = await persistDraft();
@@ -140,7 +146,7 @@ export default function PublishPanel({ schedule, staffList, year, monthIdx, shif
         if (r.error) throw r.error;
         done = `${n} Schichten für ${MONTHS[monthIdx]} ${year} veröffentlicht.`;
       }
-      setPhase("done"); setInfo(done); setReason(""); setTick((t) => t + 1); if (onSaved) onSaved(savedDays); window.dispatchEvent(new Event("schedule-status-changed"));
+      setPhase("done"); setInfo(done); setReason(""); setTick((t) => t + 1); if (onSaved) onSaved(savedDays, savedLocRows); window.dispatchEvent(new Event("schedule-status-changed"));
     } catch (e) {
       setPhase("error"); setInfo(friendly(e));
     }
