@@ -1,4 +1,4 @@
-# Dienstplaner (SaaS) – خلاصهٔ کامل پروژه تا ۱۷ اکتبر ۲۰۲۶
+# Dienstplaner (SaaS) – خلاصهٔ کامل پروژه تا ۲۴ اکتبر ۲۰۲۶
 
 > **برای Claude در گفتگوی جدید:** کاربر برنامه‌نویس نیست؛ فقط با مرورگر کار می‌کند و فایل‌ها را مستقیم در GitHub آپلود می‌کند. همیشه فارسی جواب بده، قدم‌به‌قدم و ساده. کد پروژه در این گفتگو نیست: اول از کاربر بخواه از GitHub (شاخهٔ `main` → «Code → Download ZIP») فایل زیپ را بفرستد. بسته‌های تحویلی همیشه فقط شامل فایل‌های تغییرکرده‌اند (zip، با همان ساختار پوشه‌ها). **این فایل (`docs/PROJEKT-ZUSAMMENFASSUNG.md`) را با هر کار جدید به‌روز کن و در همان بسته بگذار.**
 
@@ -28,8 +28,8 @@
 
 ## ۳. آخرین بسته
 
-- **`Upload-NUR-30-Aenderungen (روی ۲۶).zip`**: همهٔ کارهای زیر (شامل همین خلاصه در `docs/`). بسته‌های قدیمی‌تر بی‌اعتبارند.
-- بستهٔ ۲۳ امتحان و در main است. **بستهٔ ۲۶ (حق مرخصی + Ziel ماهانه + اضافه‌کاری نقدی) باید در test آپلود و امتحان شود.**
+- **`Upload-NUR-31-Entwurf.zip`** (مورد ۲ صف: پیش‌نویس در برنامه‌ریز و در «Zeiten bearbeiten»): فقط فایل‌های تغییرکرده + همین خلاصه. باید در **test** آپلود و امتحان شود (بخش ۹).
+- کارهای قبلی (تا اسکریپت ۲۹، از جمله حق مرخصی، اضافه‌کاری، Zu prüfen) در `main` هستند؛ کاربر در ۲۴ اکتبر زیپ `main` را فرستاد.
 
 ## ۴. مهاجرت‌های دیتابیس (`docs/sql/`) – همه روی Supabase واقعی اجرا شده‌اند
 
@@ -51,6 +51,10 @@
 | 24 | `organizations.surcharge_settings` + `set_surcharge_settings` |
 | 25 | `staff_vacation` (entitlement, carryover) |
 | 26 | `organizations.overtime_settings`، `overtime_payouts`، `add_overtime_payout`، `void_overtime_payout` |
+| 27 | `my_role` – Leitung زمان‌های خودش را تأیید/ویرایش نمی‌کند |
+| 28 | انواع درخواست (Mutterschutz، Elternzeit …)، `requests.cut_vacation`، Einspringen |
+| 29 | `attendance_review_seen` («Zu prüfen» در Anwesenheit) |
+| 30 | `discard_draft` (دور ریختن پیش‌نویس پلن)، `save_attendance_edits` (ثبت یکجای تغییرهای ساعت، همه یا هیچ)، رفع باگ `set_absence` (حالا هر ۱۲ نوع غیبت؛ قبلاً فقط ۶) |
 | STAGING-SETUP.sql | اسکریپت‌های ۱–۱۹ یکجا برای دیتابیس آزمایشی جدا در آینده |
 
 ## ۵. ویژگی‌های ساخته‌شده
@@ -65,6 +69,12 @@
 - **مرخصی تأییدشده خودکار در پلن:** بعد از «Personen aus Datenbank laden» و با هر انتخاب ماه، درخواست‌های **تأییدشده** (Urlaub/Fortbildung/Krank) و غیبت‌های ثبت‌شده توسط Leitung (به‌جز Unentschuldigt) آن ماه خودکار در فهرست Urlaub/Krank برنامه‌ریز می‌آیند (`OrgBar`، پیام «✓ n genehmigte Abwesenheit(en) … automatisch übernommen»). درخواست‌های باز **نه**. ورودی‌ها برچسب ماه دارند (`ym`، `dbId = id@ym`)؛ عوض‌کردن ماه آن‌ها را برمی‌دارد؛ تکرار نمی‌شوند؛ بعد از تصمیم در «Anträge» دوباره اجرا می‌شود. **لغو مرخصی تأییدشده:** Leitung در «Anträge» روی درخواست تأییدشده «Stornieren» (دلیل اجباری، متن «Storniert: …» برای کارمند؛ وضعیت denied) → در پلن خودکار برداشته می‌شود («n stornierte entfernt – bitte den Plan für diese Tage prüfen»)؛ پلنی که قبلاً ساخته شده خودکار عوض نمی‌شود. هر دو برنامه‌ریز. تست: `autourlaub_test`.
 - **Personalnummer:** فیلد «Personal-Nr.» کنار ایمیل + دکمهٔ «# Fehlende Personalnummern vergeben» (فقط خالی‌ها، از ۱۰۰۱).
 - چاپ/Excel پلن؛ جاهای اضافه «— (zusätzlich) —».
+
+### پیش‌نویس (Entwurf) – مورد ۲ صف، ۲۴ اکتبر
+- **برنامه‌ریز (هر دو):** پلن روی صفحه فقط پیش‌نویس است؛ کارمندها همیشه فقط نسخهٔ `published` را می‌بینند. `lib/draftGuard.js` آخرین وضعیت ذخیره‌شده را نگه می‌دارد (`savedDays`، بعد از «Plan laden» / «Zwischenspeichern» / «Veröffentlichen»؛ نسخهٔ آرشیوی قدیمی = ذخیره‌نشده). تا وقتی فرق دارد: کادر زرد «● Nicht gespeicherte Änderungen» در PublishPanel، هشدار مرورگر هنگام بستن صفحه، هشدار هنگام عوض کردن ماه و «Personen laden». پیش‌نویس ذخیره‌شده: «✓ Entwurf gespeichert … sehen noch die veröffentlichte Fassung».
+- **«Alle Änderungen verwerfen»** = همه‌چیز مثل قبل: پلن به نسخهٔ منتشرشده برمی‌گردد و اگر پیش‌نویسی (Zwischenspeichern یا منتظر Freigabe) در دیتابیس باشد با `discard_draft` پاک می‌شود (با سؤال). ماه بدون نسخهٔ منتشرشده: برگشت به آخرین ذخیره. مولد پلن و قوانینش دست نخورده.
+- **Anwesenheit → «Zeiten bearbeiten (auch frühere Tage)»:** Korrigieren / Zeit nachtragen / Abwesenheit eintragen·ändern·aufheben فقط «vorgemerkt» می‌شوند. فهرست «n Änderungen für <Monat> – noch nicht gespeichert» با ✕ برای هر مورد، یک «Grund» برای همه، «Speichern (n)» → `save_attendance_edits` (یک تراکنش: همه یا هیچ؛ خطا روز و نفر را نام می‌برد)، «Abbrechen» = هیچ تغییری. فقط یک ماه در هر بار؛ هشدار هنگام رفتن به ماه دیگر، بستن پنجره یا صفحه. فرم «Abwesend …» در بالای پنجره (Nicht erschienen) مثل قبل فوری ثبت می‌کند.
+- تست: کلیک‌به‌کلیک در مرورگر بدون صفحه با دیتابیس ساختگی (Labor ۱۶، Allgemein ۱۶، Anwesenheit ۲۱ مورد) + تست دیتابیس با نقش‌های واقعی در تراکنش لغوشده.
 
 ### Zeiterfassung (ثبت ورود/خروج)
 - **ترمینال `/terminal` روی تبلت:** کسی روی تبلت وارد نمی‌شود. Leitung در «Anwesenheit → + Neues Terminal einrichten» کد یک‌بارمصرف `XXXX-XXXX` می‌سازد. ترتیب: اول **Kommen** (سبز) یا **Gehen** (قرمز) → بعد QR یا کارت چیپی (یا PIN، پشت کلید `terminal_pin_only`).
@@ -158,6 +168,7 @@
 - **فروش بین‌المللی (اول دبی):** انگلیسی + عربی (راست‌به‌چپ) + **«پروفایل کشور»** برای هر شرکت: زبان، روزهای آخر هفته (افغانستان: جمعه)، تعطیلات اسلامی (تقویم قمری)، ساعت کمتر در رمضان، پول (درهم/افغانی)، قانون کار. Inhaber زبان شرکت را انتخاب می‌کند و ادمین آن را می‌بیند. بعداً دری. Stundenzettel، Impressum و Datenschutz آلمانی می‌مانند. افغانستان: مشکل پرداخت/تحریم، اول با مشاور.
 - پلن هفتگی/سالانه و حالت چرخشی (فقط برای مشتری سفارش‌دهنده، پشت کلید ویژگی).
 - اعلان واقعی گوشی (Web Push) – نیازمند دامنه + سرویس ایمیل.
+- صندوق پیام / اعلان داخل اپ برای کارمند: ۲۴ اکتبر اشتباهی ساخته و همان روز کامل از دیتابیس برگردانده شد (مهاجرت‌های `mitteilungen` و `mitteilungen_rueckgaengig`). جزو صف نیست.
 - خروجی DATEV / حسابداری حقوق؛ تعطیلات ایالتی آلمان.
 - انبارداری و ثبت دما با حسگر (نقشه‌ها: `INVENTAR-PLAN.md`، `TEMPERATUR-PLAN.md`، `KUNDEN-ANPASSUNGEN.md` – باید در `docs/` گیت‌هاب گذاشته شوند).
 - دیتابیس آزمایشی جدا بعد از Supabase Pro (با `STAGING-SETUP.sql`).
@@ -171,6 +182,25 @@
 
 ## ۹. کار بعدی
 
-1. آپلود `Upload-NUR-30-Aenderungen (روی ۲۶).zip` در **test** و امتحان: «Urlaubsanspruch eintragen» و کادرهای Urlaub/Krankheit در Stundenzettel؛ «📷 Stempeln» روی آیفون واقعی.
+1. آپلود `Upload-NUR-31-Entwurf.zip` در **test** و امتحان با شرکت A (`leitung@test.de`):
+   - «Plan bearbeiten → Plan laden» برای اکتبر، یک خانه را عوض کنید → کادر زرد؛ با `mitarbeiter@test.de` در گوشی چک کنید که هنوز پلن قبلی دیده می‌شود؛ بعد «Alle Änderungen verwerfen».
+   - ⚠️ نوامبر یک پیش‌نویس ذخیره‌شدهٔ قدیمی دارد که با نسخهٔ منتشرشده خیلی فرق دارد؛ «Verwerfen» آن را پاک می‌کند (پلن کارمندها عوض نمی‌شود).
+   - «Anwesenheit → Zeiten bearbeiten»: دو سه تغییر vormerken، یکی را با ✕ بردارید، «Abbrechen»؛ بعد دوباره و «Speichern» با دلیل.
 2. بعد PR از test به main.
-3. برای شرکت واقعی آزمایشگاه در `/admin` کلید «Zeitkonto: Soll = Vertrag» را روشن کنید و Zuschläge (مثلاً Nacht ۲۰٪ کد 8027، Sonntag/Feiertag ۱۰۲٫۲۶ € در روز کد 1070/8002) و حق مرخصی را وارد کنید.
+3. سپس مورد ۳ صف (Einsatzorte).
+
+## ۱۰. صف کارها (به ترتیب؛ هر کدام یک بستهٔ جدا و تست‌شده)
+
+۲. ✅ **پیش‌نویس (Entwurf) در دو جا** – ساخته شد (بستهٔ ۳۱، منتظر امتحان کاربر):
+   - الف) برنامه‌ریز: وقتی ماهِ منتشرشده را «Bearbeiten» می‌کنم، تغییرات فقط پیش‌نویس باشد. کارمندها تا «Speichern / Veröffentlichen» همان پلن قبلی را ببینند. «Verwerfen» یا بستن بدون ذخیره = همه‌چیز مثل قبل. هشدار اگر صفحه با تغییرات ذخیره‌نشده بسته شود.
+   - ب) Anwesenheit → «Zeiten bearbeiten (auch frühere Tage)»: تغییرهای یک ماه جمع شوند (فهرست «n Änderungen») و فقط با «Speichern» یکجا با دلیل ثبت شوند. «Abbrechen» = هیچ تغییری.
+
+۳. **Einsatzorte:** در تنظیمات شرکت (دست مدیر) «Ein Arbeitsort» یا «Mehrere Einsatzorte». اگر چند محل: فهرست محل‌ها (اسم، آدرس، رنگ) و پنجرهٔ «Einsatzorte» دقیقاً مثل Wunschplan (جدول کارمند × روز، انتخاب محل، پر کردن سریع). نمایش در پلن، اپ کارمند (با 📍 Route) و Stundenzettel. هشدار اگر محل برای روز بدون شیفت یا مرخصی تعیین شده.
+
+۴. **چرخش هفتگی (Wochenrotation):** کلید دست هر مدیر در برنامه‌ریز، ترتیب شیفت‌ها قابل انتخاب (مثلاً Früh → Mittel → Spät). قانون کار همیشه اول. Wünsche می‌توانند ترتیب را موقتاً به هم بزنند.
+
+۵. **بررسی زندهٔ ArbZG هنگام ویرایش دستی پلن:** استراحت کمتر از ۱۱ ساعت، بیش از ۱۰ ساعت در روز، بیش از ۶ روز پشت‌سرهم و غیره، با هشدار.
+
+۶. **جابه‌جایی شیفت در اپ** (پیشنهاد کارمند ← قبول همکار ← تأیید مدیر)، شیفت‌های باز، خروجی حقوق CSV آمادهٔ DATEV، اعلان Push.
+
+**قوانین اصلی که نباید به هم بخورد:** شب‌ها و آخر هفته‌ها برای تمام‌وقت‌ها تا جای ممکن یکسان؛ شنبه و یکشنبه شیفت یکسان برای هر نفر؛ بعد از شیفت شب ۲ روز آزاد.

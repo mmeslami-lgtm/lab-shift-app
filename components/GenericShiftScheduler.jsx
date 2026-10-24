@@ -8,6 +8,7 @@ import OrgBar from "./OrgBar";
 import PublishPanel from "./PublishPanel";
 import { fetchAll } from "../lib/fetchAll";
 import { computeChanges } from "../lib/planDiff";
+import { planSig, cloneDays, useUnsavedWarning, LEAVE_MSG } from "../lib/draftGuard";
 import { openPrintView } from "../lib/printPlan";
 import { scorePlan, VARIANTS } from "../lib/planScore";
 import { Calendar, Users, AlertTriangle, RefreshCw, Plus, Trash2, Copy, Check, ClipboardList, Info, Printer } from "lucide-react";
@@ -1191,6 +1192,9 @@ function LabShiftSchedulerInner() {
   const [wishEntries, setWishEntries] = useState([]); // {id, staffId, days, shiftType}
   const [wishDraft, setWishDraft] = useState({ staffId: "", days: "", shiftType: "F" });
   const [schedule, setSchedule] = useState(null); // {days, hours, satCount, sunCount, target, warnings}
+  // Entwurf: the plan on screen is only a draft. savedDays = how the plan is stored in the database right now
+  // (opened with „Plan laden“, „Zwischenspeichern“ or „Veröffentlichen“). Anything else is an unsaved change.
+  const [savedDays, setSavedDays] = useState(null);
   const [generateError, setGenerateError] = useState(null);
   const [freiWishByStaff, setFreiWishByStaff] = useState({}); // staffId -> Set(day) for "Frei" wishes
   const [copyState, setCopyState] = useState("idle");
@@ -1647,6 +1651,10 @@ function LabShiftSchedulerInner() {
     const newRows = []; schedule.days.forEach((d) => Object.entries(d.shifts).forEach(([key, ids]) => (ids || []).filter(Boolean).forEach((id) => newRows.push({ staff_id: id, shift_date: `D${d.day}`, shift_key: key }))));
     return computeChanges(oldRows, newRows).length;
   }, [baseline, schedule]);
+  const savedSig = useMemo(() => planSig(savedDays), [savedDays]);
+  const curSig = useMemo(() => (schedule ? planSig(schedule.days) : null), [schedule]);
+  const unsaved = !!(orgCtx && schedule && curSig !== savedSig);
+  useUnsavedWarning(unsaved); // „Seite verlassen?“ while the draft is not saved
   const shiftListForDb = dayOrderedKeys.map((k) => {
     const def = dayShiftDefs.find((d) => d.key === k);
     return {
@@ -1656,6 +1664,7 @@ function LabShiftSchedulerInner() {
     };
   });
   const loadStaffFromDb = (rows) => {
+    if (unsaved && !window.confirm(LEAVE_MSG)) return false;
     setStaffList(rows.map((r) => ({
       id: r.id, name: r.name, weeklyHours: Number(r.weekly_hours) || 38.5, employmentType: r.employment_type || "full",
       nightExempt: !!r.night_exempt, weekendExempt: !!r.weekend_exempt, isTeamLead: !!r.is_team_lead, email: r.email || "", personnelNo: r.personnel_no || "",
@@ -1673,7 +1682,7 @@ function LabShiftSchedulerInner() {
     setLeaveEntries(remap); setSickEntries(remap); setWishEntries(remap); setSchedule(null); setEditMode(false);
   };
   // Reopen a saved month (draft or published) exactly as stored, so it can be edited (e.g. sick leave)
-  const applyLoadedPlan = ({ year: y, month: m, rows, holidays: hol, defs, staffRows, baselineRows }) => {
+  const applyLoadedPlan = ({ year: y, month: m, rows, holidays: hol, defs, staffRows, baselineRows, fromArchive }) => {
     clearUndo();
     const hh = (t) => String(t).slice(0, 5);
     const hasKeys = (...ks) => ks.every((k) => defs.some((d) => d.key === k));
@@ -1722,6 +1731,7 @@ function LabShiftSchedulerInner() {
     const labelsByKey = restore ? Object.fromEntries(defs.map((d) => [d.key, d.label])) : shiftLabels;
     const stats = computeStatsAndWarnings(days, people, leaveMap, useHours, keysOrdered, restKeys, labelsByKey, closedSet, openCount, carryMap(), halfMap);
     setSchedule({ days, hours: stats.hours, satCount: stats.satCount, sunCount: stats.sunCount, targetOf: stats.targetOf, warnings: stats.warnings, notes: [] });
+    setSavedDays(fromArchive ? null : cloneDays(days)); // what is stored now (an older archived version is not: it counts as a change)
     // what the employees currently see (published version) — used to mark every manual change
     if (baselineRows && baselineRows.length) {
       const base = {};
@@ -1982,19 +1992,40 @@ function LabShiftSchedulerInner() {
     setUndoMsg(`Rückgängig: ${snap.label}`);
     setTimeout(() => setUndoMsg(""), 4000);
   }
-  // back to the published version of this month (yellow marks disappear); can itself be undone
-  function discardChanges() {
-    if (!schedule || !baseline) return;
-    if (!window.confirm("Alle Änderungen verwerfen und den Plan wieder so zeigen, wie er veröffentlicht ist?\n\nDas kann mit „Rückgängig“ wieder aufgehoben werden.")) return;
+  // „Änderungen verwerfen“: everything as before the editing started. With a published version: back to it, and a
+  // zwischengespeicherter / eingereichter Entwurf in the database is deleted too (discard_draft). Without one: back to
+  // the last saved draft. Only local changes can be brought back with „Rückgängig“.
+  async function discardChanges() {
+    if (!schedule || (!baseline && !savedDays)) return;
+    let st = null;
+    if (orgCtx && baseline) {
+      const r = await orgCtx.supabase.from("schedule_months").select("status, has_newer_draft").eq("org_id", orgCtx.orgId).eq("year", year).eq("month", monthIdx + 1);
+      st = !r.error && r.data && r.data[0] ? r.data[0] : null;
+    }
+    const storedDraft = !!(baseline && st && (st.has_newer_draft || st.status === "pending"));
+    const question = baseline
+      ? "Alle Änderungen verwerfen?\n\nDer Plan wird wieder so angezeigt, wie die Mitarbeitenden ihn sehen (veröffentlichte Fassung)."
+        + (storedDraft ? `\n\nAuch der gespeicherte Entwurf${st.status === "pending" ? ", der auf Freigabe wartet," : ""} wird gelöscht. Das lässt sich nicht rückgängig machen.` : "\n\nDas kann mit „Rückgängig“ wieder aufgehoben werden.")
+      : "Alle nicht gespeicherten Änderungen verwerfen?\n\nDer Plan wird wieder so angezeigt, wie er zuletzt gespeichert wurde.";
+    if (!window.confirm(question)) return;
+    if (storedDraft) {
+      const r = await orgCtx.supabase.rpc("discard_draft", { p_org: orgCtx.orgId, p_year: year, p_month: monthIdx + 1 });
+      if (r.error) { window.alert("Der Entwurf konnte nicht verworfen werden: " + r.error.message); return; }
+      window.dispatchEvent(new Event("schedule-status-changed"));
+    }
     pushUndo("Alle Änderungen verwerfen");
-    const days = schedule.days.map((d) => {
-      const shifts = {};
-      Object.keys(d.shifts).forEach((k) => { shifts[k] = [...(baseline[`${d.day}|${k}`] || [])]; });
-      Object.keys(baseline).forEach((bk) => { const [day, k] = bk.split("|"); if (Number(day) === d.day && !shifts[k]) shifts[k] = [...baseline[bk]]; });
-      return { ...d, shifts };
-    });
+    let days;
+    if (baseline) {
+      days = schedule.days.map((d) => {
+        const shifts = {};
+        Object.keys(d.shifts).forEach((k) => { shifts[k] = [...(baseline[`${d.day}|${k}`] || [])]; });
+        Object.keys(baseline).forEach((bk) => { const [day, k] = bk.split("|"); if (Number(day) === d.day && !shifts[k]) shifts[k] = [...baseline[bk]]; });
+        return { ...d, shifts };
+      });
+    } else days = cloneDays(savedDays);
     setSchedule({ days, ...computeStatsAndWarnings(days, staffList, buildLeaveMap(), shiftHours, dayOrderedKeys, restRequiringKeys, shiftLabels, closedSet, openCount, carryMap(), halfMap) });
-    setUndoMsg("Zurück zur veröffentlichten Fassung");
+    if (baseline) setSavedDays(cloneDays(days)); // the database holds exactly the published version now
+    setUndoMsg(baseline ? "Zurück zur veröffentlichten Fassung" : "Zurück zum gespeicherten Stand");
     setTimeout(() => setUndoMsg(""), 4000);
   }
   useEffect(() => {
@@ -2294,7 +2325,7 @@ function LabShiftSchedulerInner() {
               <input
                 type="month"
                 value={monthValue}
-                onChange={(e) => { setMonthValue(e.target.value); setSchedule(null); setEditMode(false); }}
+                onChange={(e) => { if (unsaved && !window.confirm(LEAVE_MSG)) return; setMonthValue(e.target.value); setSchedule(null); setSavedDays(null); setEditMode(false); }}
                 className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
               />
               <p className="text-xs text-slate-400 mt-1">{MONTH_DE[monthIdx]} {year} — {totalDays} Tage</p>
@@ -2903,13 +2934,13 @@ function LabShiftSchedulerInner() {
                   <button onClick={undoLast} disabled={undoCount === 0} title="Letzte Änderung zurücknehmen (Strg+Z)" className="inline-flex items-center gap-1.5 text-xs text-slate-700 border border-slate-200 bg-white rounded-lg px-2.5 py-1.5 hover:bg-slate-50 active:translate-y-px disabled:opacity-40 disabled:cursor-not-allowed">
                     ↶ Rückgängig
                   </button>
-                  <button onClick={discardChanges} disabled={!baseline || changeCount === 0} title={!baseline ? "Für diesen Monat gibt es noch keine veröffentlichte Fassung" : "Plan wieder so zeigen, wie er veröffentlicht ist"} className="inline-flex items-center gap-1.5 text-xs text-slate-700 border border-slate-200 bg-white rounded-lg px-2.5 py-1.5 hover:bg-slate-50 active:translate-y-px disabled:opacity-40 disabled:cursor-not-allowed">
+                  <button onClick={discardChanges} disabled={!((baseline && changeCount > 0) || (unsaved && savedDays))} title={baseline ? "Alles wieder so, wie die Mitarbeitenden es sehen (veröffentlichte Fassung)" : "Zurück zum zuletzt gespeicherten Stand"} className="inline-flex items-center gap-1.5 text-xs text-slate-700 border border-slate-200 bg-white rounded-lg px-2.5 py-1.5 hover:bg-slate-50 active:translate-y-px disabled:opacity-40 disabled:cursor-not-allowed">
                     Alle Änderungen verwerfen
                   </button>
                   {undoMsg && <span role="status" className="text-xs text-slate-600 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5">{undoMsg}</span>}
                 </div>
               </div>
-              {orgCtx && <PublishPanel schedule={schedule} staffList={staffList} year={year} monthIdx={monthIdx} shiftList={shiftListForDb} holidays={holidays} changeCount={changeCount} editMode={editMode} />}
+              {orgCtx && <PublishPanel schedule={schedule} staffList={staffList} year={year} monthIdx={monthIdx} shiftList={shiftListForDb} holidays={holidays} changeCount={changeCount} editMode={editMode} unsaved={unsaved} onSaved={(d) => setSavedDays(cloneDays(d))} />}
               {(archiveState === "error" || saveState === "error") && (
                 <div className="mx-4 mt-3 rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs text-rose-800">
                   {archiveState === "error" && (

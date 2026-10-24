@@ -45,7 +45,9 @@ const ghost = "rounded-xl px-4 py-2 text-sm text-slate-500 hover:bg-slate-50";
 //   Zwischenspeichern  ->  (Schichtplaner) zur Freigabe einreichen  ->  (Leitung) Freigeben / Zurückweisen  ->  veröffentlicht
 // The Leitung and the Inhaber publish directly. A Schichtplaner only publishes directly if the company does not require approval.
 // A question is only asked when it matters: when a month that employees already see is changed.
-export default function PublishPanel({ schedule, staffList, year, monthIdx, shiftList, holidays, changeCount, editMode }) {
+// unsaved: the plan on screen differs from what is stored (only a draft in this browser)
+// onSaved(days): called with the saved plan after „Zwischenspeichern“, „Einreichen“ or „Veröffentlichen“
+export default function PublishPanel({ schedule, staffList, year, monthIdx, shiftList, holidays, changeCount, editMode, unsaved, onSaved }) {
   const org = useContext(OrgContext);
   const [phase, setPhase] = useState("idle"); // idle | working | done | error
   const [info, setInfo] = useState("");
@@ -64,6 +66,11 @@ export default function PublishPanel({ schedule, staffList, year, monthIdx, shif
     })();
     return () => { alive = false; };
   }, [org, year, month, tick]);
+  useEffect(() => { // e.g. „Änderungen verwerfen“ deleted the stored draft
+    const h = () => setTick((t) => t + 1);
+    window.addEventListener("schedule-status-changed", h);
+    return () => window.removeEventListener("schedule-status-changed", h);
+  }, []);
 
   if (!org || !schedule) return null;
 
@@ -116,6 +123,7 @@ export default function PublishPanel({ schedule, staffList, year, monthIdx, shif
   // kind: "draft" | "submit" | "publish";  opts: { normal, reason }
   async function run(kind, opts = {}) {
     setDialog(null); setPhase("working"); setInfo("");
+    const savedDays = schedule.days; // exactly what is written below
     try {
       setInfo("Speichern …");
       const n = await persistDraft();
@@ -132,7 +140,7 @@ export default function PublishPanel({ schedule, staffList, year, monthIdx, shif
         if (r.error) throw r.error;
         done = `${n} Schichten für ${MONTHS[monthIdx]} ${year} veröffentlicht.`;
       }
-      setPhase("done"); setInfo(done); setReason(""); setTick((t) => t + 1); window.dispatchEvent(new Event("schedule-status-changed"));
+      setPhase("done"); setInfo(done); setReason(""); setTick((t) => t + 1); if (onSaved) onSaved(savedDays); window.dispatchEvent(new Event("schedule-status-changed"));
     } catch (e) {
       setPhase("error"); setInfo(friendly(e));
     }
@@ -163,6 +171,14 @@ export default function PublishPanel({ schedule, staffList, year, monthIdx, shif
           <button onClick={startMain} disabled={busy} className="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700 disabled:opacity-60">{mainLabel}</button>
         </div>
       </div>
+      {unsaved ? (
+        <div role="status" className="mt-2 rounded-lg border border-amber-300 bg-amber-50 px-2.5 py-1.5 text-[12px] font-semibold text-amber-900">
+          ● Nicht gespeicherte Änderungen (nur Entwurf in diesem Browser). Mitarbeitende sehen weiterhin {hasPublished ? "die veröffentlichte Fassung" : "nichts von diesem Plan"}.
+          <span className="font-normal"> „Zwischenspeichern“ sichert den Entwurf, „{mainLabel}“ macht ihn sichtbar, „Alle Änderungen verwerfen“ stellt alles wieder her wie vorher. Wer die Seite schließt, verliert die Änderungen.</span>
+        </div>
+      ) : row && hasPublished && (row.has_newer_draft || status === "pending") ? (
+        <div className="mt-2 rounded-lg border border-indigo-200 bg-white px-2.5 py-1.5 text-[12px] text-indigo-800">✓ Entwurf gespeichert{status === "pending" ? " und eingereicht" : ""}. Mitarbeitende sehen noch die veröffentlichte Fassung.</div>
+      ) : null}
       <div className="mt-1.5 text-[11px] text-indigo-600">Zwischenspeichern sichert den Plan nur für dich. Mitarbeitende sehen ihn erst nach „{mainLabel}“{direct ? "" : " und der Freigabe"}.</div>
       {changeCount !== null && changeCount !== undefined && (
         <div className={`mt-1.5 text-[11px] ${changeCount > 0 ? "font-semibold text-amber-800" : "text-indigo-600"}`}>

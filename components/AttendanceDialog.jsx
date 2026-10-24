@@ -5,6 +5,7 @@ import { OrgContext } from "../lib/orgContext";
 import { ABSENCE, absenceMap, elternzeitCut } from "../lib/absence";
 import { loadReview, markSeen } from "../lib/review";
 import { fetchAll } from "../lib/fetchAll";
+import { useUnsavedWarning } from "../lib/draftGuard";
 import { OVERTIME_MODES, overtimeMode, payoutMinutesByMonth } from "../lib/overtime";
 import { computeDays, buildSheet, buildTimesheetHtml, openHtmlPrint, germanHolidays, isoOf, MONTHS, SURCHARGES } from "../lib/timesheet";
 
@@ -40,7 +41,18 @@ export default function AttendanceDialog({ onClose }) {
   const [denyReq, setDenyReq] = useState(null); // { id, note }
   const [edit, setEdit] = useState({ staffId: "", date: "" }); // "Zeiten bearbeiten"
   const [daySessions, setDaySessions] = useState(null);
-  const [fix, setFix] = useState(null);        // { sessionId|null, in, out, reason }
+  const [fix, setFix] = useState(null);        // { sessionId|null, in, out }
+  // „Zeiten bearbeiten“ is a draft: changes of ONE month are collected here and only „Speichern“ writes them, all together
+  // with one reason (save_attendance_edits: all or nothing). „Abbrechen“ = no change at all.
+  //   { key, op: "fix"|"add"|"absence"|"unabsence", staffId, date, sessionId?, oldIn?, oldOut?, in?, out?, kind?, note?, absenceId? }
+  const [pending, setPending] = useState([]);
+  const [pendReason, setPendReason] = useState("");
+  useUnsavedWarning(pending.length > 0);
+  const pendMonth = pending.length ? pending[0].date.slice(0, 7) : null;
+  const tryClose = () => {
+    if (pending.length && !window.confirm(`${pending.length} vorgemerkte ${pending.length === 1 ? "Änderung wird" : "Änderungen werden"} nicht gespeichert und verworfen. Trotzdem schließen?`)) return;
+    onClose();
+  };
   const [tsMonth, setTsMonth] = useState(() => { const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`; });
   const [tsWho, setTsWho] = useState("all");
   const [zus, setZus] = useState(null);      // saved surcharge settings (null = never set up)
@@ -62,7 +74,7 @@ export default function AttendanceDialog({ onClose }) {
     reloadReview();
   }
   const [pairCode, setPairCode] = useState(null); // { code, name, expiresAt }
-  const closeRef = useRef(onClose); closeRef.current = onClose;
+  const closeRef = useRef(tryClose); closeRef.current = tryClose;
 
   const load = useCallback(async () => {
     const since = new Date(); since.setHours(0, 0, 0, 0); since.setTime(since.getTime() - 20 * 3600000); // includes night shifts from yesterday
@@ -157,6 +169,10 @@ export default function AttendanceDialog({ onClose }) {
     setMsg(error ? error.message : "Abwesenheit aufgehoben ✓"); load(); loadDay(edit.staffId, edit.date);
   }
   async function loadDay(staffId, date) {
+    if (pending.length && date && date.slice(0, 7) !== pendMonth) {
+      if (!window.confirm(`Für ${ymLabel(pendMonth)} sind ${pending.length} Änderungen vorgemerkt, aber noch nicht gespeichert.\n\nOK = verwerfen und zu ${ymLabel(date.slice(0, 7))} wechseln\nAbbrechen = zurück (dann unten „Speichern“)`)) return;
+      setPending([]); setPendReason("");
+    }
     setEdit({ staffId, date }); setFix(null); setDayAbsence(null);
     if (!staffId || !date) { setDaySessions(null); return; }
     const ab = await org.supabase.from("attendance_absences").select("id, kind, note, voided_at").eq("org_id", org.orgId).eq("staff_id", staffId).eq("work_date", date);
@@ -166,27 +182,78 @@ export default function AttendanceDialog({ onClose }) {
     setDaySessions(r.error ? [] : r.data || []);
   }
   const atTime = (date, hhmm, after) => { if (!/^\d{1,2}:\d{2}$/.test(hhmm || "")) return null; const t = new Date(`${date}T${hhmm.padStart(5, "0")}:00`); if (after && t <= after) t.setDate(t.getDate() + 1); return t; };
-  async function saveFix() {
+  const ymLabel = (ym) => { if (!ym) return ""; const [y, mo] = ym.split("-"); return `${MONTHS[Number(mo) - 1]} ${y}`; };
+  const dayLabel = (iso) => { const d = new Date(`${iso}T12:00:00`); return `${["So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"][d.getDay()]} ${iso.slice(8, 10)}.${iso.slice(5, 7)}.`; };
+  const localIso = (ts) => { const d = new Date(ts); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; };
+  const clockOn = (ts, date) => (ts ? clock(ts) + (localIso(ts) !== date ? " (+1)" : "") : "fehlt");
+  const addPending = (item) => { setPending((p) => [...p.filter((x) => x.key !== item.key), item]); setMsg(""); };
+  // Korrigieren / Zeit nachtragen -> only noted down (vorgemerkt)
+  function queueFix() {
     const { staffId, date } = edit;
-    if (fix.reason.trim().length < 3) { setMsg("Bitte einen Grund angeben."); return; }
-    if ((await monthClosed(staffId, date)) && !window.confirm("Dieser Monat ist für die Person schon abgeschlossen (Saldo). Trotzdem ändern?")) return;
-    setBusy("fix");
-    let error = null;
     if (fix.sessionId) {
       const s0 = (daySessions || []).find((x) => x.id === fix.sessionId);
+      const prev = pending.find((p) => p.op === "fix" && p.sessionId === fix.sessionId);
       const tin = fix.in ? atTime(date, fix.in) : null;
-      const tout = fix.out ? atTime(date, fix.out, tin || (s0 && s0.check_in ? new Date(s0.check_in) : null)) : null;
-      if (!tin && !tout) { setBusy(""); setMsg("Bitte Kommen und/oder Gehen eintragen."); return; }
-      if (tin) ({ error } = await org.supabase.rpc("correct_attendance", { p_session_id: fix.sessionId, p_field: "check_in", p_new_value: tin.toISOString(), p_reason: fix.reason.trim() }));
-      if (!error && tout) ({ error } = await org.supabase.rpc("correct_attendance", { p_session_id: fix.sessionId, p_field: "check_out", p_new_value: tout.toISOString(), p_reason: fix.reason.trim() }));
+      const nin = tin ? tin.toISOString() : (prev ? prev.in : null);
+      const effIn = new Date(nin || s0.check_in);
+      const tout = fix.out ? atTime(date, fix.out, effIn) : null;
+      const nout = tout ? tout.toISOString() : (prev ? prev.out : null);
+      if (!nin && !nout) { setMsg("Bitte Kommen und/oder Gehen eintragen."); return; }
+      const effOut = nout ? new Date(nout) : (s0.check_out ? new Date(s0.check_out) : null);
+      if (effOut && effOut <= effIn) { setMsg("Gehen muss nach Kommen liegen."); return; }
+      if (effOut && effOut - effIn > 16 * 3600000) { setMsg("Mehr als 16 Stunden – bitte prüfen."); return; }
+      addPending({ key: `s${fix.sessionId}`, op: "fix", staffId, date, sessionId: fix.sessionId, oldIn: s0.check_in, oldOut: s0.check_out, in: nin, out: nout });
     } else {
       const tin = atTime(date, fix.in), tout = atTime(date, fix.out, tin);
-      if (!tin || !tout) { setBusy(""); setMsg("Bitte Kommen und Gehen eintragen."); return; }
-      ({ error } = await org.supabase.rpc("add_attendance_session", { p_org: org.orgId, p_staff: staffId, p_in: tin.toISOString(), p_out: tout.toISOString(), p_reason: fix.reason.trim() }));
+      if (!tin || !tout) { setMsg("Bitte Kommen und Gehen eintragen."); return; }
+      if (tout - tin > 16 * 3600000) { setMsg("Mehr als 16 Stunden – bitte prüfen."); return; }
+      addPending({ key: `a${Date.now()}`, op: "add", staffId, date, in: tin.toISOString(), out: tout.toISOString() });
     }
+    setFix(null);
+  }
+  function queueAbsence() {
+    const a = absForm;
+    addPending({ key: `abs${a.staffId}|${a.date}`, op: "absence", staffId: a.staffId, date: a.date, kind: a.kind, note: (a.note || "").trim() });
+    setAbsForm(null);
+  }
+  function queueUnabsence(a) {
+    addPending({ key: `abs${edit.staffId}|${edit.date}`, op: "unabsence", staffId: edit.staffId, date: edit.date, absenceId: a.id, kind: a.kind });
+  }
+  const unqueue = (key) => setPending((p) => p.filter((x) => x.key !== key));
+  function describe(p) {
+    if (p.op === "fix") return [p.in && `Kommen ${clock(p.oldIn)} → ${clockOn(p.in, p.date)}`, p.out && `Gehen ${clockOn(p.oldOut, p.date)} → ${clockOn(p.out, p.date)}`].filter(Boolean).join(" · ");
+    if (p.op === "add") return `Zeit nachgetragen ${clock(p.in)} – ${clockOn(p.out, p.date)}`;
+    if (p.op === "absence") return `Abwesenheit: ${(ABSENCE[p.kind] || {}).label || p.kind}${p.note ? ` („${p.note}“)` : ""}`;
+    return `Abwesenheit aufheben (${(ABSENCE[p.kind] || {}).label || p.kind})`;
+  }
+  const sortedPending = [...pending].sort((a, b) => a.date.localeCompare(b.date) || String(names[a.staffId] || "").localeCompare(String(names[b.staffId] || "")));
+  async function savePending() {
+    if (pendReason.trim().length < 3) { setMsg("Bitte einen Grund für die Änderungen angeben (gilt für alle)."); return; }
+    const people = [...new Set(pending.map((p) => p.staffId))];
+    const closed = [];
+    for (const id of people) if (await monthClosed(id, pending.find((p) => p.staffId === id).date)) closed.push(names[id] || "?");
+    if (closed.length && !window.confirm(`${ymLabel(pendMonth)} ist für ${closed.join(", ")} schon abgeschlossen (Saldo). Trotzdem speichern?`)) return;
+    const list = pending; // same order as sent, to name the entry in an error
+    const edits = list.map((p) => (p.op === "fix" ? { op: "fix", session_id: p.sessionId, check_in: p.in || null, check_out: p.out || null }
+      : p.op === "add" ? { op: "add", staff_id: p.staffId, check_in: p.in, check_out: p.out }
+      : p.op === "absence" ? { op: "absence", staff_id: p.staffId, date: p.date, kind: p.kind, note: p.note || null }
+      : { op: "unabsence", absence_id: p.absenceId }));
+    setBusy("pend");
+    const { error } = await org.supabase.rpc("save_attendance_edits", { p_org: org.orgId, p_edits: edits, p_reason: pendReason.trim() });
     setBusy("");
-    if (error) { setMsg(error.message); return; }
-    setMsg(`Gespeichert ✓ (mit Grund protokolliert)`); setFix(null); loadDay(staffId, date); load();
+    if (error) {
+      const m = String(error.message || "").match(/^Änderung (\d+): (.*)$/);
+      const bad = m ? list[Number(m[1]) - 1] : null;
+      setMsg(`Nicht gespeichert – keine der Änderungen wurde übernommen. ${bad ? `${dayLabel(bad.date)} · ${names[bad.staffId] || "?"}: ${m[2]}` : error.message}`);
+      return;
+    }
+    setMsg(`${list.length} ${list.length === 1 ? "Änderung" : "Änderungen"} gespeichert ✓ (mit Grund protokolliert)`);
+    setPending([]); setPendReason(""); load();
+    if (edit.staffId && edit.date) loadDay(edit.staffId, edit.date);
+  }
+  function cancelPending() {
+    if (!window.confirm(`Alle ${pending.length} vorgemerkten Änderungen verwerfen? Es wird nichts gespeichert.`)) return;
+    setPending([]); setPendReason(""); setFix(null); setMsg("Abgebrochen – nichts geändert.");
   }
 
   // ---- Stundenzettel (monthly time sheet for the payroll office) ----
@@ -316,14 +383,14 @@ export default function AttendanceDialog({ onClose }) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-900/40 p-3 sm:p-6" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-900/40 p-3 sm:p-6" onMouseDown={(e) => { if (e.target === e.currentTarget) tryClose(); }}>
       <div role="dialog" aria-modal="true" aria-labelledby="att-title" className="w-full max-w-2xl rounded-2xl bg-white p-4 text-sm text-slate-800 shadow-xl">
         <div className="flex items-start justify-between gap-3">
           <div>
             <h2 id="att-title" className="text-base font-semibold">Anwesenheit</h2>
             <div className="mt-0.5 text-xs text-slate-500">Stempelzeiten nimmt der Server; sie lassen sich nicht nachträglich ändern. Aktualisiert sich alle 30 Sekunden.</div>
           </div>
-          <button onClick={onClose} className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs text-slate-600 hover:bg-slate-50 active:translate-y-px">Schließen</button>
+          <button onClick={tryClose} className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs text-slate-600 hover:bg-slate-50 active:translate-y-px">Schließen</button>
         </div>
         {msg && <div role="status" className="mt-3 rounded-lg bg-teal-50 p-2.5 text-xs text-teal-900">{msg}</div>}
         {rows === null ? <div className="mt-4 text-xs text-slate-500">Lädt …</div> : (
@@ -362,7 +429,7 @@ export default function AttendanceDialog({ onClose }) {
                 <div className="mt-1 text-[11px] text-slate-500">Schicht hat vor mehr als 3 Stunden begonnen, aber kein Kommen. Nicht gekommen? → „Abwesend …“. Gestempelt vergessen? → unten „Zeiten bearbeiten“.</div>
               </>
             )}
-            {absForm && (
+            {absForm && !absForm.queue && (
               <div className="mt-2 flex flex-wrap items-end gap-2 rounded-lg border border-slate-200 bg-slate-50 p-2.5">
                 <div className="w-full text-xs font-semibold text-slate-700">{names[absForm.staffId]} · {absForm.date.split("-").reverse().join(".")}</div>
                 <label className="text-xs text-slate-600">Grund
@@ -543,6 +610,7 @@ export default function AttendanceDialog({ onClose }) {
             </div>
 
             <h3 className="mt-4 text-xs font-semibold uppercase tracking-wide text-slate-500">Zeiten bearbeiten (auch frühere Tage)</h3>
+            <div className="mt-0.5 text-[11px] text-slate-500">Änderungen werden erst vorgemerkt. Erst „Speichern“ schreibt alle zusammen, mit einem Grund. „Abbrechen“ = nichts wird geändert.</div>
             <div className="mt-1 flex flex-wrap items-end gap-2">
               <select value={edit.staffId} onChange={(e) => loadDay(e.target.value, edit.date)} className="rounded-md border border-slate-300 px-2 py-1.5 text-sm" aria-label="Person">
                 <option value="">– Person –</option>
@@ -550,32 +618,87 @@ export default function AttendanceDialog({ onClose }) {
               </select>
               <input type="date" value={edit.date} onChange={(e) => loadDay(edit.staffId, e.target.value)} className="rounded-md border border-slate-300 px-2 py-1.5 text-sm" aria-label="Tag" />
             </div>
-            {daySessions && (
+            {daySessions && (() => {
+              const absKey = `abs${edit.staffId}|${edit.date}`;
+              const pAbs = pending.find((p) => p.key === absKey);
+              const dayAdds = pending.filter((p) => p.op === "add" && p.staffId === edit.staffId && p.date === edit.date);
+              const mark = <span className="ml-1 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-900">vorgemerkt</span>;
+              return (
               <div className="mt-2 rounded-lg bg-slate-50 p-2.5">
-                {dayAbsence ? (
+                {pAbs ? (
+                  <div className="mb-1 flex items-center justify-between gap-2 text-sm">
+                    <span>{pAbs.op === "absence" ? <>Abwesenheit: <b>{ABSENCE[pAbs.kind].label}</b>{pAbs.note ? ` · ${pAbs.note}` : ""}</> : <>Abwesenheit <s>{ABSENCE[pAbs.kind].label}</s> wird aufgehoben</>}{mark}</span>
+                    <button onClick={() => unqueue(absKey)} className="whitespace-nowrap rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs text-slate-700">Vormerkung entfernen</button>
+                  </div>
+                ) : dayAbsence ? (
                   <div className="mb-1 flex items-center justify-between gap-2 text-sm"><span>Abwesenheit: <b>{ABSENCE[dayAbsence.kind].label}</b>{dayAbsence.note ? ` · ${dayAbsence.note}` : ""}</span>
-                    <span className="whitespace-nowrap"><button onClick={() => setAbsForm({ staffId: edit.staffId, date: edit.date, kind: dayAbsence.kind, note: dayAbsence.note || "" })} className="mr-1 rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs text-slate-700">Ändern</button><button onClick={() => voidAbsence(dayAbsence)} className="rounded-md border border-rose-200 bg-white px-2.5 py-1 text-xs text-rose-700">Aufheben</button></span></div>
+                    <span className="whitespace-nowrap"><button onClick={() => setAbsForm({ staffId: edit.staffId, date: edit.date, kind: dayAbsence.kind, note: dayAbsence.note || "", queue: true })} className="mr-1 rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs text-slate-700">Ändern</button><button onClick={() => queueUnabsence(dayAbsence)} className="rounded-md border border-rose-200 bg-white px-2.5 py-1 text-xs text-rose-700">Aufheben</button></span></div>
                 ) : (
-                  <button onClick={() => setAbsForm({ staffId: edit.staffId, date: edit.date, kind: "krank", note: "" })} className="mb-1 rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs text-slate-700 hover:bg-slate-50">Abwesenheit eintragen …</button>
+                  <button onClick={() => setAbsForm({ staffId: edit.staffId, date: edit.date, kind: "krank", note: "", queue: true })} className="mb-1 rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs text-slate-700 hover:bg-slate-50">Abwesenheit eintragen …</button>
                 )}
-                {daySessions.length === 0 && <div className="text-xs text-slate-500">An diesem Tag gibt es keine Stempelung.</div>}
-                {daySessions.map((x) => (
-                  <div key={x.id} className="flex items-center justify-between gap-2 py-1 text-sm">
-                    <span>Kommen <b>{clock(x.check_in)}</b> · Gehen <b>{x.check_out ? clock(x.check_out) : "fehlt"}</b></span>
-                    <button onClick={() => setFix({ sessionId: x.id, in: "", out: "", reason: "" })} className="rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs text-slate-700 hover:bg-slate-50">Korrigieren</button>
+                {absForm && absForm.queue && absForm.staffId === edit.staffId && absForm.date === edit.date && (
+                  <div className="mb-2 flex flex-wrap items-end gap-2 border-y border-slate-200 py-2">
+                    <label className="text-xs text-slate-600">Grund
+                      <select value={absForm.kind} onChange={(e) => setAbsForm({ ...absForm, kind: e.target.value })} className="mt-1 block rounded-md border border-slate-300 px-2 py-1.5 text-sm">
+                        {Object.keys(ABSENCE).map((k) => <option key={k} value={k}>{ABSENCE[k].label}{ABSENCE[k].credit ? "" : " (Stunden fehlen)"}</option>)}
+                      </select>
+                    </label>
+                    <label className="text-xs text-slate-600">Notiz (optional)<input value={absForm.note} maxLength={500} onChange={(e) => setAbsForm({ ...absForm, note: e.target.value })} className="mt-1 block w-52 rounded-md border border-slate-300 px-2 py-1.5 text-sm" /></label>
+                    <button onClick={queueAbsence} className="rounded-md bg-teal-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-teal-700 active:translate-y-px">Vormerken</button>
+                    <button onClick={() => setAbsForm(null)} className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-600">Abbrechen</button>
+                  </div>
+                )}
+                {daySessions.length === 0 && dayAdds.length === 0 && <div className="text-xs text-slate-500">An diesem Tag gibt es keine Stempelung.</div>}
+                {daySessions.map((x) => {
+                  const pf = pending.find((p) => p.op === "fix" && p.sessionId === x.id);
+                  return (
+                    <div key={x.id} className="flex items-center justify-between gap-2 py-1 text-sm">
+                      <span>Kommen {pf && pf.in ? <><s className="text-slate-400">{clock(x.check_in)}</s> <b>{clock(pf.in)}</b></> : <b>{clock(x.check_in)}</b>} · Gehen {pf && pf.out ? <><s className="text-slate-400">{x.check_out ? clock(x.check_out) : "fehlt"}</s> <b>{clockOn(pf.out, edit.date)}</b></> : <b>{x.check_out ? clock(x.check_out) : "fehlt"}</b>}{pf && mark}</span>
+                      <span className="whitespace-nowrap">
+                        {pf && <button onClick={() => unqueue(pf.key)} className="mr-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-xs text-slate-600" aria-label="Vormerkung entfernen">✕</button>}
+                        <button onClick={() => setFix({ sessionId: x.id, in: pf && pf.in ? clock(pf.in) : "", out: pf && pf.out ? clock(pf.out) : "" })} className="rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs text-slate-700 hover:bg-slate-50">Korrigieren</button>
+                      </span>
+                    </div>
+                  );
+                })}
+                {dayAdds.map((p) => (
+                  <div key={p.key} className="flex items-center justify-between gap-2 py-1 text-sm">
+                    <span>Kommen <b>{clock(p.in)}</b> · Gehen <b>{clockOn(p.out, p.date)}</b> (nachgetragen){mark}</span>
+                    <button onClick={() => unqueue(p.key)} className="rounded-md border border-slate-200 bg-white px-2 py-1 text-xs text-slate-600" aria-label="Vormerkung entfernen">✕</button>
                   </div>
                 ))}
-                {!fix && <button onClick={() => setFix({ sessionId: null, in: "", out: "", reason: "" })} className="mt-1 rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs text-slate-700 hover:bg-slate-50">+ Zeit nachtragen</button>}
+                {!fix && <button onClick={() => setFix({ sessionId: null, in: "", out: "" })} className="mt-1 rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs text-slate-700 hover:bg-slate-50">+ Zeit nachtragen</button>}
                 {fix && (
                   <div className="mt-2 flex flex-wrap items-end gap-2 border-t border-slate-200 pt-2">
                     <label className="text-xs text-slate-600">Kommen<input type="time" value={fix.in} onChange={(e) => setFix({ ...fix, in: e.target.value })} className="mt-1 block rounded-md border border-slate-300 px-2 py-1 text-sm" /></label>
                     <label className="text-xs text-slate-600">Gehen<input type="time" value={fix.out} onChange={(e) => setFix({ ...fix, out: e.target.value })} className="mt-1 block rounded-md border border-slate-300 px-2 py-1 text-sm" /></label>
-                    <label className="text-xs text-slate-600">Grund (Pflicht)<input value={fix.reason} maxLength={500} onChange={(e) => setFix({ ...fix, reason: e.target.value })} placeholder="z. B. Gehen vergessen" className="mt-1 block w-52 rounded-md border border-slate-300 px-2 py-1 text-sm" /></label>
-                    <button onClick={saveFix} disabled={busy === "fix"} className="rounded-md bg-teal-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-teal-700 active:translate-y-px">{busy === "fix" ? "Moment …" : fix.sessionId ? "Korrektur speichern" : "Nachtragen"}</button>
+                    <button onClick={queueFix} className="rounded-md bg-teal-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-teal-700 active:translate-y-px">Vormerken</button>
                     <button onClick={() => setFix(null)} className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-600">Abbrechen</button>
-                    {fix.sessionId && <div className="w-full text-[11px] text-slate-500">Nur das eintragen, was falsch ist. Die Stempelung selbst bleibt erhalten; die Korrektur wird mit Grund protokolliert.</div>}
+                    {fix.sessionId && <div className="w-full text-[11px] text-slate-500">Nur das eintragen, was falsch ist. Die Stempelung selbst bleibt erhalten; die Korrektur wird beim Speichern mit Grund protokolliert.</div>}
                   </div>
                 )}
+              </div>
+              );
+            })()}
+            {pending.length > 0 && (
+              <div className="mt-2 rounded-xl border-2 border-amber-300 bg-amber-50 p-3">
+                <div className="text-sm font-semibold text-amber-900">{pending.length} {pending.length === 1 ? "Änderung" : "Änderungen"} für {ymLabel(pendMonth)} – noch nicht gespeichert</div>
+                <ul className="mt-1 divide-y divide-amber-200">
+                  {sortedPending.map((p) => (
+                    <li key={p.key} className="flex items-center justify-between gap-2 py-1 text-xs text-slate-800">
+                      <button onClick={() => loadDay(p.staffId, p.date)} className="text-left hover:underline"><b>{dayLabel(p.date)}</b> · {names[p.staffId] || "?"} · {describe(p)}</button>
+                      <button onClick={() => unqueue(p.key)} className="rounded-md border border-amber-200 bg-white px-2 py-0.5 text-xs text-slate-600" aria-label="Diese Änderung entfernen">✕</button>
+                    </li>
+                  ))}
+                </ul>
+                <label className="mt-2 block text-xs text-slate-700">Grund für alle Änderungen (Pflicht)
+                  <input value={pendReason} maxLength={500} onChange={(e) => setPendReason(e.target.value)} placeholder="z. B. Stempeln vergessen, laut Aussage der Person" className="mt-1 block w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm" />
+                </label>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <button onClick={savePending} disabled={busy === "pend"} className="rounded-md bg-teal-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-teal-700 active:translate-y-px disabled:opacity-60">{busy === "pend" ? "Speichert …" : `Speichern (${pending.length})`}</button>
+                  <button onClick={cancelPending} disabled={busy === "pend"} className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-700">Abbrechen</button>
+                </div>
+                <div className="mt-1 text-[11px] text-amber-900">Gespeichert wird alles zusammen oder gar nichts. Bis dahin ändert sich nichts – auch nicht für die Mitarbeitenden.</div>
               </div>
             )}
 

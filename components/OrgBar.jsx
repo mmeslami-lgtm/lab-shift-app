@@ -238,7 +238,7 @@ export default function OrgBar({ onLoadStaff, staffList, toDb, onIdsChanged, yea
       const used = new Set([...rows, ...baselineRows].map((r) => r.staff_id));
       const staffRows = st.data.filter((s) => s.active !== false || used.has(s.id));
       const res = onLoadPlan({
-        year: y, month: m, rows, baselineRows, holidays: (mrow.data[0] && mrow.data[0].holidays) || [],
+        year: y, month: m, rows, baselineRows, holidays: (mrow.data[0] && mrow.data[0].holidays) || [], fromArchive: source === "version",
         defs: [...d.data].sort((a, b) => a.sort_order - b.sort_order), staffRows,
       });
       if (res && res.ok) {
@@ -267,7 +267,7 @@ export default function OrgBar({ onLoadStaff, staffList, toDb, onIdsChanged, yea
     setBusy("");
     if (error) { setMsg("Fehler: " + error.message); return; }
     if (!data.length) { setMsg("In der Datenbank sind für diese Firma noch keine Personen gespeichert. Trage Personen unten ein und tippe auf „Personen in Datenbank speichern“."); return; }
-    onLoadStaff(data);
+    if (onLoadStaff(data) === false) return; // the planner kept its unsaved changes
     setLoadBump((n) => n + 1); // loading clears Urlaub/Krank -> take the approved ones over again
     setMsg(`${data.length} Personen aus der Datenbank geladen. Urlaub, Krankheit und Wünsche wurden zurückgesetzt.`);
   }
