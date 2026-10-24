@@ -9,6 +9,7 @@ import RequestsDialog from "./RequestsDialog";
 import ZugaengeDialog from "./ZugaengeDialog";
 import MobileStamp from "./MobileStamp";
 import Schulung from "./Schulung";
+import { loadReview } from "../lib/review";
 import ScanStamp from "./ScanStamp";
 import EmployeeTimes from "./EmployeeTimes";
 
@@ -44,6 +45,12 @@ export default function OrgBar({ onLoadStaff, staffList, toDb, onIdsChanged, yea
   const isLeader = org && (org.role === "owner" || org.role === "supervisor");
   const [pendingMonths, setPendingMonths] = useState([]);
   const [attOpen, setAttOpen] = useState(false); // popup "Anwesenheit" (Zeiterfassung)
+  useEffect(() => {
+    if (!org || !org.supabase || !(org.role === "owner" || org.role === "supervisor") || !(org.products || []).includes("time_tracking")) return;
+    let off = false;
+    loadReview(org.supabase, org.orgId).then((r) => { if (!off) setToReview(r.items.length); }).catch(() => {});
+    return () => { off = true; };
+  }, [org && org.orgId, attOpen]); // eslint-disable-line react-hooks/exhaustive-deps
   // Leitung/Inhaber who also work in the plan (account linked to a person): stamp themselves and see "Meine Zeiten".
   // Own corrections are requests – the owner or another Leitung decides them (database rule).
   const [selfStamp, setSelfStamp] = useState(null); // null | "mobil" | "qr"
@@ -53,6 +60,7 @@ export default function OrgBar({ onLoadStaff, staffList, toDb, onIdsChanged, yea
   const [zugOpen, setZugOpen] = useState(false); // popup "Zugänge"
   const [openReq, setOpenReq] = useState(0);
   const [openCorr, setOpenCorr] = useState(0); // open Zeit-Korrekturanträge
+  const [toReview, setToReview] = useState(0); // Anwesenheit "Zu prüfen" (until someone taps "Gesehen")
   const [reqBump, setReqBump] = useState(0);
   const hasApp = org && (org.products || []).includes("employee_app");
   const hasTime = org && (org.products || []).includes("time_tracking");
@@ -334,7 +342,7 @@ export default function OrgBar({ onLoadStaff, staffList, toDb, onIdsChanged, yea
               <button onClick={() => setMyTimesOpen(true)} className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 active:translate-y-px">Meine Zeiten</button>
             </>
           )}
-          {isLeader && hasTime && <button onClick={() => setAttOpen(true)} className={`rounded-lg border px-3 py-2 text-sm active:translate-y-px ${openCorr ? "border-amber-300 bg-amber-50 text-amber-900 hover:bg-amber-100" : "border-slate-200 text-slate-700 hover:bg-slate-50"}`}>Anwesenheit{openCorr ? ` (${openCorr})` : ""}</button>}
+          {isLeader && hasTime && <button onClick={() => setAttOpen(true)} className={`rounded-lg border px-3 py-2 text-sm active:translate-y-px ${openCorr + toReview ? "border-amber-300 bg-amber-50 text-amber-900 hover:bg-amber-100" : "border-slate-200 text-slate-700 hover:bg-slate-50"}`}>Anwesenheit{openCorr + toReview ? ` (${openCorr + toReview})` : ""}</button>}
           <button onClick={() => setWishesOpen(true)} className={`rounded-lg border px-3 py-2 text-sm active:translate-y-px ${openWishes > 0 ? "border-rose-200 bg-rose-50 font-medium text-rose-800 hover:bg-rose-100" : "border-slate-200 text-slate-700 hover:bg-slate-50"}`}>Wünsche{openWishes > 0 ? ` · ${openWishes} offen` : ""}</button>
           <a href="/freigaben" className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">Freigaben &amp; Archiv{openJumps > 0 ? ` · ${openJumps} Einspringen offen` : ""}</a>
           <button onClick={openEdit} disabled={!!busy} aria-expanded={editOpen} className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-900 hover:bg-amber-100 disabled:opacity-60">Plan bearbeiten</button>

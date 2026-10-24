@@ -3,6 +3,7 @@
 import React, { useCallback, useContext, useEffect, useRef, useState } from "react";
 import { OrgContext } from "../lib/orgContext";
 import { ABSENCE, absenceMap, elternzeitCut } from "../lib/absence";
+import { loadReview, markSeen } from "../lib/review";
 import { fetchAll } from "../lib/fetchAll";
 import { OVERTIME_MODES, overtimeMode, payoutMinutesByMonth } from "../lib/overtime";
 import { computeDays, buildSheet, buildTimesheetHtml, openHtmlPrint, germanHolidays, isoOf, MONTHS, SURCHARGES } from "../lib/timesheet";
@@ -51,6 +52,15 @@ export default function AttendanceDialog({ onClose }) {
   const [payList, setPayList] = useState([]);   // payouts of the month shown // { year, rows: { staffId: { entitlement, carryover } } }
   const [pairName, setPairName] = useState(null); // null = closed, string = form open
   const [mobilEv, setMobilEv] = useState({}); // event id -> { lat, lng } for "mobil" stamps
+  const [review, setReview] = useState(null); // { items, present } – "Zu prüfen", stays until "Gesehen ✓"
+  const reloadReview = async () => { try { setReview(await loadReview(org.supabase, org.orgId)); } catch (e) { setReview({ items: [], present: 0 }); } };
+  useEffect(() => { reloadReview(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  async function seen(keys) {
+    setBusy("seen");
+    const { error } = await markSeen(org.supabase, org.orgId, keys);
+    setBusy(""); if (error) { setMsg(error.message); return; }
+    reloadReview();
+  }
   const [pairCode, setPairCode] = useState(null); // { code, name, expiresAt }
   const closeRef = useRef(onClose); closeRef.current = onClose;
 
@@ -365,11 +375,36 @@ export default function AttendanceDialog({ onClose }) {
                 <button onClick={() => setAbsForm(null)} className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-600">Abbrechen</button>
               </div>
             )}
+            <h3 className="mt-4 text-xs font-semibold uppercase tracking-wide text-slate-500">Zu prüfen {review ? `(${review.items.length})` : ""}</h3>
+            {!review ? <div className="mt-1 text-xs text-slate-500">Lädt …</div> : review.items.length === 0 ? (
+              <div className="mt-1 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-900">Alles gesehen ✓ – nichts zu prüfen.</div>
+            ) : (
+              <div className="mt-1 rounded-xl border border-amber-200 bg-amber-50/50">
+                <div className="flex items-center justify-between gap-2 border-b border-amber-200 px-3 py-2 text-xs text-amber-900">
+                  <span>Bleibt hier, bis jemand aus der Leitung „Gesehen“ tippt. Die Stempelungen selbst bleiben immer gespeichert.</span>
+                  <button disabled={busy === "seen"} onClick={() => seen(review.items.map((x) => x.key))} className="shrink-0 rounded-md border border-amber-300 bg-white px-2.5 py-1 font-semibold text-amber-900 hover:bg-amber-100">Alle gesehen ✓</button>
+                </div>
+                <ul className="max-h-72 divide-y divide-amber-100 overflow-y-auto">
+                  {review.items.map((it) => (
+                    <li key={it.key} className="flex items-center gap-2 px-3 py-2 text-sm">
+                      <span aria-hidden="true">{it.kind === "mobil" ? (it.loc ? "📍" : "📱") : it.kind === "manuell" ? "✎" : "⚠️"}</span>
+                      <span className="min-w-0 flex-1">
+                        <span className="font-semibold text-slate-800">{it.name}</span>
+                        <span className="text-slate-500"> · {new Date(it.at).toLocaleString("de-DE", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}</span>
+                        <span className={`block text-xs ${it.kind === "fehlt" || it.kind === "gehen" ? "font-semibold text-rose-700" : "text-slate-600"}`}>{it.text}{it.loc ? <> · <a className="text-sky-700 underline" target="_blank" rel="noopener noreferrer" href={`https://www.openstreetmap.org/?mlat=${it.loc.lat}&mlon=${it.loc.lng}#map=17/${it.loc.lat}/${it.loc.lng}`}>Karte</a></> : null}</span>
+                      </span>
+                      <button disabled={busy === "seen"} onClick={() => seen([it.key])} className="shrink-0 rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50">Gesehen ✓</button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
             <h3 className="mt-4 text-xs font-semibold uppercase tracking-wide text-slate-500">Jetzt da ({present.length})</h3>
             {present.length === 0 ? <div className="mt-1 text-xs text-slate-500">Im Moment ist niemand eingestempelt.</div> : (
               <div className="mt-1 flex flex-wrap gap-2">{present.map((r) => <span key={r.id} className="rounded-lg border border-emerald-300 bg-emerald-50 px-2.5 py-1.5 text-emerald-900">● {names[r.staff_id] || "?"} <span className="text-emerald-700">seit {clock(r.check_in)}</span></span>)}</div>
             )}
-            <h3 className="mt-4 text-xs font-semibold uppercase tracking-wide text-slate-500">Heute</h3>
+            <details className="mt-4">
+            <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wide text-slate-500">Alle Stempelungen heute ({today.length})</summary>
             <div className="mt-1 overflow-x-auto">
               <table className="w-full text-left text-sm">
                 <thead><tr className="text-xs text-slate-500"><th className="py-1.5 pr-2">Name</th><th className="py-1.5 pr-2">Kommen</th><th className="py-1.5 pr-2">Gehen</th><th className="py-1.5 pr-2">Dauer</th><th /></tr></thead>
@@ -387,6 +422,7 @@ export default function AttendanceDialog({ onClose }) {
                 </tbody>
               </table>
             </div>
+            </details>
             <h3 className="mt-4 text-xs font-semibold uppercase tracking-wide text-slate-500">Wie wird gestempelt?</h3>
             <div className="mt-1 flex flex-wrap gap-2" role="radiogroup" aria-label="Erfassungsart">
               {[["terminal", "Nur Terminal"], ["handy", "Nur Handy"], ["beides", "Terminal und Handy"]].map(([k, l]) => (

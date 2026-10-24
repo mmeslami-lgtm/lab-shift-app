@@ -117,6 +117,17 @@
 ### Schulung (رایگان، بدون KI)
 - `components/Schulung.jsx`: دوره‌ها برای Mitarbeiter (۷)، Leitung (۸)، Inhaber (۳)؛ عکس واقعی با هایلایت، «👉 Zeig mir» (اپ: تب‌ها؛ برنامه‌ریز: Anträge/Anwesenheit/Zugänge)، یک سؤال کوتاه در هر درس، پیشرفت در localStorage، جستجو در درس‌ها و FAQ. دکمه «🎓 Hilfe» در اپ کارمند و «🎓 Schulung» در برنامه‌ریز. فعلاً آلمانی؛ بعداً EN/FA و دستیار KI (Claude) روی همین.
 
+### Anwesenheit «Zu prüfen» (جدول `attendance_review_seen`، اجرا شد)
+- `lib/review.js`: موارد ۳۱ روز اخیر (از شروع Zeiterfassung): 📱/📍 ثبت موبایل، ✎ ورود/تغییر دستی، ⚠️ «Gehen fehlt» (>۱۲ ساعت)، ⚠️ «Nicht erschienen» (شیفت منتشرشده >۱۵ دقیقه شروع شده، بدون Kommen و بدون غیبت). هر مورد تا «Gesehen ✓» (یا «Alle gesehen») می‌ماند؛ مشترک برای همهٔ Leitungen؛ خود ثبت‌ها پاک نمی‌شوند.
+- عدد روی دکمهٔ «Anwesenheit» = درخواست‌های باز + Zu prüfen. جدول «Heute» حالا جمع‌شده («Alle Stempelungen heute»).
+
+### ترکیب منصفانهٔ شیفت‌ها (Früh/Mittel/Spät)
+- مولد Labor: `pickBest(pool, day, kind)` با `kindCount` – کسی که از این نوع شیفت کمتر داشته جلوتر می‌آید (وزن ۰٫۲۵ کنار عقب/جلو بودن ساعت).
+- `scorePlan(..., mixKeys)`: انحراف سهم هر نوع بین افراد (×۹۰۰) + ۱۲۰ برای هر نفر با «۰ از یک نوع رایج». Labor: F/M/S؛ Allgemein: شیفت‌های روزانه غیر از شب/quota.
+- وزن‌ها ثانویه‌اند (مولد ۰٫۱، فقط روزهای کاری؛ امتیاز ×۱۶۰ و ۴۰) تا قوانین اصلی (شب‌ها، آخر هفته‌ها، Sa=So، ۲ روز استراحت بعد از شب) جلوتر بمانند. عدالت آخر هفته در امتیاز قوی‌تر شد (دامنه ×۶۰ + std ×۶۰).
+- تست ۸×۶۰ نسخه با ۱۱ نفر: Sa≠So = ۰، کار در ۲ روز بعد از شب = ۰، دامنهٔ شب ≈ مثل قبل (۲٫۴)، دامنهٔ آخر هفته ۳٫۸ → ۲٫۶، و همهٔ تمام‌وقت‌ها هم Früh هم Spät (قبلاً در نیمی از اجراها نه).
+- **Ziel = Vertrag** حالا پیش‌فرض: `soll_vertrag` برای همهٔ شرکت‌ها روشن شد و `create_organization` آن را برای شرکت‌های جدید روشن می‌کند.
+
 ### کلیدهای ویژگی هر شرکت
 `lib/features.js` + جدول `org_features` + بخش «Funktionen nur für diese Firma» در `/admin`. کلیدها: `terminal_pin_only`، `soll_vertrag`، `mobil_stempeln`، `mobil_standort`.
 

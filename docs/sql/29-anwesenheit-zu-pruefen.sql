@@ -1,0 +1,2 @@
+-- 29: attendance_review_seen (org_id, item_key, seen_by, seen_at) – "Zu prüfen" in Anwesenheit.
+-- RLS: Leitung/Inhaber lesen und eintragen. Schon auf der echten Datenbank ausgeführt (Migration "attendance_review_seen").
