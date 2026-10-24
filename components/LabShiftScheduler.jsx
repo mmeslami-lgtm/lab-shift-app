@@ -10,6 +10,8 @@ import { scorePlan, VARIANTS } from "../lib/planScore";
 import PublishPanel from "./PublishPanel";
 import { fetchAll } from "../lib/fetchAll";
 import { computeChanges } from "../lib/planDiff";
+import { planSig, cloneDays, useUnsavedWarning, LEAVE_MSG } from "../lib/draftGuard";
+import { tailFor, tailKey, tailRun, loadMonthTail } from "../lib/monthTail";
 import { openPrintView } from "../lib/printPlan";
 import { Calendar, Users, AlertTriangle, RefreshCw, Plus, Trash2, Copy, Check, ClipboardList, Info, Printer } from "lucide-react";
 import { storage } from "../lib/storage";
@@ -189,6 +191,48 @@ function generateSchedule(staffList, year, monthIdx, holidaySet, shiftHours, shi
     return fullTimeSet.has(id) ? Math.max(MONTHLY_HOUR_CAP, FULLTIME_OVERTIME_CEILING) : targetOf[id];
   }
   if (nightPool.length === 0) { nightPool = [...ids]; if (ids.length > 0) warnings.push("Alle Mitarbeiter waren von Nachtdiensten befreit; diese Einschränkung wurde ignoriert, um den Nachtdienst zu besetzen"); }
+
+  // ---- Monatswechsel: the new month starts where the previous month ended (lib/monthTail) ----
+  // Night block at the end of last month: continue up to 4 nights in a row in total, then 2 free days;
+  // if it already ended: the free days are the first days of this month. Max 6 working days in a row also counts.
+  const tail = tailFor(year, monthIdx);
+  const busyOn = (id, d) => allKeys.some((k) => (days[d].shifts[k] || []).includes(id));
+  if (tail.length) {
+    ids.forEach((id) => {
+      const nm = nameOf(id);
+      const streak = tailRun(tail, id, (k) => !!k);
+      if (streak >= MAX_CONSECUTIVE_WORKDAYS) {
+        forcedRest[id].add(0); if (total > 1) forcedRest[id].add(1);
+        notes.push(`Monatswechsel: ${nm} hatte am Monatsende ${streak} Arbeitstage in Folge → Tag 1 und 2 frei`);
+      } else consecutiveWorkDays[id] = streak;
+      const k = tailRun(tail, id, (x) => x === "N");
+      if (k > 0) {
+        const person = staffList.find((x) => x.id === id) || {};
+        let want = person.nightExempt ? 0 : Math.max(0, Math.min(4 - k, MAX_CONSECUTIVE_WORKDAYS - streak));
+        if (miniSet.has(id)) want = Math.min(want, MINI_MAX_NIGHTS);
+        const free = (d) => d < total && !isOnLeave(id, d + 1) && !busyOn(id, d) && nightOf[d].length < nightCapForDay(d);
+        let cont = 0;
+        while (cont < want && free(cont)) cont++;
+        // Saturday + Sunday stay together: the block does not end on a Saturday when the Sunday follows
+        // (it already took every possible night, so it ends on Friday instead – same rule as inside the month)
+        if (cont > 0 && days[cont - 1].weekday === 6 && cont < total) cont--;
+        for (let d = 0; d < cont; d++) {
+          nightOf[d].push(id); dayNightUsed[d].add(id); hours[id] += shiftHours.N; shiftCount[id]++; nightCountSoFar[id]++;
+          if (days[d].weekday === 6) satCount[id]++;
+          if (days[d].weekday === 0) sunCount[id]++;
+        }
+        for (let d = cont; d <= cont + 1 && d < total; d++) forcedRest[id].add(d);
+        for (let d = cont; d <= cont + 1 + NIGHT_COOLDOWN_EXTRA_DAYS && d < total; d++) nightCooldown[id].add(d);
+        notes.push(cont > 0
+          ? `Monatswechsel: ${nm} setzt den Nachtdienst aus dem Vormonat fort (${k} + ${cont} = ${k + cont} Nächte, bis Tag ${cont}), danach 2 Tage frei`
+          : `Monatswechsel: ${nm} hatte bis Monatsende Nachtdienst (${k} Nächte) → Tag 1 und 2 frei`);
+      } else if (tailKey(tail, id, 2) === "N") {
+        forcedRest[id].add(0);
+        for (let d = 0; d <= NIGHT_COOLDOWN_EXTRA_DAYS && d < total; d++) nightCooldown[id].add(d);
+        notes.push(`Monatswechsel: ${nm} – Tag 1 ist der 2. freie Tag nach dem Nachtdienst`);
+      }
+    });
+  }
 
   Object.entries(nightWishesByStaff).forEach(([staffId, dayList]) => {
     const sorted = [...dayList].sort((a, b) => a - b);
@@ -408,12 +452,16 @@ function generateSchedule(staffList, year, monthIdx, holidaySet, shiftHours, shi
   }
 
   let weekendPairPick = {};
+  // Monatswechsel: last month ended on a Saturday and this month starts on Sunday -> Sunday like that Saturday
+  if (tail.length && days[0].weekday === 0 && tail[tail.length - 1].weekday === 6) {
+    Object.entries(tail[tail.length - 1].shifts).forEach(([k, list]) => { if (k !== "N") { const id = (list || []).find((x) => ids.includes(x)); if (id) weekendPairPick[k] = id; } });
+  }
 
   for (let d = 0; d < total; d++) {
     const day = days[d];
     const todayAssigned = new Set(allKeys.flatMap((k) => day.shifts[k]));
     const prevDay = d > 0 ? days[d - 1] : null;
-    const prevDayS = prevDay ? new Set(prevDay.shifts.S || []) : new Set();
+    const prevDayS = prevDay ? new Set(prevDay.shifts.S || []) : new Set((tail.length && tail[tail.length - 1].shifts.S) || []); // day 1: Spätdienst of last month
     // Daily extra shifts (Mitteldienst and others): Monday-Thursday, and Friday / Saturday / Sunday
     // only if switched on for that shift; never on holidays. F/S/N run every day.
     const neededShifts = ["F", ...dailyKeys.filter((k) => extraShiftRuns(extraDefByKey[k], day)), "S"];
@@ -541,8 +589,8 @@ function generateSchedule(staffList, year, monthIdx, holidaySet, shiftHours, shi
   // ---- after the plan: (A) fill wanted places that stayed empty, (B) use free hours ----
   // Only the CORE rules apply here (user decision): Saturday and Sunday the same person, 2 free days after
   // nights, no Frühdienst after Spätdienst, at most MAX_CONSECUTIVE_WORKDAYS days in a row, leave/wishes, Minijob never above goal.
-  const keyOn = (id, d) => (d < 0 || d >= total ? null : allKeys.find((k) => (days[d].shifts[k] || []).includes(id)) || null);
-  const runLenIf = (id, d) => { let n = 1; for (let i = d - 1; i >= 0 && keyOn(id, i); i--) n++; for (let i = d + 1; i < total && keyOn(id, i); i++) n++; return n; };
+  const keyOn = (id, d) => (d < 0 ? tailKey(tail, id, -d) : d >= total ? null : allKeys.find((k) => (days[d].shifts[k] || []).includes(id)) || null);
+  const runLenIf = (id, d) => { let n = 1; for (let i = d - 1; i >= -tail.length && keyOn(id, i); i--) n++; for (let i = d + 1; i < total && keyOn(id, i); i++) n++; return n; };
   const coreOk = (id, d, key) => {
     if (keyOn(id, d) || isOnLeave(id, d + 1) || days[d].isClosed) return false;
     if (keyOn(id, d - 1) === "N") return false;                                   // 1st free day after nights
@@ -608,7 +656,9 @@ function generateSchedule(staffList, year, monthIdx, holidaySet, shiftHours, shi
   return { days, hours, satCount, sunCount, targetOf, warnings, notes };
 }
 
-function computeStatsAndWarnings(days, staffList, leaveMap, shiftHours, allKeys) {
+// tail = last days of the previous month (lib/monthTail), so the rules are also checked across the month boundary
+function computeStatsAndWarnings(days, staffList, leaveMap, shiftHours, allKeys, tail) {
+  tail = tail || [];
   leaveMap = leaveMap || {};
   const ids = staffList.map((s) => s.id);
   const hours = {}, satCount = {}, sunCount = {};
@@ -643,8 +693,8 @@ function computeStatsAndWarnings(days, staffList, leaveMap, shiftHours, allKeys)
     const dev = t > 0 ? Math.abs(hours[s.id] - t) / t : 0;
     if (dev > 0.15) warnings.push(`${s.name}: große Abweichung vom Stundenziel (${hours[s.id].toFixed(1)} von ${t.toFixed(1)} Std.)`);
   });
-  for (let d = 1; d < days.length; d++) {
-    const prevS = new Set(days[d - 1].shifts.S || []);
+  for (let d = 0; d < days.length; d++) {
+    const prevS = new Set(d > 0 ? days[d - 1].shifts.S || [] : (tail.length && tail[tail.length - 1].shifts.S) || []);
     (days[d].shifts.F || []).forEach((id) => {
       if (prevS.has(id)) {
         const name = staffList.find((s) => s.id === id)?.name || id;
@@ -653,13 +703,21 @@ function computeStatsAndWarnings(days, staffList, leaveMap, shiftHours, allKeys)
     });
   }
   staffList.forEach((s) => {
+    if (tail.length && !(days[0] && (days[0].shifts.N || []).includes(s.id))) {
+      const endBack = tailKey(tail, s.id, 1) === "N" ? 1 : tailKey(tail, s.id, 2) === "N" ? 2 : 0; // night block ended 1 or 2 days before day 1
+      if (endBack) {
+        const bad = [0, 1].slice(0, 3 - endBack).filter((k) => k < days.length && allKeys.some((st) => (days[k].shifts[st] || []).includes(s.id)));
+        if (bad.length) warnings.push(`${s.name}: nach dem Nachtdienst am Ende des Vormonats wurden nicht 2 Ruhetage eingehalten (Tag ${bad.map((k) => k + 1).join(", ")})`);
+      }
+    }
     let i = 0;
     while (i < days.length) {
       if ((days[i].shifts.N || []).includes(s.id)) {
         let j = i;
         while (j < days.length && (days[j].shifts.N || []).includes(s.id)) j++;
-        const len = j - i;
-        if (len < 2 || len > 4) warnings.push(`${s.name}: Nachtdienst-Block über ${len} Tage (Tag ${days[i].day} bis ${days[j - 1].day}) — sollte 2 bis 4 Tage sein`);
+        const before = i === 0 ? tailRun(tail, s.id, (x) => x === "N") : 0; // nights of last month in the same block
+        const len = j - i + before;
+        if (len < 2 || len > 4) warnings.push(`${s.name}: Nachtdienst-Block über ${len} Tage (${before ? `${before} im Vormonat + ` : ""}Tag ${days[i].day} bis ${days[j - 1].day}) — sollte 2 bis 4 Tage sein`);
         let restOk = true;
         for (let k = j; k < Math.min(j + 2, days.length); k++) {
           if (allKeys.some((st) => (days[k].shifts[st] || []).includes(s.id))) restOk = false;
@@ -1195,6 +1253,9 @@ function LabShiftSchedulerInner() {
   const [wishEntries, setWishEntries] = useState([]); // {id, staffId, days, shiftType}
   const [wishDraft, setWishDraft] = useState({ staffId: "", days: "", shiftType: "F" });
   const [schedule, setSchedule] = useState(null); // {days, hours, satCount, sunCount, target, warnings}
+  // Entwurf: the plan on screen is only a draft. savedDays = how the plan is stored in the database right now
+  // (opened with „Plan laden“, „Zwischenspeichern“ or „Veröffentlichen“). Anything else is an unsaved change.
+  const [savedDays, setSavedDays] = useState(null);
   const [generateError, setGenerateError] = useState(null);
   const [freiWishByStaff, setFreiWishByStaff] = useState({}); // staffId -> Set(day) for "Frei" wishes
   const [copyState, setCopyState] = useState("idle");
@@ -1455,6 +1516,19 @@ function LabShiftSchedulerInner() {
   // What the employees currently see for the shown month. Every difference of the plan on screen to this
   // published version is marked yellow — no matter whether the plan was generated or opened with "Plan bearbeiten".
   const [publishedTick, setPublishedTick] = useState(0);
+  // Monatswechsel: end of the previous month (published, else saved draft) for the generator and the warnings
+  const [tailInfo, setTailInfo] = useState(null); // { label, people } for the hint under the month field
+  useEffect(() => {
+    if (!orgCtx) { setTailInfo(null); return undefined; }
+    let alive = true;
+    (async () => {
+      try {
+        const t = await loadMonthTail(orgCtx.supabase, orgCtx.orgId, year, monthIdx);
+        if (alive) setTailInfo(t.days.length ? { label: t.label } : null);
+      } catch (e) { if (alive) setTailInfo(null); }
+    })();
+    return () => { alive = false; };
+  }, [orgCtx, year, monthIdx, publishedTick]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     const h = () => setPublishedTick((n) => n + 1);
     window.addEventListener("schedule-status-changed", h);
@@ -1483,6 +1557,10 @@ function LabShiftSchedulerInner() {
     const newRows = []; schedule.days.forEach((d) => Object.entries(d.shifts).forEach(([key, ids]) => (ids || []).filter(Boolean).forEach((id) => newRows.push({ staff_id: id, shift_date: `D${d.day}`, shift_key: key }))));
     return computeChanges(oldRows, newRows).length;
   }, [baseline, schedule]);
+  const savedSig = useMemo(() => planSig(savedDays), [savedDays]);
+  const curSig = useMemo(() => (schedule ? planSig(schedule.days) : null), [schedule]);
+  const unsaved = !!(orgCtx && schedule && curSig !== savedSig);
+  useUnsavedWarning(unsaved); // „Seite verlassen?“ while the draft is not saved
   const shiftListForDb = dayOrderedKeys.map((k) => {
     const def = dayShiftDefs.find((d) => d.key === k);
     return {
@@ -1493,6 +1571,7 @@ function LabShiftSchedulerInner() {
     };
   });
   const loadStaffFromDb = (rows) => {
+    if (unsaved && !window.confirm(LEAVE_MSG)) return false;
     setStaffList(rows.map((r) => ({
       id: r.id, name: r.name, weeklyHours: Number(r.weekly_hours) || 38.5, employmentType: r.employment_type || "full",
       nightExempt: !!r.night_exempt, weekendExempt: !!r.weekend_exempt, isLeadMTLA: !!r.is_team_lead, noOffice: !!r.no_office, email: r.email || "", personnelNo: r.personnel_no || "",
@@ -1510,7 +1589,7 @@ function LabShiftSchedulerInner() {
     setLeaveEntries(remap); setSickEntries(remap); setWishEntries(remap); setSchedule(null); setEditMode(false);
   };
   // Reopen a saved month (draft or published) exactly as stored, so it can be edited (e.g. sick leave)
-  const applyLoadedPlan = ({ year: y, month: m, rows, holidays: hol, defs, staffRows, baselineRows }) => {
+  const applyLoadedPlan = ({ year: y, month: m, rows, holidays: hol, defs, staffRows, baselineRows, fromArchive }) => {
     clearUndo();
     const hh = (t) => String(t).slice(0, 5);
     const hasKeys = (...ks) => ks.every((k) => defs.some((d) => d.key === k));
@@ -1553,8 +1632,9 @@ function LabShiftSchedulerInner() {
     keysOrdered.forEach((k) => { counts[k] = 1; days.forEach((dd) => { if (!dd.isWeekend && !dd.isHoliday) counts[k] = Math.max(counts[k], dd.shifts[k].length); }); });
     setPerShiftCount((prev) => ({ ...prev, ...counts }));
     const leaveMap = {}; people.forEach((p) => { leaveMap[p.id] = new Set(); });
-    const stats = computeStatsAndWarnings(days, people, leaveMap, useHours, keysOrdered);
+    const stats = computeStatsAndWarnings(days, people, leaveMap, useHours, keysOrdered, tailFor(y, m - 1));
     setSchedule({ days, hours: stats.hours, satCount: stats.satCount, sunCount: stats.sunCount, targetOf: stats.targetOf, warnings: stats.warnings, notes: [] });
+    setSavedDays(fromArchive ? null : cloneDays(days)); // what is stored now (an older archived version is not: it counts as a change)
     // what the employees currently see (published version) — used to mark every manual change
     if (baselineRows && baselineRows.length) {
       const base = {};
@@ -1774,7 +1854,7 @@ function LabShiftSchedulerInner() {
       for (let v = 0; v < VARIANTS; v++) {
         const r = generateSchedule(staffList, year, monthIdx, holidaySet, shiftHours, shiftLabels, dayShiftDefs, perShiftCount, leaveMap, carryOver, wishes);
         // Recompute + validate from the final `days` (same pass used after manual edits)
-        const st = computeStatsAndWarnings(r.days, staffList, leaveMap, shiftHours, dayOrderedKeys);
+        const st = computeStatsAndWarnings(r.days, staffList, leaveMap, shiftHours, dayOrderedKeys, tailFor(year, monthIdx));
         const sc = scorePlan({ days: r.days, hours: st.hours, targetOf: st.targetOf, warnings: [...r.warnings, ...st.warnings], notes: r.notes }, staffList, ["N"], ["F", "M", "S"]);
         if (sc < bestScore) { bestScore = sc; result = r; stats = st; }
       }
@@ -1815,7 +1895,7 @@ function LabShiftSchedulerInner() {
         mine.forEach((c) => { const arr = [...(shifts[c.key] || [])]; arr[c.slot] = c.to || ""; shifts[c.key] = arr; });
         return { ...d, shifts };
       });
-      return { days, ...computeStatsAndWarnings(days, staffList, buildLeaveMap(), shiftHours, dayOrderedKeys) };
+      return { days, ...computeStatsAndWarnings(days, staffList, buildLeaveMap(), shiftHours, dayOrderedKeys, tailFor(year, monthIdx)) };
     });
     const range = from === to ? String(from) : `${from}-${to}`;
     setSickEntries((prev) => (prev.some((e) => e.staffId === sickId && e.days === range) ? prev : [...prev, { id: `ke${nextEntryIdRef.current++}`, staffId: sickId, days: range }]));
@@ -1840,19 +1920,40 @@ function LabShiftSchedulerInner() {
     setUndoMsg(`Rückgängig: ${snap.label}`);
     setTimeout(() => setUndoMsg(""), 4000);
   }
-  // back to the published version of this month (yellow marks disappear); can itself be undone
-  function discardChanges() {
-    if (!schedule || !baseline) return;
-    if (!window.confirm("Alle Änderungen verwerfen und den Plan wieder so zeigen, wie er veröffentlicht ist?\n\nDas kann mit „Rückgängig“ wieder aufgehoben werden.")) return;
+  // „Änderungen verwerfen“: everything as before the editing started. With a published version: back to it, and a
+  // zwischengespeicherter / eingereichter Entwurf in the database is deleted too (discard_draft). Without one: back to
+  // the last saved draft. Only local changes can be brought back with „Rückgängig“.
+  async function discardChanges() {
+    if (!schedule || (!baseline && !savedDays)) return;
+    let st = null;
+    if (orgCtx && baseline) {
+      const r = await orgCtx.supabase.from("schedule_months").select("status, has_newer_draft").eq("org_id", orgCtx.orgId).eq("year", year).eq("month", monthIdx + 1);
+      st = !r.error && r.data && r.data[0] ? r.data[0] : null;
+    }
+    const storedDraft = !!(baseline && st && (st.has_newer_draft || st.status === "pending"));
+    const question = baseline
+      ? "Alle Änderungen verwerfen?\n\nDer Plan wird wieder so angezeigt, wie die Mitarbeitenden ihn sehen (veröffentlichte Fassung)."
+        + (storedDraft ? `\n\nAuch der gespeicherte Entwurf${st.status === "pending" ? ", der auf Freigabe wartet," : ""} wird gelöscht. Das lässt sich nicht rückgängig machen.` : "\n\nDas kann mit „Rückgängig“ wieder aufgehoben werden.")
+      : "Alle nicht gespeicherten Änderungen verwerfen?\n\nDer Plan wird wieder so angezeigt, wie er zuletzt gespeichert wurde.";
+    if (!window.confirm(question)) return;
+    if (storedDraft) {
+      const r = await orgCtx.supabase.rpc("discard_draft", { p_org: orgCtx.orgId, p_year: year, p_month: monthIdx + 1 });
+      if (r.error) { window.alert("Der Entwurf konnte nicht verworfen werden: " + r.error.message); return; }
+      window.dispatchEvent(new Event("schedule-status-changed"));
+    }
     pushUndo("Alle Änderungen verwerfen");
-    const days = schedule.days.map((d) => {
-      const shifts = {};
-      Object.keys(d.shifts).forEach((k) => { shifts[k] = [...(baseline[`${d.day}|${k}`] || [])]; });
-      Object.keys(baseline).forEach((bk) => { const [day, k] = bk.split("|"); if (Number(day) === d.day && !shifts[k]) shifts[k] = [...baseline[bk]]; });
-      return { ...d, shifts };
-    });
-    setSchedule({ days, ...computeStatsAndWarnings(days, staffList, buildLeaveMap(), shiftHours, dayOrderedKeys) });
-    setUndoMsg("Zurück zur veröffentlichten Fassung");
+    let days;
+    if (baseline) {
+      days = schedule.days.map((d) => {
+        const shifts = {};
+        Object.keys(d.shifts).forEach((k) => { shifts[k] = [...(baseline[`${d.day}|${k}`] || [])]; });
+        Object.keys(baseline).forEach((bk) => { const [day, k] = bk.split("|"); if (Number(day) === d.day && !shifts[k]) shifts[k] = [...baseline[bk]]; });
+        return { ...d, shifts };
+      });
+    } else days = cloneDays(savedDays);
+    setSchedule({ days, ...computeStatsAndWarnings(days, staffList, buildLeaveMap(), shiftHours, dayOrderedKeys, tailFor(year, monthIdx)) });
+    if (baseline) setSavedDays(cloneDays(days)); // the database holds exactly the published version now
+    setUndoMsg(baseline ? "Zurück zur veröffentlichten Fassung" : "Zurück zum gespeicherten Stand");
     setTimeout(() => setUndoMsg(""), 4000);
   }
   useEffect(() => {
@@ -1876,7 +1977,7 @@ function LabShiftSchedulerInner() {
         arr[slotIndex] = newId; // keep position stable — columns are now fixed, so never splice/shift
         return { ...d, shifts: { ...d.shifts, [shiftType]: arr } };
       });
-      const stats = computeStatsAndWarnings(days, staffList, buildLeaveMap(), shiftHours, dayOrderedKeys);
+      const stats = computeStatsAndWarnings(days, staffList, buildLeaveMap(), shiftHours, dayOrderedKeys, tailFor(year, monthIdx));
       return { days, ...stats };
     });
   }
@@ -2148,10 +2249,11 @@ function LabShiftSchedulerInner() {
               <input
                 type="month"
                 value={monthValue}
-                onChange={(e) => { setMonthValue(e.target.value); setSchedule(null); setEditMode(false); }}
+                onChange={(e) => { if (unsaved && !window.confirm(LEAVE_MSG)) return; setMonthValue(e.target.value); setSchedule(null); setSavedDays(null); setEditMode(false); }}
                 className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
               />
               <p className="text-xs text-slate-400 mt-1">{MONTH_DE[monthIdx]} {year} — {totalDays} Tage</p>
+              {tailInfo && <p className="text-xs text-teal-700 mt-1" title="Nachtdienst-Blöcke laufen weiter (höchstens 4 Nächte) oder es folgen 2 freie Tage; endet der Vormonat an einem Samstag, bekommt der Sonntag dieselbe Schicht; kein Frühdienst nach Spätdienst; höchstens 6 Tage in Folge.">↪ Monatsübergang: Ende {tailInfo.label} wird berücksichtigt</p>}
             </div>
 
             <div>
@@ -2671,7 +2773,7 @@ function LabShiftSchedulerInner() {
                   <button onClick={undoLast} disabled={undoCount === 0} title="Letzte Änderung zurücknehmen (Strg+Z)" className="inline-flex items-center gap-1.5 text-xs text-slate-700 border border-slate-200 bg-white rounded-lg px-2.5 py-1.5 hover:bg-slate-50 active:translate-y-px disabled:opacity-40 disabled:cursor-not-allowed">
                     ↶ Rückgängig
                   </button>
-                  <button onClick={discardChanges} disabled={!baseline || changeCount === 0} title={!baseline ? "Für diesen Monat gibt es noch keine veröffentlichte Fassung" : "Plan wieder so zeigen, wie er veröffentlicht ist"} className="inline-flex items-center gap-1.5 text-xs text-slate-700 border border-slate-200 bg-white rounded-lg px-2.5 py-1.5 hover:bg-slate-50 active:translate-y-px disabled:opacity-40 disabled:cursor-not-allowed">
+                  <button onClick={discardChanges} disabled={!((baseline && changeCount > 0) || (unsaved && savedDays))} title={baseline ? "Alles wieder so, wie die Mitarbeitenden es sehen (veröffentlichte Fassung)" : "Zurück zum zuletzt gespeicherten Stand"} className="inline-flex items-center gap-1.5 text-xs text-slate-700 border border-slate-200 bg-white rounded-lg px-2.5 py-1.5 hover:bg-slate-50 active:translate-y-px disabled:opacity-40 disabled:cursor-not-allowed">
                     Alle Änderungen verwerfen
                   </button>
                   {undoMsg && <span role="status" className="text-xs text-slate-600 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5">{undoMsg}</span>}
@@ -2685,7 +2787,7 @@ function LabShiftSchedulerInner() {
                   )}
                 </div>
               </div>
-              {orgCtx && <PublishPanel schedule={schedule} staffList={staffList} year={year} monthIdx={monthIdx} shiftList={shiftListForDb} holidays={holidays} changeCount={changeCount} editMode={editMode} />}
+              {orgCtx && <PublishPanel schedule={schedule} staffList={staffList} year={year} monthIdx={monthIdx} shiftList={shiftListForDb} holidays={holidays} changeCount={changeCount} editMode={editMode} unsaved={unsaved} onSaved={(d) => setSavedDays(cloneDays(d))} />}
               {(archiveState === "error" || saveState === "error") && (
                 <div className="mx-4 mt-3 rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs text-rose-800">
                   {archiveState === "error" && (
