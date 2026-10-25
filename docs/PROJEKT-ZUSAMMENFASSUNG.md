@@ -28,7 +28,7 @@
 ## ۳. آخرین بسته
 
 - بستهٔ ۳۲ (پیش‌نویس + Monatswechsel) در `main` است.
-- **`Upload-NUR-35-Impressum.zip`** (۲۵ اکتبر): Impressum و Datenschutz با اطلاعات صاحب برنامه (Mehran Eslami، Bohlkamp 21، 23564 Lübeck، mmeslami@gmail.com)؛ بند «Gesundheitsdaten» (Art. 9 DSGVO) در Datenschutz؛ بخش‌های USt-IdNr و Handelsregister برداشته شد (ندارد / گزارش نشده). تلفن: +49 176 34340216. Impressum کامل است؛ سایت آنلاین می‌ماند (تصمیم کاربر). چک شد: بدون Tracking، بدون Google Fonts، بدون ادعای «DSGVO-konform/rechtssicher». باز: کار کردن info@dienstigo.de (روی صفحهٔ اول) را کاربر چک کند. هم test هم main.
+- **`Upload-NUR-35-Impressum.zip`** (۲۵ اکتبر): Impressum و Datenschutz با اطلاعات صاحب برنامه (Mehran Eslami، Bohlkamp 21، 23564 Lübeck؛ ایمیل در Impressum و Datenschutz: info@dienstigo.de – ۲۵ اکتبر تست شد، می‌رسد، Webmail: mail.ionos.de)؛ بند «Gesundheitsdaten» (Art. 9 DSGVO) در Datenschutz؛ بخش‌های USt-IdNr و Handelsregister برداشته شد (ندارد / گزارش نشده). تلفن: +49 176 34340216. Impressum کامل است؛ سایت آنلاین می‌ماند (تصمیم کاربر). چک شد: بدون Tracking، بدون Google Fonts، بدون ادعای «DSGVO-konform/rechtssicher». هم test هم main.
 - حقوقی (تصمیم کاربر: فعلاً ارزان): AVV از روی قالب رایگان (مثلاً Bitkom-Muster) در گفتگوی بعد؛ مشاورهٔ رایگان IHK Lübeck؛ وکیل فقط برای «بررسی» بعد از اولین مشتری پولی.
 - بستهٔ ۳۳ (Einsatzorte، طرح اول با جدول دستی نفر × روز) **فقط در test** است و **نباید به main برود**: کاربر طرح بهتری خواست (بخش ۱۰، مورد ۳). اسکریپت دیتابیس ۳۱ اجرا شده و جدول‌هایش برای طرح جدید دوباره استفاده می‌شوند.
 - **برای گفتگوی بعدی:** زیپ شاخهٔ **test** را بفرستید («Code → Download ZIP» با شاخهٔ test)، چون کد بستهٔ ۳۳ (Route در اپ، «Ort:» در Stundenzettel، `work_locations`) فقط آنجاست.
