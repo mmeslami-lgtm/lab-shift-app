@@ -5,12 +5,13 @@ export const metadata = { title: "Datenschutzerklärung", robots: { index: true,
 // VORLAGE – gelb markierte Platzhalter ausfüllen; vor Veröffentlichung von einer Datenschutz-
 // beratung prüfen lassen. Die Angaben zu Dienstleistern müssen mit den abgeschlossenen
 // Auftragsverarbeitungsverträgen (AVV/DPA) übereinstimmen.
+// TODO (intern): Abschnitt 3 mit den aktuellen DPA von Supabase und Vercel abgleichen (SCC / Data Privacy Framework).
 export default function Page() {
   return (
     <LegalPage title="Datenschutzerklärung" updated="Oktober 2026">
       <Section title="1. Verantwortlicher">
-        <P>[Vorname Nachname / Firmenname]</P>, <P>[Straße Hausnummer]</P>, <P>[PLZ]</P> Lübeck, Deutschland<br />
-        E-Mail: <P>[E-Mail-Adresse]</P>
+        Mehran Eslami, Bohlkamp 21, 23564 Lübeck, Deutschland<br />
+        E-Mail: <a href="mailto:mmeslami@gmail.com">mmeslami@gmail.com</a>
       </Section>
 
       <Section title="2. Überblick">
@@ -31,7 +32,7 @@ export default function Page() {
         <b>Übermittlung in Drittländer:</b> Beide Anbieter sind Unternehmen mit Sitz in den USA. Ein Zugriff aus den USA bzw. eine
         Übermittlung personenbezogener Daten in die USA kann daher nicht vollständig ausgeschlossen werden. Sie erfolgt auf Grundlage
         der EU-Standardvertragsklauseln (Art. 46 Abs. 2 lit. c DSGVO) bzw. des EU-US Data Privacy Framework (Art. 45 DSGVO), soweit
-        der Anbieter dort zertifiziert ist. <P>[Bitte mit den aktuellen AVV/DPA von Supabase und Vercel abgleichen.]</P>
+        der Anbieter dort zertifiziert ist.
       </Section>
 
       <Section title="4. Welche Daten wir verarbeiten">
@@ -48,7 +49,12 @@ export default function Page() {
       <Section title="5. Zwecke und Rechtsgrundlagen">
         Bereitstellung der Anwendung und Erfüllung des Vertrags (Art. 6 Abs. 1 lit. b DSGVO); Erfüllung gesetzlicher Pflichten,
         z. B. Aufzeichnung der Arbeitszeit (Art. 6 Abs. 1 lit. c DSGVO); Sicherheit und Missbrauchsschutz (Art. 6 Abs. 1 lit. f DSGVO).
-        Für Beschäftigtendaten gelten zusätzlich die Vorschriften zum Beschäftigtendatenschutz; Verantwortlicher ist insoweit der jeweilige Arbeitgeber.
+        Für Beschäftigtendaten gelten zusätzlich die Vorschriften zum Beschäftigtendatenschutz; Verantwortlicher ist insoweit der jeweilige Arbeitgeber.<br /><br />
+        <b>Gesundheitsdaten:</b> Bei Abwesenheiten wie „Krank“, „Krank ohne Attest“, „Kur / Reha“ oder „Mutterschutz“ werden Angaben verarbeitet,
+        aus denen sich Rückschlüsse auf die Gesundheit ergeben können (besondere Kategorien personenbezogener Daten, Art. 9 DSGVO).
+        Es wird nur die Art der Abwesenheit gespeichert, keine Diagnose. Die Verarbeitung erfolgt zur Erfüllung arbeits- und sozialrechtlicher
+        Pflichten des Arbeitgebers (Art. 9 Abs. 2 lit. b DSGVO i. V. m. § 26 Abs. 3 BDSG). Diese Angaben sind nur für die Leitung der eigenen
+        Firma sichtbar; Kolleginnen und Kollegen sehen nur, dass jemand abwesend ist, nicht den Grund.
       </Section>
 
       <Section title="6. Speicherdauer">

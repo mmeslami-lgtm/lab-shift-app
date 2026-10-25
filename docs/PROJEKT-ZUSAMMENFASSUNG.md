@@ -28,6 +28,8 @@
 ## ۳. آخرین بسته
 
 - بستهٔ ۳۲ (پیش‌نویس + Monatswechsel) در `main` است.
+- **`Upload-NUR-35-Impressum.zip`** (۲۵ اکتبر): Impressum و Datenschutz با اطلاعات صاحب برنامه (Mehran Eslami، Bohlkamp 21، 23564 Lübeck، mmeslami@gmail.com)؛ بند «Gesundheitsdaten» (Art. 9 DSGVO) در Datenschutz؛ بخش‌های USt-IdNr و Handelsregister برداشته شد (ندارد / گزارش نشده). تلفن: +49 176 34340216. Impressum کامل است؛ سایت آنلاین می‌ماند (تصمیم کاربر). چک شد: بدون Tracking، بدون Google Fonts، بدون ادعای «DSGVO-konform/rechtssicher». باز: کار کردن info@dienstigo.de (روی صفحهٔ اول) را کاربر چک کند. هم test هم main.
+- حقوقی (تصمیم کاربر: فعلاً ارزان): AVV از روی قالب رایگان (مثلاً Bitkom-Muster) در گفتگوی بعد؛ مشاورهٔ رایگان IHK Lübeck؛ وکیل فقط برای «بررسی» بعد از اولین مشتری پولی.
 - بستهٔ ۳۳ (Einsatzorte، طرح اول با جدول دستی نفر × روز) **فقط در test** است و **نباید به main برود**: کاربر طرح بهتری خواست (بخش ۱۰، مورد ۳). اسکریپت دیتابیس ۳۱ اجرا شده و جدول‌هایش برای طرح جدید دوباره استفاده می‌شوند.
 - **برای گفتگوی بعدی:** زیپ شاخهٔ **test** را بفرستید («Code → Download ZIP» با شاخهٔ test)، چون کد بستهٔ ۳۳ (Route در اپ، «Ort:» در Stundenzettel، `work_locations`) فقط آنجاست.
 
@@ -207,6 +209,12 @@
 ۲. ✅ **پیش‌نویس (Entwurf) در دو جا** – ساخته شد (بستهٔ ۳۱، منتظر امتحان کاربر):
    - الف) برنامه‌ریز: وقتی ماهِ منتشرشده را «Bearbeiten» می‌کنم، تغییرات فقط پیش‌نویس باشد. کارمندها تا «Speichern / Veröffentlichen» همان پلن قبلی را ببینند. «Verwerfen» یا بستن بدون ذخیره = همه‌چیز مثل قبل. هشدار اگر صفحه با تغییرات ذخیره‌نشده بسته شود.
    - ب) Anwesenheit → «Zeiten bearbeiten (auch frühere Tage)»: تغییرهای یک ماه جمع شوند (فهرست «n Änderungen») و فقط با «Speichern» یکجا با دلیل ثبت شوند. «Abbrechen» = هیچ تغییری.
+
+۲ب. **حفاظت بیشتر از «Krank» (تصمیم کاربر ۲۵ اکتبر؛ بستهٔ کوچک، قبل یا همراه مورد ۳):** Leitung «Krank» را می‌بیند (لازم برای Entgeltfortzahlung، پلن و Stundenzettel)؛ برداشتن کامل «Krank» رد شد. به جایش:
+   - **دسترسی:** دلیل غیبت (Krank، Krank ohne Attest، Kur/Reha، Mutterschutz …) و یادداشتش فقط برای Inhaber و Leitung؛ نقش «Schichtplaner» فقط «abwesend» بدون دلیل. (اول بررسی: RLS روی `attendance_absences` و `requests`، نمایش در برنامه‌ریز، AttendanceDialog، Stundenzettel؛ تست با نقش واقعی planner.)
+   - **فیلد یادداشت غیبت:** راهنما «Keine Diagnose eintragen» (تشخیص پزشکی ننویسید).
+   - **Datenschutz:** جملهٔ «nur für die Leitung sichtbar» با این محدودیت دقیق شود (Schichtplaner ohne Grund).
+   - مثل قبل: همکاران دلیل را نمی‌بینند؛ هر کارمند غیبت‌های خودش را در اپ می‌بیند.
 
 ۳. **Einsatzorte – طرح جدید (تصمیم کاربر ۲۴ اکتبر؛ فقط Dienstplaner allgemein).** مثال: شرکت پرستاری سیار که پرسنل را به چند محل می‌فرستد؛ هر محل شیفت، ساعت و تعداد نفر خودش را دارد.
    - **فعال‌سازی فقط با ادمین (تصمیم کاربر ۲۵ اکتبر):** ادمین در `/admin` → «Funktionen nur für diese Firma» برای هر شرکت تعیین می‌کند کدام حالت‌ها در دسترس‌اند: «Mehrere Standorte» (`einsatzorte_standorte`) و/یا «Touren mit Einsätzen» (`einsatzorte_touren`). بدون فعال‌سازی ادمین هیچ‌چیز از این‌ها در شرکت دیده نمی‌شود (پیش‌فرض: Ein Ort). Inhaber/Leitung شرکت فقط بین حالت‌هایی که ادمین آزاد کرده انتخاب و آن‌ها را تنظیم می‌کند. این جای کلید شرکت‌محور `org_features.einsatzorte` بستهٔ ۳۳ را می‌گیرد (`set_location_mode` باید آزاد بودن توسط ادمین را چک کند). پایهٔ فروش جدا/قیمت جدا برای این حالت‌ها.
