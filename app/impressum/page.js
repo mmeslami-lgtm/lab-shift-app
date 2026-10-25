@@ -14,7 +14,7 @@ export default function Page() {
       </Section>
       <Section title="Kontakt">
         Telefon: <a href="tel:+4917634340216">+49 176 34340216</a><br />
-        E-Mail: <a href="mailto:mmeslami@gmail.com">mmeslami@gmail.com</a>
+        E-Mail: <a href="mailto:info@dienstigo.de">info@dienstigo.de</a>
       </Section>
       <Section title="Verantwortlich für den Inhalt nach § 18 Abs. 2 MStV">
         Mehran Eslami, Anschrift wie oben

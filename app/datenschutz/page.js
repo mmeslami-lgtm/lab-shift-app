@@ -11,7 +11,7 @@ export default function Page() {
     <LegalPage title="Datenschutzerklärung" updated="Oktober 2026">
       <Section title="1. Verantwortlicher">
         Mehran Eslami, Bohlkamp 21, 23564 Lübeck, Deutschland<br />
-        E-Mail: <a href="mailto:mmeslami@gmail.com">mmeslami@gmail.com</a>
+        E-Mail: <a href="mailto:info@dienstigo.de">info@dienstigo.de</a>
       </Section>
 
       <Section title="2. Überblick">
