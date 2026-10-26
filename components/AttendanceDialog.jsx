@@ -300,12 +300,12 @@ export default function AttendanceDialog({ onClose }) {
       const lastIso = isoOf(new Date(y, month + 1, 0));
       const chg = await fetchAll(() => sb.from("shift_changes").select("staff_id, change_date, kind, voided_at").eq("org_id", org.orgId).in("kind", ["cover", "extra"]).gte("change_date", `${y}-${String(month + 1).padStart(2, "0")}-01`).lte("change_date", lastIso));
       const coversOf = (sid) => new Set((chg || []).filter((c) => c.staff_id === sid && !c.voided_at).map((c) => String(c.change_date).slice(0, 10)));
-      // Einsatzorte (published) of the month – empty for companies with one place or without the tables
+      // Mehrere Standorte: the place of each published shift of the month („Ort: …“) – empty for companies with one place
       const firstIso = `${y}-${String(month + 1).padStart(2, "0")}-01`;
-      const la = await sb.from("location_assignments").select("staff_id, work_date, location_id").eq("org_id", org.orgId).eq("status", "published").gte("work_date", firstIso).lte("work_date", lastIso);
-      const wl = la.error || !la.data || !la.data.length ? null : await sb.from("work_locations").select("id, name").eq("org_id", org.orgId);
-      const locName = Object.fromEntries(((wl && !wl.error && wl.data) || []).map((l) => [l.id, l.name]));
-      const placesOf = (sid) => { const m = {}; ((la && !la.error && la.data) || []).filter((r) => r.staff_id === sid && locName[r.location_id]).forEach((r) => { m[String(r.work_date).slice(0, 10)] = locName[r.location_id]; }); return m; };
+      const la = await sb.from("scheduled_shifts").select("staff_id, shift_date, location_id").eq("org_id", org.orgId).eq("status", "published").not("location_id", "is", null).gte("shift_date", firstIso).lte("shift_date", lastIso);
+      const wl = la.error || !la.data || !la.data.length ? null : await sb.from("work_locations").select("id, name, code").eq("org_id", org.orgId);
+      const locName = Object.fromEntries(((wl && !wl.error && wl.data) || []).map((l) => [l.id, l.code ? `${l.name} (${l.code})` : l.name]));
+      const placesOf = (sid) => { const m = {}; ((la && !la.error && la.data) || []).filter((r) => r.staff_id === sid && locName[r.location_id]).forEach((r) => { m[String(r.shift_date).slice(0, 10)] = locName[r.location_id]; }); return m; };
       const hol = {}; const holidaysOf = (yy) => hol[yy] || (hol[yy] = germanHolidays(yy));
       const sheets = people.map((p) => {
         const days = computeDays({ sessions: (ses || []).filter((x) => x.staff_id === p.id), shifts: (sh || []).filter((x) => x.staff_id === p.id), absences: (ab || []).filter((x) => x.staff_id === p.id), approved: (ap || []).filter((x) => x.staff_id === p.id), holidaysOf });

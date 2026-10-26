@@ -2,6 +2,7 @@
 
 import React, { useCallback, useContext, useEffect, useRef, useState } from "react";
 import { OrgContext } from "../lib/orgContext";
+import { withPlaceCodes } from "../lib/locations";
 
 const MONTH_DE = ["Januar", "Februar", "März", "April", "Mai", "Juni", "Juli", "August", "September", "Oktober", "November", "Dezember"];
 const WD = ["So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"];
@@ -34,9 +35,11 @@ export default function WishesDialog({ year, monthIdx, onImport, onClose, onChan
     const w = await org.supabase.from("wishes").select("id, staff_id, wish_type, date_from, date_to, shift_key, note, status, decision_note, submitted_at, decided_at").eq("org_id", org.orgId).order("date_from");
     if (w.error) { setError(/status/.test(w.error.message) ? "Die Datenbank ist noch nicht vorbereitet (Skript 11 fehlt)." : w.error.message); setRows([]); return; }
     const st = await org.supabase.from("staff").select("id, name").eq("org_id", org.orgId);
-    const sd = await org.supabase.from("shift_definitions").select("key, label").eq("org_id", org.orgId);
+    let sd = await org.supabase.from("shift_definitions").select("key, label, location_id").eq("org_id", org.orgId);
+    if (sd.error) sd = await org.supabase.from("shift_definitions").select("key, label").eq("org_id", org.orgId); // script 32 not run
+    const wl = (sd.data || []).some((x) => x.location_id) ? await org.supabase.from("work_locations").select("id, code").eq("org_id", org.orgId) : null;
     const n = {}; (st.data || []).forEach((x) => { n[x.id] = x.name; });
-    const l = {}; (sd.data || []).forEach((x) => { l[x.key] = x.label; });
+    const l = {}; withPlaceCodes(sd.data || [], wl && !wl.error ? wl.data : []).forEach((x) => { l[x.key] = x.label; }); // „N1 · Früh“
     setNames(n); setLabels(l);
     setRows((w.data || []).filter((x) => x.status !== "draft")); // drafts belong to the employee until sent
   }, [org]);

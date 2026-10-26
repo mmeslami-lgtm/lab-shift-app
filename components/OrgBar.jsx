@@ -228,7 +228,9 @@ export default function OrgBar({ onLoadStaff, staffList, toDb, onIdsChanged, yea
         if (!rows.length) { source = first === "draft" ? "published" : "draft"; rows = await q(source); }
       }
       if (!rows.length) { setMsg(`Für ${MONTHS[m - 1]} ${y} ist kein gespeicherter Plan vorhanden.`); setBusy(""); return; }
-      const d = source === "version" ? { data: [], error: null } : await sb.from("shift_definitions").select("key, label, start_time, end_time, frequency, quota_per_month, prefer_team_lead, requires_rest_after, sort_order").eq("org_id", org.orgId).eq("active", true);
+      const defCols = "key, label, start_time, end_time, frequency, quota_per_month, prefer_team_lead, requires_rest_after, sort_order";
+      let d = source === "version" ? { data: [], error: null } : await sb.from("shift_definitions").select(defCols + ", location_id").eq("org_id", org.orgId).eq("active", true);
+      if (d.error && /location_id/.test(d.error.message || "")) d = await sb.from("shift_definitions").select(defCols).eq("org_id", org.orgId).eq("active", true); // script 32 not run
       if (d.error) throw d.error;
       const st = await sb.from("staff").select("id, name, email, weekly_hours, employment_type, night_exempt, weekend_exempt, is_team_lead, no_office, personnel_no, active").eq("org_id", org.orgId).order("name");
       if (st.error) throw st.error;
@@ -237,14 +239,8 @@ export default function OrgBar({ onLoadStaff, staffList, toDb, onIdsChanged, yea
       const baselineRows = source === "published" ? rows : (info.status === "published" ? await q("published") : []);
       const used = new Set([...rows, ...baselineRows].map((r) => r.staff_id));
       const staffRows = st.data.filter((s) => s.active !== false || used.has(s.id));
-      // Einsatzorte (allgemein): the places of the same version (published / draft); missing table = none
-      let locRows = [];
-      if (source !== "version") {
-        const lr = await sb.from("location_assignments").select("staff_id, work_date, location_id").eq("org_id", org.orgId).eq("status", source).gte("work_date", from).lt("work_date", to);
-        if (!lr.error && lr.data) locRows = lr.data;
-      }
       const res = onLoadPlan({
-        year: y, month: m, rows, baselineRows, holidays: (mrow.data[0] && mrow.data[0].holidays) || [], fromArchive: source === "version", locRows,
+        year: y, month: m, rows, baselineRows, holidays: (mrow.data[0] && mrow.data[0].holidays) || [], fromArchive: source === "version",
         defs: [...d.data].sort((a, b) => a.sort_order - b.sort_order), staffRows,
       });
       if (res && res.ok) {

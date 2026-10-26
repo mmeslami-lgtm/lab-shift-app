@@ -6,7 +6,8 @@ import { germanHolidays } from "../lib/timesheet";
 import { overtimeMode, payoutMinutesByMonth, planCarryHours } from "../lib/overtime";
 import OrgBar from "./OrgBar";
 import PublishPanel from "./PublishPanel";
-import EinsatzorteDialog, { shortName } from "./EinsatzorteDialog";
+import StandorteSettings from "./StandorteSettings";
+import { periodStartOf, teamRangeStart, placeLabel } from "../lib/locations";
 import { fetchAll } from "../lib/fetchAll";
 import { computeChanges } from "../lib/planDiff";
 import { planSig, cloneDays, useUnsavedWarning, LEAVE_MSG } from "../lib/draftGuard";
@@ -74,6 +75,12 @@ function contractMonthTarget(s, total, leaveMap) {
   }
   return ((s.weeklyHours || 38.5) / 5) * n;
 }
+// „Mehrere Standorte“ (Skript 32): set by the planner component on every render. When on, the checks of
+// computeStatsAndWarnings also look at: two shifts of one person on one day (never allowed), less than 11 hours
+// rest between the shifts of two days (replaces „kein Frühdienst nach Spätdienst“, which needs the fixed keys F/S),
+// and a shift at a place the person is not in the team of. times: key -> { s, e } minutes; inTeam(key, id, day).
+const multiCtx = { on: false, times: {}, inTeam: null };
+const MIN_REST_MIN = 11 * 60;
 const FULLTIME_MONTHLY_CEILING = 190; // full-time: never planned above this
 // Cycled through for any shift column (built-in or custom) so everything gets a distinct,
 // readable color without needing per-key hardcoding.
@@ -710,6 +717,25 @@ function computeStatsAndWarnings(days, staffList, leaveMap, shiftHours, allKeys,
       }
     });
   });
+  if (multiCtx.on) {
+    const keysOf = (shifts, id) => allKeys.filter((st) => ((shifts || {})[st] || []).includes(id));
+    const fmtH = (m) => `${Math.floor(m / 60)}:${String(m % 60).padStart(2, "0")}`;
+    staffList.forEach((s) => {
+      for (let d = 0; d < days.length; d++) {
+        const ks = keysOf(days[d].shifts, s.id);
+        if (ks.length > 1) warnings.push(`Tag ${days[d].day}: ${s.name} hat ${ks.length} Schichten (${ks.map(labelOf).join(", ")}) – nur eine Schicht pro Tag möglich`);
+        const prev = d > 0 ? keysOf(days[d - 1].shifts, s.id) : (tail.length ? keysOf(tail[tail.length - 1].shifts, s.id) : []);
+        ks.forEach((k) => prev.forEach((pk) => {
+          const a = multiCtx.times[pk], b = multiCtx.times[k];
+          if (!a || !b) return;
+          const end = a.e <= a.s ? a.e + 1440 : a.e; // ends after midnight
+          const rest = 1440 + b.s - end;
+          if (rest < MIN_REST_MIN) warnings.push(`Tag ${days[d].day}: ${s.name} – nur ${fmtH(Math.max(0, rest))} Std. Ruhe zwischen „${labelOf(pk)}“ ${d > 0 ? "am Vortag" : "am Ende des Vormonats"} und „${labelOf(k)}“ (mindestens 11 Std.)`);
+        }));
+        if (multiCtx.inTeam) ks.forEach((k) => { if (!multiCtx.inTeam(k, s.id, days[d].day)) warnings.push(`Tag ${days[d].day}: ${s.name} ist nicht im Team für „${labelOf(k)}“`); });
+      }
+    });
+  }
   staffList.forEach((s) => {
     let i = 0;
     while (i < days.length) {
@@ -1251,14 +1277,14 @@ function LabShiftSchedulerInner() {
   // Entwurf: the plan on screen is only a draft. savedDays = how the plan is stored in the database right now
   // (opened with „Plan laden“, „Zwischenspeichern“ or „Veröffentlichen“). Anything else is an unsaved change.
   const [savedDays, setSavedDays] = useState(null);
-  // Einsatzorte (only this planner): mode „Mehrere Einsatzorte“, the places, and person+day -> place.
-  // locs is part of the draft like the shifts: savedLocs = what is stored; „Zwischenspeichern“ / „Veröffentlichen“ save both.
+  // Mehrere Standorte (only this planner, Skript 32): company mode „Mehrere Einsatzorte“, the places, their shifts
+  // (shift_definitions with location_id) and the teams (location_team) of the months around the one on screen.
   const [locMulti, setLocMulti] = useState(false);
   const [locations, setLocations] = useState([]);
-  const [locs, setLocs] = useState({});           // { "staffId|day": locationId }
-  const [savedLocs, setSavedLocs] = useState({});
-  const [locOpen, setLocOpen] = useState(false);
+  const [locShifts, setLocShifts] = useState([]);
+  const [teams, setTeams] = useState([]);
   const [locBump, setLocBump] = useState(0);
+  const [placeTab, setPlaceTab] = useState("all"); // plan table: "all" or a location id
   const [generateError, setGenerateError] = useState(null);
   const [freiWishByStaff, setFreiWishByStaff] = useState({}); // staffId -> Set(day) for "Frei" wishes
   const [copyState, setCopyState] = useState("idle");
@@ -1602,12 +1628,52 @@ function LabShiftSchedulerInner() {
     setTimeout(() => setClosedMsg((m) => (m === "Gespeichert ✓" ? "" : m)), 2500);
   }
 
+  // ---- Mehrere Standorte: released by /admin (feature einsatzorte_standorte) AND switched on by the company ----
+  const locAllowed = !!(orgCtx && (orgCtx.features || []).includes("einsatzorte_standorte"));
+  const multiOn = !!(locAllowed && locMulti);
+  const canManagePlaces = !!(orgCtx && ["owner", "supervisor"].includes(orgCtx.role));
+  const locById = useMemo(() => Object.fromEntries(locations.map((l) => [l.id, l])), [locations]);
+  // the shifts on the plan: active shifts of active places, place by place
+  const placeShifts = useMemo(() => {
+    if (!multiOn) return [];
+    const order = Object.fromEntries(locations.map((l, i) => [l.id, i]));
+    return locShifts.filter((x) => x.active && locById[x.location_id] && locById[x.location_id].active)
+      .sort((a, b) => (order[a.location_id] - order[b.location_id]) || (a.sort_order - b.sort_order));
+  }, [multiOn, locShifts, locations, locById]);
+  const placeShiftByKey = useMemo(() => Object.fromEntries(placeShifts.map((x) => [x.key, x])), [placeShifts]);
+  // wanted people for a shift of a place on a day (weekday / weekend+holiday count; closed day = 0)
+  const wantOn = (d, key) => {
+    const x = placeShiftByKey[key];
+    if (!x || closedSet.has(d.day)) return 0;
+    return (d.isWeekend || d.isHoliday) ? (x.count_weekend || 0) : (x.count_weekday || 0);
+  };
+  // team: is this person in the team of the place of this shift on that day?
+  const teamSet = useMemo(() => new Set(teams.map((t) => `${t.location_id}|${t.staff_id}|${t.period_start}`)), [teams]);
+  const inTeam = (key, staffId, dayNum) => {
+    const x = placeShiftByKey[key]; const loc = x && locById[x.location_id];
+    return !!loc && teamSet.has(`${loc.id}|${staffId}|${periodStartOf(loc, year, monthIdx, dayNum)}`);
+  };
+  multiCtx.on = multiOn; multiCtx.inTeam = multiOn ? inTeam : null;
+  multiCtx.times = {};
+  placeShifts.forEach((x) => { const t = (v) => { const [a, b] = String(v).split(":"); return (+a || 0) * 60 + (+b || 0); }; multiCtx.times[x.key] = { s: t(x.start_time), e: t(x.end_time) }; });
+
   // Derived from specialShifts + dayShiftDefs: everything the algorithm and UI need in one place.
   // F/S keep the SAME internal keys (so their adjacency rule keeps working) but fully editable
   // label/time; every other shift — including anything flagged requiresRestAfter — is a freely
   // add/remove/editable entry in dayShiftDefs.
   const shiftMeta = useMemo(() => {
     const meta = {};
+    if (multiOn) { // Mehrere Standorte: only the shifts of the places, „N1 · Früh“, one colour per place
+      const locIdx = Object.fromEntries(locations.map((l, i) => [l.id, i]));
+      placeShifts.forEach((x) => {
+        const time = `${String(x.start_time).slice(0, 5)}-${String(x.end_time).slice(0, 5)}`;
+        meta[x.key] = {
+          label: placeLabel(locById[x.location_id], x.label), time, hours: computeShiftHours(time), frequency: "daily", requiresRestAfter: !!x.requires_rest_after,
+          locationId: x.location_id, ...SHIFT_COLOR_PALETTE[(locIdx[x.location_id] || 0) % SHIFT_COLOR_PALETTE.length],
+        };
+      });
+      return meta;
+    }
     ["F", "S"].forEach((key, i) => {
       const def = specialShifts[key];
       meta[key] = { label: def.label, time: def.time, hours: computeShiftHours(def.time), ...SHIFT_COLOR_PALETTE[i % SHIFT_COLOR_PALETTE.length] };
@@ -1620,7 +1686,7 @@ function LabShiftSchedulerInner() {
       };
     });
     return meta;
-  }, [specialShifts, dayShiftDefs]);
+  }, [specialShifts, dayShiftDefs, multiOn, placeShifts, locations, locById]);
   // which part of a half day each shift belongs to: manual choice, else start before 12:00 = morning
   const shiftParts = useMemo(() => {
     const parts = {};
@@ -1656,14 +1722,26 @@ function LabShiftSchedulerInner() {
   // ones) in their own order, then Spätdienst.
   // Shifts flagged requiresRestAfter (night-style) go AFTER Spätdienst, like a night shift would
   // on a printed roster; every other custom shift sits between Früh and Spät.
-  const restRequiringKeys = useMemo(() => dayShiftDefs.filter((d) => d.requiresRestAfter && d.frequency !== "quota").map((d) => d.key), [dayShiftDefs]);
+  const restRequiringKeys = useMemo(() => (multiOn ? placeShifts.filter((x) => x.requires_rest_after).map((x) => x.key) : dayShiftDefs.filter((d) => d.requiresRestAfter && d.frequency !== "quota").map((d) => d.key)), [dayShiftDefs, multiOn, placeShifts]);
   const dayOrderedKeys = useMemo(
-    () => ["F", ...dayShiftDefs.filter((d) => !restRequiringKeys.includes(d.key)).map((d) => d.key), ...(useLate ? ["S"] : []), ...restRequiringKeys],
-    [dayShiftDefs, restRequiringKeys, useLate]
+    () => (multiOn ? placeShifts.map((x) => x.key) : ["F", ...dayShiftDefs.filter((d) => !restRequiringKeys.includes(d.key)).map((d) => d.key), ...(useLate ? ["S"] : []), ...restRequiringKeys]),
+    [dayShiftDefs, restRequiringKeys, useLate, multiOn, placeShifts]
   );
   // Short, unique display code per shift for the compact "nach Mitarbeiter" grid (F and S keep
   // their letters; custom shifts get a code derived from their name instead of their internal key).
   const shiftCodes = useMemo(() => {
+    if (multiOn) { // „N1F“: code of the place + first letter(s) of the shift, unique
+      const codes = {}; const used = new Set(["U", "K"]);
+      placeShifts.forEach((x) => {
+        const pc = (locById[x.location_id] && locById[x.location_id].code) || "?";
+        const letters = String(x.label || "").replace(/[^A-Za-zÄÖÜäöüß]/g, "").toUpperCase() || "X";
+        let len = 1; let code = pc + letters.slice(0, 1);
+        while (used.has(code) && len < letters.length) { len++; code = pc + letters.slice(0, len); }
+        let n = 2; const base = code; while (used.has(code)) { code = base + n; n++; }
+        used.add(code); codes[x.key] = code;
+      });
+      return codes;
+    }
     const codes = { F: "F", S: "S" };
     const used = new Set(["F", "S", "U", "K"]);
     dayShiftDefs.forEach((d) => {
@@ -1678,10 +1756,10 @@ function LabShiftSchedulerInner() {
       codes[d.key] = code;
     });
     return codes;
-  }, [dayShiftDefs]);
+  }, [dayShiftDefs, multiOn, placeShifts, locById]);
   // Which day-shift-def keys run every regular workday (not a monthly quota, not a rest-requiring
   // shift — those get their own column logic) — used to know which columns go blank on holidays.
-  const dailyDayShiftKeys = useMemo(() => new Set(dayShiftDefs.filter((d) => d.frequency !== "quota" && !d.requiresRestAfter).map((d) => d.key)), [dayShiftDefs]);
+  const dailyDayShiftKeys = useMemo(() => (multiOn ? new Set() : new Set(dayShiftDefs.filter((d) => d.frequency !== "quota" && !d.requiresRestAfter).map((d) => d.key))), [dayShiftDefs, multiOn]); // places: wantOn() decides
 
   // ---- connection to the shared database (only active when the page runs behind the login gate) ----
   // What the employees currently see for the shown month. Every difference of the plan on screen to this
@@ -1728,29 +1806,33 @@ function LabShiftSchedulerInner() {
     const newRows = []; schedule.days.forEach((d) => Object.entries(d.shifts).forEach(([key, ids]) => (ids || []).filter(Boolean).forEach((id) => newRows.push({ staff_id: id, shift_date: `D${d.day}`, shift_key: key }))));
     return computeChanges(oldRows, newRows).length;
   }, [baseline, schedule]);
+  // Mehrere Standorte: places, their shifts and the teams around this month (only when /admin released it)
   useEffect(() => {
-    if (!orgCtx) return undefined;
+    if (!orgCtx || !locAllowed) { setLocMulti(false); setLocations([]); setLocShifts([]); setTeams([]); return undefined; }
     let alive = true;
     (async () => {
-      const f = await orgCtx.supabase.from("org_features").select("enabled").eq("org_id", orgCtx.orgId).eq("feature", "einsatzorte");
-      const l = await orgCtx.supabase.from("work_locations").select("id, name, address, color, active, sort_order").eq("org_id", orgCtx.orgId).order("sort_order");
+      const sb = orgCtx.supabase;
+      const f = await sb.from("org_features").select("enabled").eq("org_id", orgCtx.orgId).eq("feature", "einsatzorte");
+      const l = await sb.from("work_locations").select("id, name, code, address, team_period, active, sort_order").eq("org_id", orgCtx.orgId).order("sort_order");
+      const d = await sb.from("shift_definitions").select("key, label, start_time, end_time, requires_rest_after, count_weekday, count_weekend, location_id, active, sort_order").eq("org_id", orgCtx.orgId).not("location_id", "is", null).order("sort_order");
+      const nx = new Date(year, monthIdx + 1, 1);
+      const t = await sb.from("location_team").select("location_id, staff_id, period_start").eq("org_id", orgCtx.orgId).gte("period_start", teamRangeStart(year, monthIdx)).lt("period_start", `${nx.getFullYear()}-${String(nx.getMonth() + 1).padStart(2, "0")}-01`);
       if (!alive) return;
       setLocMulti(!f.error && !!(f.data && f.data[0] && f.data[0].enabled));
-      setLocations(!l.error && l.data ? l.data : []); // table missing (script 31 not run) = no places
+      setLocations(!l.error && l.data ? l.data : []); // tables missing (script 32 not run) = no places
+      setLocShifts(!d.error && d.data ? d.data : []);
+      setTeams(!t.error && t.data ? t.data.map((x) => ({ ...x, period_start: String(x.period_start).slice(0, 10) })) : []);
     })();
     return () => { alive = false; };
-  }, [orgCtx, locBump]);
-  const locsFromRows = (rows) => { const m = {}; (rows || []).forEach((r) => { m[`${r.staff_id}|${Number(String(r.work_date || r.date).slice(8, 10))}`] = r.location_id; }); return m; };
-  const locRows = useMemo(() => Object.entries(locs).map(([k, loc]) => { const [sid, day] = k.split("|"); return { staff_id: sid, date: `${year}-${String(monthIdx + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`, location_id: loc }; }), [locs, year, monthIdx]);
-  const locSig = (m) => JSON.stringify(Object.entries(m).sort());
+  }, [orgCtx, locAllowed, locBump, year, monthIdx]);
   const savedSig = useMemo(() => planSig(savedDays), [savedDays]);
   const curSig = useMemo(() => (schedule ? planSig(schedule.days) : null), [schedule]);
-  const unsaved = !!(orgCtx && schedule && (curSig !== savedSig || (locMulti && locSig(locs) !== locSig(savedLocs))));
+  const unsaved = !!(orgCtx && schedule && curSig !== savedSig);
   useUnsavedWarning(unsaved); // „Seite verlassen?“ while the draft is not saved
   const shiftListForDb = dayOrderedKeys.map((k) => {
     const def = dayShiftDefs.find((d) => d.key === k);
     return {
-      key: k, label: shiftMeta[k].label, time: shiftMeta[k].time,
+      key: k, label: shiftMeta[k].label, time: shiftMeta[k].time, locationId: shiftMeta[k].locationId || null,
       frequency: def ? def.frequency : "daily", quotaCount: def ? def.quotaCount : null, preferLead: def ? !!def.preferLead : false,
       requiresRestAfter: restRequiringKeys.includes(k), runsOnWeekends: !dailyDayShiftKeys.has(k),
     };
@@ -1774,19 +1856,26 @@ function LabShiftSchedulerInner() {
     setLeaveEntries(remap); setSickEntries(remap); setWishEntries(remap); setSchedule(null); setEditMode(false);
   };
   // Reopen a saved month (draft or published) exactly as stored, so it can be edited (e.g. sick leave)
-  const applyLoadedPlan = ({ year: y, month: m, rows, holidays: hol, defs, staffRows, baselineRows, fromArchive, locRows: loadedLocs }) => {
+  const applyLoadedPlan = ({ year: y, month: m, rows, holidays: hol, defs: allDefs, staffRows, baselineRows, fromArchive }) => {
     clearUndo();
     const hh = (t) => String(t).slice(0, 5);
+    // Mehrere Standorte: the shifts come from the place cards (not restored from the saved definitions);
+    // otherwise only the planner's own shifts are restored, never those of places
+    const defs = multiOn ? [] : (allDefs || []).filter((d) => !d.location_id);
     const hasKeys = (...ks) => ks.every((k) => defs.some((d) => d.key === k));
     const restore = defs.length > 0 && hasKeys("F");
-    const hasLate = rows.some((r) => r.shift_key === "S") || (restore && hasKeys("S"));
-    setUseLate(hasLate); // a saved plan with Spätdienst brings it back, one without keeps it off
+    const hasLate = !multiOn && (rows.some((r) => r.shift_key === "S") || (restore && hasKeys("S")));
     const fallbackKeys = hasLate && !dayOrderedKeys.includes("S") ? [...dayOrderedKeys, "S"] : dayOrderedKeys;
     const keysOrdered = restore ? defs.map((d) => d.key) : fallbackKeys;
     const unknown = rows.filter((r) => !keysOrdered.includes(r.shift_key));
     if (unknown.length) {
-      return { ok: false, message: `Der gespeicherte Plan enthält Schichtarten (${[...new Set(unknown.map((r) => r.shift_key))].join(", ")}), die zu den aktuellen Einstellungen dieses Dienstplaners nicht passen. Bitte im passenden Dienstplaner öffnen.` };
+      const offKeys = [...new Set(unknown.map((r) => r.shift_key))];
+      const placeOff = offKeys.map((k) => locShifts.find((x) => x.key === k)).filter(Boolean);
+      if (multiOn && placeOff.length) return { ok: false, message: `Der gespeicherte Plan enthält Schichten, die bei den Orten gerade entfernt oder inaktiv sind: ${placeOff.map((x) => placeLabel(locById[x.location_id], x.label)).join(", ")}. Bitte oben unter „Arbeitsorte“ wieder aktivieren und dann den Plan laden.` };
+      if (!multiOn && locShifts.some((x) => offKeys.includes(x.key))) return { ok: false, message: "Dieser Plan wurde mit „Mehrere Einsatzorte“ erstellt. Bitte oben unter „Arbeitsorte“ wieder „Mehrere Einsatzorte“ wählen." };
+      return { ok: false, message: `Der gespeicherte Plan enthält Schichtarten (${offKeys.join(", ")}), die zu den aktuellen Einstellungen dieses Dienstplaners nicht passen. Bitte im passenden Dienstplaner öffnen.` };
     }
+    if (!multiOn) setUseLate(hasLate); // a saved plan with Spätdienst brings it back, one without keeps it off
     // paid hours per shift kind: time span minus the 30 minute break (same rule as the planner)
     const toMin = (t) => { const [a, b] = String(t).split(":"); return (+a || 0) * 60 + (+b || 0); };
     const hoursByKey = {};
@@ -1815,16 +1904,17 @@ function LabShiftSchedulerInner() {
       return { day: d, weekday, isWeekend: weekday === 0 || weekday === 6, isHoliday: holSet.has(d), shifts };
     });
     rows.forEach((r) => { const day = days[Number(String(r.shift_date).slice(8, 10)) - 1]; if (day && day.shifts[r.shift_key]) day.shifts[r.shift_key].push(r.staff_id); });
-    const counts = {};
-    keysOrdered.forEach((k) => { counts[k] = 1; days.forEach((dd) => { if (!dd.isWeekend && !dd.isHoliday) counts[k] = Math.max(counts[k], dd.shifts[k].length); }); });
-    setPerShiftCount((prev) => ({ ...prev, ...counts }));
+    if (!multiOn) { // places keep their own numbers of people (place cards)
+      const counts = {};
+      keysOrdered.forEach((k) => { counts[k] = 1; days.forEach((dd) => { if (!dd.isWeekend && !dd.isHoliday) counts[k] = Math.max(counts[k], dd.shifts[k].length); }); });
+      setPerShiftCount((prev) => ({ ...prev, ...counts }));
+    }
     const leaveMap = {}; people.forEach((p) => { leaveMap[p.id] = new Set(); });
     const restKeys = restore ? defs.filter((d) => d.requires_rest_after && d.frequency !== "quota").map((d) => d.key) : restRequiringKeys;
     const labelsByKey = restore ? Object.fromEntries(defs.map((d) => [d.key, d.label])) : shiftLabels;
     const stats = computeStatsAndWarnings(days, people, leaveMap, useHours, keysOrdered, restKeys, labelsByKey, closedSet, openCount, carryMap(), halfMap, tailFor(y, m - 1));
     setSchedule({ days, hours: stats.hours, satCount: stats.satCount, sunCount: stats.sunCount, targetOf: stats.targetOf, warnings: stats.warnings, notes: [] });
     setSavedDays(fromArchive ? null : cloneDays(days)); // what is stored now (an older archived version is not: it counts as a change)
-    { const lm = locsFromRows(loadedLocs); setLocs(lm); setSavedLocs(fromArchive ? {} : lm); }
     // what the employees currently see (published version) — used to mark every manual change
     if (baselineRows && baselineRows.length) {
       const base = {};
@@ -1848,11 +1938,32 @@ function LabShiftSchedulerInner() {
     if (!schedule) return [];
     const plan = [];
     dayOrderedKeys.forEach((st) => {
-      const maxSlots = Math.max(perShiftCount[st] || 1, ...schedule.days.map((d) => (d.shifts[st] || []).length));
+      const px = placeShiftByKey[st]; // Mehrere Standorte: as many columns as the larger number of people (weekday / weekend)
+      const want = px ? Math.max(1, px.count_weekday || 0, px.count_weekend || 0) : (perShiftCount[st] || 1);
+      const maxSlots = Math.max(want, ...schedule.days.map((d) => (d.shifts[st] || []).length));
       for (let i = 0; i < maxSlots; i++) plan.push({ shiftType: st, slotIndex: i });
     });
     return plan;
-  }, [schedule, perShiftCount, dayOrderedKeys]);
+  }, [schedule, perShiftCount, dayOrderedKeys, placeShiftByKey]);
+  // Mehrere Standorte: reiter „Alle“ or one place
+  const visibleCols = useMemo(() => (multiOn && placeTab !== "all" ? columnPlan.filter((c) => shiftMeta[c.shiftType] && shiftMeta[c.shiftType].locationId === placeTab) : columnPlan), [multiOn, placeTab, columnPlan, shiftMeta]);
+  // choices in a cell of a place: team of this place first, then the others; people who already have a shift that day cannot be chosen
+  function placeOptions(d, st, val) {
+    const busyKey = {}; dayOrderedKeys.forEach((k) => (d.shifts[k] || []).forEach((id) => { if (id && !busyKey[id]) busyKey[id] = k; }));
+    const team = [], others = [];
+    staffList.forEach((p) => (inTeam(st, p.id, d.day) ? team : others).push(p));
+    const opt = (p) => {
+      const b = busyKey[p.id] && p.id !== val ? busyKey[p.id] : null;
+      return <option key={p.id} value={p.id} disabled={!!b}>{p.name}{b ? ` (schon ${shiftCodes[b] || b})` : ""}</option>;
+    };
+    const code = (locById[(placeShiftByKey[st] || {}).location_id] || {}).code || "";
+    return [
+      <optgroup key="t" label={team.length ? `Team ${code}` : `Team ${code}: noch niemand`}>{team.map(opt)}</optgroup>,
+      others.length ? <optgroup key="o" label="Nicht im Team">{others.map(opt)}</optgroup> : null,
+    ];
+  }
+  useEffect(() => { if (placeTab !== "all" && !locations.some((l) => l.id === placeTab && l.active)) setPlaceTab("all"); }, [locations, placeTab]);
+
   const absentByDay = useMemo(() => {
     const map = {};
     const addEntries = (entries) => {
@@ -1935,9 +2046,11 @@ function LabShiftSchedulerInner() {
   function removeSickEntry(id) {
     setSickEntries((prev) => prev.filter((e) => e.id !== id));
   }
+  // the wish shift shown in the list (a shift that is not on the plan any more, e.g. after switching to places, falls back to the first)
+  const wishShift = wishDraft.shiftType === "Frei" || shiftMeta[wishDraft.shiftType] ? wishDraft.shiftType : (dayOrderedKeys[0] || "Frei");
   function addWishEntry() {
     if (!wishDraft.staffId || !wishDraft.days.trim()) return;
-    setWishEntries((prev) => [...prev, { id: `we${nextEntryIdRef.current++}`, staffId: wishDraft.staffId, days: wishDraft.days.trim(), shiftType: wishDraft.shiftType }]);
+    setWishEntries((prev) => [...prev, { id: `we${nextEntryIdRef.current++}`, staffId: wishDraft.staffId, days: wishDraft.days.trim(), shiftType: wishShift }]);
     setWishDraft({ staffId: "", days: "", shiftType: "F" });
   }
   function removeWishEntry(id) {
@@ -2013,7 +2126,22 @@ function LabShiftSchedulerInner() {
     return leaveMap;
   }
 
+  // Mehrere Standorte (Paket A): no automatic plan yet – an empty month to fill in by hand, place by place
+  function createEmptyPlan() {
+    if (schedule && !window.confirm("Der Plan auf dem Bildschirm wird durch einen leeren Plan ersetzt. Fortfahren?")) return;
+    if (schedule) pushUndo("Leeren Plan anlegen");
+    const days = [];
+    for (let d = 1; d <= totalDays; d++) {
+      const weekday = new Date(year, monthIdx, d).getDay(); const shifts = {};
+      dayOrderedKeys.forEach((k) => { shifts[k] = []; });
+      days.push({ day: d, weekday, isWeekend: weekday === 0 || weekday === 6, isHoliday: holidaySet.has(d), isClosed: closedSet.has(d), half: halfMap[d] || null, shifts });
+    }
+    setEditMode(false); setGenInfo(null);
+    setSchedule({ days, ...computeStatsAndWarnings(days, staffList, buildLeaveMap(), shiftHours, dayOrderedKeys, restRequiringKeys, shiftLabels, closedSet, openCount, carryMap(), halfMap, tailFor(year, monthIdx)), notes: [] });
+  }
+
   function runGenerate() {
+    if (multiOn) return; // Mehrere Standorte: automatic plan comes with package B
     if (schedule) pushUndo("Neu generieren");
     if (staffList.length === 0) return;
     setGenerateError(null);
@@ -2118,11 +2246,6 @@ function LabShiftSchedulerInner() {
     } else days = cloneDays(savedDays);
     setSchedule({ days, ...computeStatsAndWarnings(days, staffList, buildLeaveMap(), shiftHours, dayOrderedKeys, restRequiringKeys, shiftLabels, closedSet, openCount, carryMap(), halfMap, tailFor(year, monthIdx)) });
     if (baseline) setSavedDays(cloneDays(days)); // the database holds exactly the published version now
-    if (baseline && orgCtx) { // places: back to the published version as well
-      const mm = monthIdx + 1; const from = `${year}-${String(mm).padStart(2, "0")}-01`; const nx = new Date(year, mm, 1);
-      const r = await orgCtx.supabase.from("location_assignments").select("staff_id, work_date, location_id").eq("org_id", orgCtx.orgId).eq("status", "published").gte("work_date", from).lt("work_date", `${nx.getFullYear()}-${String(nx.getMonth() + 1).padStart(2, "0")}-01`);
-      const lm = locsFromRows(!r.error ? r.data : []); setLocs(lm); setSavedLocs(lm);
-    } else if (!baseline) setLocs({ ...savedLocs });
     setUndoMsg(baseline ? "Zurück zur veröffentlichten Fassung" : "Zurück zum gespeicherten Stand");
     setTimeout(() => setUndoMsg(""), 4000);
   }
@@ -2138,6 +2261,11 @@ function LabShiftSchedulerInner() {
   });
 
   function updateSlot(dayIndex, shiftType, slotIndex, newId) {
+    if (multiOn && newId && schedule) { // never two shifts on one day (at any place)
+      const d = schedule.days[dayIndex];
+      const other = dayOrderedKeys.find((k) => (d.shifts[k] || []).some((id, i) => id === newId && !(k === shiftType && i === slotIndex)));
+      if (other) { window.alert(`${staffMap[newId] || "Diese Person"} hat am ${d.day}. schon „${shiftLabels[other] || other}“. Eine Person kann an einem Tag nur eine Schicht haben.`); return; }
+    }
     pushUndo(`Tag ${dayIndex + 1}, ${shiftLabels[shiftType] || shiftType}`);
     setSchedule((prev) => {
       if (!prev) return prev;
@@ -2152,10 +2280,19 @@ function LabShiftSchedulerInner() {
     });
   }
 
+  // place cards, team list: hours already planned this month at ALL places + monthly goal (Ziel), per person
+  function placeHoursOf(id) {
+    if (schedule && schedule.hours && schedule.targetOf && id in schedule.targetOf) return { h: schedule.hours[id] || 0, t: schedule.targetOf[id] || 0 };
+    const p = staffList.find((x) => x.id === id);
+    if (!p) return { h: 0, t: 0 };
+    return { h: 0, t: adjustedTarget(p, monthTarget(p, totalDays, buildLeaveMap(), closedSet, openCount, halfMap), carryMap()[p.id]) };
+  }
+
   const demandSummary = useMemo(() => {
     if (!schedule) return null;
     let totalDemandHours = 0;
-    schedule.days.forEach((d) => {
+    if (multiOn) schedule.days.forEach((d) => { dayOrderedKeys.forEach((k) => { totalDemandHours += (shiftHours[k] || 0) * wantOn(d, k); }); });
+    else schedule.days.forEach((d) => {
       if (closedSet.has(d.day)) return; // company closed: no demand
       const reduced = d.isWeekend || d.isHoliday;
       totalDemandHours += shiftHours.F * (reduced ? 1 : perShiftCount.F || 1) + (useLate ? shiftHours.S * (reduced ? 1 : perShiftCount.S || 1) : 0);
@@ -2167,7 +2304,7 @@ function LabShiftSchedulerInner() {
         else if (!reduced) totalDemandHours += (shiftHours[def.key] || 0) * (perShiftCount[def.key] || 1);
       });
     });
-    dayShiftDefs.forEach((def) => {
+    if (!multiOn) dayShiftDefs.forEach((def) => {
       if (def.frequency === "quota") totalDemandHours += (shiftHours[def.key] || 0) * (def.quotaCount || 9);
     });
     const avgActual = staffList.length > 0
@@ -2178,7 +2315,7 @@ function LabShiftSchedulerInner() {
       : 0;
     const suggestedStaff = avgTarget > 0 ? Math.round(totalDemandHours / avgTarget) : 0;
     return { totalDemandHours, avgActual, avgTarget, suggestedStaff };
-  }, [schedule, staffList, perShiftCount, shiftHours, dayShiftDefs, closedSet, useLate]);
+  }, [schedule, staffList, perShiftCount, shiftHours, dayShiftDefs, closedSet, useLate, multiOn, dayOrderedKeys, placeShiftByKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function buildScheduleText() {
     if (!schedule) return "";
@@ -2200,8 +2337,8 @@ function LabShiftSchedulerInner() {
       schedule.days.forEach((d) => {
         const row = [d.day, WEEKDAY_DE[d.weekday]];
         columnPlan.forEach((col) => {
-          const isSkippedOnHoliday = (dailyDayShiftKeys.has(col.shiftType) && (d.isHoliday || d.isWeekend)) || closedSet.has(d.day) || blockedHalf(d.day, col.shiftType);
           const id = (d.shifts[col.shiftType] || [])[col.slotIndex];
+          const isSkippedOnHoliday = multiOn ? (!id && col.slotIndex >= wantOn(d, col.shiftType)) : ((dailyDayShiftKeys.has(col.shiftType) && (d.isHoliday || d.isWeekend)) || closedSet.has(d.day) || blockedHalf(d.day, col.shiftType));
           row.push(isSkippedOnHoliday ? "" : (staffMap[id] || ""));
         });
         row.push((absentByDay[d.day] || []).join("/"));
@@ -2227,12 +2364,13 @@ function LabShiftSchedulerInner() {
       weekdayNames: WEEKDAY_DE,
       weekdayShort: WEEKDAY_DE.map((x) => x.slice(0, 2)),
       staff: staffList.map((s) => ({ id: s.id, name: s.name })),
-      days: schedule.days.map((d) => ({ ...d, isClosed: closedSet.has(d.day), half: halfMap[d.day] || null, blockedKeys: Object.keys(shiftParts).filter((k) => blockedHalf(d.day, k)) })),
+      days: schedule.days.map((d) => ({ ...d, isClosed: closedSet.has(d.day), half: halfMap[d.day] || null, blockedKeys: Object.keys(shiftParts).filter((k) => blockedHalf(d.day, k)),
+        ...(multiOn ? { skipKeys: dayOrderedKeys.filter((k) => wantOn(d, k) === 0) } : {}) })), // places: shift not needed that day
       columns,
       shifts,
       skipKeys: dailyDayShiftKeys,
       quotaKeys: new Set(dayShiftDefs.filter((d) => d.frequency === "quota").map((d) => d.key)),
-      wanted: perShiftCount, // places per shift that are wanted; more people (filled up) is extra, not "unbesetzt"
+      wanted: multiOn ? Object.fromEntries(placeShifts.map((x) => [x.key, Math.max(1, x.count_weekday || 0)])) : perShiftCount, // places per shift that are wanted; more people (filled up) is extra, not "unbesetzt"
       matrix: staffDayMatrix,
       nameOf: staffMap,
       absentByDay,
@@ -2354,6 +2492,12 @@ function LabShiftSchedulerInner() {
 
         {orgCtx && <OrgBar onLoadStaff={loadStaffFromDb} staffList={staffList} toDb={staffToDb} onIdsChanged={applyStaffIds} year={year} monthIdx={monthIdx} onLoadPlan={applyLoadedPlan} hasPlan={!!schedule} onImportWishes={importWishes} onImportRequests={importRequests} />}
 
+        {/* Mehrere Standorte: only when /admin released it for this company */}
+        {orgCtx && locAllowed && (
+          <StandorteSettings orgCtx={orgCtx} canManage={canManagePlaces} multi={locMulti} locations={locations} locShifts={locShifts} teams={teams}
+            year={year} monthIdx={monthIdx} staffList={staffList} hoursOf={placeHoursOf} onChanged={() => setLocBump((n) => n + 1)} />
+        )}
+
         {/* Archive */}
         {archiveList.length > 0 && (
           <section className="bg-white border border-slate-200 rounded-2xl shadow-sm p-4">
@@ -2423,13 +2567,19 @@ function LabShiftSchedulerInner() {
               <input
                 type="month"
                 value={monthValue}
-                onChange={(e) => { if (unsaved && !window.confirm(LEAVE_MSG)) return; setMonthValue(e.target.value); setSchedule(null); setSavedDays(null); setLocs({}); setSavedLocs({}); setEditMode(false); }}
+                onChange={(e) => { if (unsaved && !window.confirm(LEAVE_MSG)) return; setMonthValue(e.target.value); setSchedule(null); setSavedDays(null); setEditMode(false); }}
                 className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
               />
               <p className="text-xs text-slate-400 mt-1">{MONTH_DE[monthIdx]} {year} — {totalDays} Tage</p>
               {tailInfo && <p className="text-xs text-teal-700 mt-1" title="Nachtdienst-Blöcke laufen weiter (höchstens 4 Nächte) oder es folgen 2 freie Tage; endet der Vormonat an einem Samstag, bekommt der Sonntag dieselbe Schicht; kein Frühdienst nach Spätdienst; höchstens 6 Tage in Folge.">↪ Monatsübergang: Ende {tailInfo.label} wird berücksichtigt</p>}
             </div>
 
+            {multiOn ? (
+              <div className="text-xs text-slate-600 rounded-lg bg-teal-50 border border-teal-100 p-3">
+                <div className="font-medium text-slate-700 mb-1">Mehrere Einsatzorte</div>
+                Schichten, Besetzung und Teams stehen oben bei den Orten. Im Plan unten gibt es eine Spalte je Schicht und Ort; über die Reiter lässt sich ein Ort allein anzeigen.
+              </div>
+            ) : (
             <div>
               <label className="text-sm font-medium text-slate-700 mb-1.5 block">Benötigte Personen je Schicht (gleichzeitig)</label>
               <div className="grid grid-cols-4 gap-2">
@@ -2453,8 +2603,10 @@ function LabShiftSchedulerInner() {
                 </p>
               )}
             </div>
+            )}
           </div>
 
+          {multiOn ? null : (<>
           {/* Shift definitions: F/S keep their one special rule (adjacency) but are fully
               renameable/retimeable; every other shift is freely add/remove/editable, and the
               system always ASKS (via the checkbox below) whether a given shift needs the 2-day
@@ -2562,6 +2714,8 @@ function LabShiftSchedulerInner() {
               <Plus size={15} /> Schicht hinzufügen
             </button>
           </div>
+
+          </>)}
 
           {/* Staff list */}
           <div>
@@ -2749,8 +2903,8 @@ function LabShiftSchedulerInner() {
               {wishEntries.length === 0 && <span className="text-xs text-slate-400">Noch keine Schichtwünsche eingetragen</span>}
               {wishEntries.map((e) => {
                 const isFrei = e.shiftType === "Frei";
-                const chipClass = isFrei ? "bg-slate-100 text-slate-700 border-slate-300" : shiftMeta[e.shiftType].chip;
-                const label = isFrei ? "Frei" : shiftMeta[e.shiftType].label;
+                const chipClass = isFrei ? "bg-slate-100 text-slate-700 border-slate-300" : shiftMeta[e.shiftType] ? shiftMeta[e.shiftType].chip : "bg-slate-50 text-slate-400 border-slate-200";
+                const label = isFrei ? "Frei" : shiftMeta[e.shiftType] ? shiftMeta[e.shiftType].label : "Schicht nicht mehr im Plan";
                 return (
                   <span key={e.id} className={`inline-flex items-center gap-1.5 border text-xs rounded-full pl-1 pr-2.5 py-1 ${chipClass}`}>
                     {staffMap[e.staffId] || "?"} — {label}, Tag <span className="font-mono">{e.days}</span>
@@ -2773,7 +2927,7 @@ function LabShiftSchedulerInner() {
                 ))}
               </select>
               <select
-                value={wishDraft.shiftType}
+                value={wishShift}
                 onChange={(e) => setWishDraft((d) => ({ ...d, shiftType: e.target.value }))}
                 className="border border-slate-300 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
               >
@@ -2917,6 +3071,15 @@ function LabShiftSchedulerInner() {
             </div>
           )}
 
+          {multiOn ? (
+          <div className="flex flex-wrap items-center gap-3">
+            <button onClick={createEmptyPlan} disabled={staffList.length === 0 || dayOrderedKeys.length === 0}
+              className="inline-flex items-center gap-2 bg-teal-600 hover:bg-teal-700 disabled:bg-slate-300 text-white font-medium text-sm px-4 py-2.5 rounded-xl transition-colors active:translate-y-px">
+              <Plus size={16} /> {schedule ? "Neuen leeren Plan anlegen" : "Leeren Plan anlegen"}
+            </button>
+            <span className="text-xs text-slate-500">{dayOrderedKeys.length === 0 ? "Zuerst oben bei den Orten Schichten anlegen." : "Die automatische Planung für mehrere Orte kommt mit dem nächsten Paket. Bis dahin die Schichten in der Tabelle eintragen – zuerst wird das Team des Ortes angeboten."}</span>
+          </div>
+          ) : (
           <div className="flex flex-wrap items-center gap-3">
             <button
               onClick={() => { if (genBusy) return; setGenBusy(true); setGenInfo(null); setTimeout(() => { try { runGenerate(); } finally { setGenBusy(false); } }, 40); }}
@@ -2933,6 +3096,7 @@ function LabShiftSchedulerInner() {
               </span>
             )}
           </div>
+          )}
 
           {generateError && (
             <div className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs text-rose-800">
@@ -3036,20 +3200,10 @@ function LabShiftSchedulerInner() {
                   <button onClick={discardChanges} disabled={!((baseline && changeCount > 0) || (unsaved && savedDays))} title={baseline ? "Alles wieder so, wie die Mitarbeitenden es sehen (veröffentlichte Fassung)" : "Zurück zum zuletzt gespeicherten Stand"} className="inline-flex items-center gap-1.5 text-xs text-slate-700 border border-slate-200 bg-white rounded-lg px-2.5 py-1.5 hover:bg-slate-50 active:translate-y-px disabled:opacity-40 disabled:cursor-not-allowed">
                     Alle Änderungen verwerfen
                   </button>
-                  {orgCtx && (locMulti || ["owner", "supervisor"].includes(orgCtx.role)) && (
-                    <button onClick={() => setLocOpen(true)} title="Wer arbeitet wo? (mehrere Arbeitsorte)" className="inline-flex items-center gap-1.5 text-xs text-teal-800 border border-teal-200 bg-teal-50 rounded-lg px-2.5 py-1.5 hover:bg-teal-100 active:translate-y-px">
-                      📍 Einsatzorte{locMulti && Object.keys(locs).length > 0 ? ` (${Object.keys(locs).length})` : ""}
-                    </button>
-                  )}
-                  {locOpen && (
-                    <EinsatzorteDialog orgCtx={orgCtx} monthLabel={`${MONTH_DE[monthIdx]} ${year}`} days={schedule.days} staffList={staffList} leaveMap={buildLeaveMap()}
-                      locs={locs} locations={locations} multi={locMulti} canManage={["owner", "supervisor"].includes(orgCtx.role)}
-                      onApply={(m) => { setLocs(m); setLocOpen(false); }} onClose={() => setLocOpen(false)} onChanged={() => setLocBump((n) => n + 1)} />
-                  )}
                   {undoMsg && <span role="status" className="text-xs text-slate-600 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5">{undoMsg}</span>}
                 </div>
               </div>
-              {orgCtx && <PublishPanel schedule={schedule} staffList={staffList} year={year} monthIdx={monthIdx} shiftList={shiftListForDb} holidays={holidays} changeCount={changeCount} editMode={editMode} unsaved={unsaved} locRows={locMulti ? locRows : undefined} onSaved={(d, lr) => { setSavedDays(cloneDays(d)); if (lr) setSavedLocs(locsFromRows(lr)); }} />}
+              {orgCtx && <PublishPanel schedule={schedule} staffList={staffList} year={year} monthIdx={monthIdx} shiftList={shiftListForDb} holidays={holidays} changeCount={changeCount} editMode={editMode} unsaved={unsaved} multi={multiOn} onSaved={(d) => setSavedDays(cloneDays(d))} />}
               {(archiveState === "error" || saveState === "error") && (
                 <div className="mx-4 mt-3 rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs text-rose-800">
                   {archiveState === "error" && (
@@ -3062,6 +3216,16 @@ function LabShiftSchedulerInner() {
                     Diese Funktionen speichern Daten lokal in diesem Browser. In einem anderen Browser oder auf einem anderen Gerät sind sie nicht sichtbar.
                     Bis das geklärt ist, am besten „Als Excel herunterladen" nutzen, um die Daten extern zu sichern.
                   </div>
+                </div>
+              )}
+              {multiOn && viewMode !== "byStaff" && (
+                <div role="tablist" aria-label="Ort" className="flex flex-wrap gap-1.5 px-4 pt-3">
+                  {[{ id: "all", code: "Alle", name: "alle Orte" }, ...locations.filter((l) => l.active && placeShifts.some((x) => x.location_id === l.id))].map((l) => (
+                    <button key={l.id} role="tab" aria-selected={placeTab === l.id} onClick={() => setPlaceTab(l.id)} title={l.name}
+                      className={`rounded-lg px-3 py-1.5 text-xs font-semibold border ${placeTab === l.id ? "bg-slate-800 text-white border-slate-800" : "bg-white text-slate-700 border-slate-300 hover:bg-slate-50"}`}>
+                      {l.code}{l.id !== "all" && <span className="ml-1 font-normal opacity-75">{l.name}</span>}
+                    </button>
+                  ))}
                 </div>
               )}
               {viewMode === "byStaff" ? (
@@ -3105,7 +3269,7 @@ function LabShiftSchedulerInner() {
                     <tr className="bg-slate-50 text-slate-500 border-b border-slate-100">
                       <th className="px-2 py-2 text-left font-medium whitespace-nowrap">Tag</th>
                       <th className="px-2 py-2 text-left font-medium whitespace-nowrap">Wochentag</th>
-                      {columnPlan.map((col, ci) => (
+                      {visibleCols.map((col, ci) => (
                         <th key={ci} className={`px-2 py-2 text-left font-medium whitespace-nowrap ${shiftMeta[col.shiftType].text}`}>
                           <span dir="ltr">{shiftMeta[col.shiftType].label}</span>
                           <div className="font-normal text-slate-400">{shiftMeta[col.shiftType].time}</div>
@@ -3127,10 +3291,12 @@ function LabShiftSchedulerInner() {
                           {closedSet.has(d.day) && <div className="text-slate-500 font-medium text-[10px]">geschlossen</div>}
                           {halfMap[d.day] && <div className="text-teal-700 font-medium text-[10px]">{halfMap[d.day] === "am" ? "nur vormittags" : "nur nachmittags"}</div>}
                         </td>
-                        {columnPlan.map((col, ci) => {
+                        {visibleCols.map((col, ci) => {
                           const { shiftType: st, slotIndex } = col;
                           const val = (d.shifts[st] || [])[slotIndex];
-                          const isSkippedOnHoliday = (dailyDayShiftKeys.has(st) && (d.isHoliday || d.isWeekend)) || ((closedSet.has(d.day) || blockedHalf(d.day, st)) && !val); // closed / other half of the day: nothing to fill (an old entry stays editable)
+                          const isSkippedOnHoliday = multiOn
+                            ? (!val && slotIndex >= wantOn(d, st)) // places: not needed that day (or more people than wanted); an entry stays editable
+                            : (dailyDayShiftKeys.has(st) && (d.isHoliday || d.isWeekend)) || ((closedSet.has(d.day) || blockedHalf(d.day, st)) && !val); // closed / other half of the day: nothing to fill (an old entry stays editable)
                           // marks versus the published version (only when a saved month was opened for editing)
                           const baseIds = baseline ? (baseline[`${d.day}|${st}`] || []) : null;
                           const isNewHere = !!(baseIds && val && !baseIds.includes(val));
@@ -3147,12 +3313,12 @@ function LabShiftSchedulerInner() {
                                   className={`w-full text-[11px] rounded-md border px-1.5 py-1 ${val ? shiftMeta[st].chip : "bg-slate-50 border-slate-200 text-slate-400"} ${isNewHere ? "ring-2 ring-amber-400" : ""}`}
                                 >
                                   <option value="">— leer —</option>
-                                  {staffList.map((s) => (
+                                  {multiOn ? placeOptions(d, st, val) : staffList.map((s) => (
                                     <option key={s.id} value={s.id}>{s.name}</option>
                                   ))}
                                 </select>
                               )}
-                              {locMulti && val && locs[`${val}|${d.day}`] && (() => { const l = locations.find((x) => x.id === locs[`${val}|${d.day}`]); return l ? <div className="mt-0.5 inline-flex items-center gap-1 rounded px-1 text-[10px] font-semibold text-white" style={{ background: l.color }} title={l.address || l.name}>📍 {l.name}</div> : null; })()}
+                              {multiOn && val && !inTeam(st, val, d.day) && <div className="mt-0.5 text-[10px] font-semibold text-rose-700">nicht im Team</div>}
                               {isNewHere && <div className="mt-0.5 text-[10px] font-semibold text-amber-700">Geändert</div>}
                               {goneHere.length > 0 && <div className="mt-0.5 text-[10px] text-amber-700">entfällt: {goneHere.map(nameById).join(", ")}</div>}
                             </td>

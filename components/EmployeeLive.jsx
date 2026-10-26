@@ -10,6 +10,7 @@ import StampReminder from "./StampReminder";
 import ScanStamp from "./ScanStamp";
 import MobileStamp from "./MobileStamp";
 import Schulung from "./Schulung";
+import { withPlaceCodes, routeHref } from "../lib/locations";
 
 // ---------------------------------------------------------------------------------------------
 // Employee app on REAL data. Reads only what the database rules allow for this login:
@@ -73,20 +74,17 @@ function makeCodes(defs) {
 const navBtn = { width: 34, height: 34, borderRadius: 12, border: `1px solid ${LINE}`, background: "#fff", display: "grid", placeItems: "center", color: INK, cursor: "pointer", padding: 0 };
 const Card = ({ children, style }) => <div style={{ background: "#fff", borderRadius: 20, padding: 16, border: "1px solid #A9BBDA", boxShadow: "0 6px 18px -12px rgba(36,59,107,.35)", ...style }}>{children}</div>;
 
-// Einsatzort of a shift: name, address and „Route“ (opens the maps app of the phone with the address)
+// Einsatzort of a shift (Mehrere Standorte): code, name, address and „Route“ (opens the maps app of the phone)
 function PlaceLine({ place, dark }) {
   if (!place) return null;
-  const dest = encodeURIComponent(place.address || place.name);
-  const ios = typeof navigator !== "undefined" && /iPhone|iPad|iPod/i.test(navigator.userAgent || "");
-  const href = ios ? `https://maps.apple.com/?daddr=${dest}` : `https://www.google.com/maps/dir/?api=1&destination=${dest}`;
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 10, padding: "8px 10px", borderRadius: 12, background: dark ? "rgba(255,255,255,0.12)" : "#F3F5F8" }}>
-      <span aria-hidden style={{ width: 10, height: 10, borderRadius: 999, background: place.color, flex: "none" }} />
+      {place.code && <span style={{ flex: "none", fontSize: 12, fontWeight: 800, padding: "2px 7px", borderRadius: 6, border: `1.5px solid ${dark ? "#FFFFFF" : "#1B2433"}` }}>{place.code}</span>}
       <div style={{ flex: 1, minWidth: 0, fontSize: 13 }}>
         <div style={{ fontWeight: 700 }}>📍 {place.name}</div>
         {place.address && <div style={{ opacity: 0.75, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{place.address}</div>}
       </div>
-      {place.address && <a href={href} target="_blank" rel="noopener noreferrer" style={{ flex: "none", fontSize: 13, fontWeight: 700, padding: "6px 12px", borderRadius: 999, background: dark ? "#FFFFFF" : "#1B2433", color: dark ? "#1B2433" : "#FFFFFF", textDecoration: "none" }}>Route</a>}
+      {place.address && <a href={routeHref(place)} target="_blank" rel="noopener noreferrer" style={{ flex: "none", fontSize: 13, fontWeight: 700, padding: "6px 12px", borderRadius: 999, background: dark ? "#FFFFFF" : "#1B2433", color: dark ? "#1B2433" : "#FFFFFF", textDecoration: "none" }}>Route</a>}
     </div>
   );
 }
@@ -100,6 +98,8 @@ export default function EmployeeLive() {
   const [mobilOpen, setMobilOpen] = useState(false);
   const [schulung, setSchulung] = useState(false); // 🎓 Schulung (free, no AI) // "Mobil stempeln" (company feature mobil_stempeln)
   const mobil = (org.features || []).includes("mobil_stempeln");
+  // Mehrere Standorte (released in /admin + switched on by the company): wishes only for the shifts of the places
+  const multiPlaces = ["einsatzorte_standorte", "einsatzorte"].every((k) => (org.features || []).includes(k));
   const [view, setView] = useState({ y: now.getFullYear(), m: now.getMonth() });
   const [selIso, setSelIso] = useState(todayIso);
   const [teamMode, setTeamMode] = useState("people");
@@ -107,7 +107,7 @@ export default function EmployeeLive() {
   const [people, setPeople] = useState([]);
   const [myMonth, setMyMonth] = useState({});   // iso -> shift key, for the viewed month
   const [nextShift, setNextShift] = useState(undefined);
-  const [myPlaces, setMyPlaces] = useState({}); // Einsatzorte: iso -> { name, address, color } (published only)
+  const [myPlaces, setMyPlaces] = useState({}); // Mehrere Standorte: iso -> { name, code, address } (published only)
   const [dayShifts, setDayShifts] = useState([]); // all published shifts on the selected day
   const [myChanges, setMyChanges] = useState({});   // iso -> [{ key, kind }] changes of MY shifts that have not happened yet
   const [error, setError] = useState("");
@@ -120,10 +120,13 @@ export default function EmployeeLive() {
   // static data: shift kinds + team names
   useEffect(() => {
     (async () => {
-      const d = await sb.from("shift_definitions").select("key, label, start_time, end_time, requires_rest_after, sort_order, active").eq("org_id", org.orgId).order("sort_order");
+      let d = await sb.from("shift_definitions").select("key, label, start_time, end_time, requires_rest_after, sort_order, active, location_id").eq("org_id", org.orgId).order("sort_order");
+      if (d.error) d = await sb.from("shift_definitions").select("key, label, start_time, end_time, requires_rest_after, sort_order, active").eq("org_id", org.orgId).order("sort_order"); // script 32 not run
       const p = await sb.from("team_directory").select("id, name").eq("org_id", org.orgId);
       if (d.error || p.error) { setError((d.error || p.error).message); return; }
-      setDefs(d.data); setPeople(p.data);
+      // Mehrere Standorte: shift names with the code of their place („N1 · Früh“)
+      const wl = d.data.some((x) => x.location_id) ? await sb.from("work_locations").select("id, code").eq("org_id", org.orgId) : null;
+      setDefs(withPlaceCodes(d.data, wl && !wl.error ? wl.data : [])); setPeople(p.data);
     })();
   }, [sb, org.orgId]);
 
@@ -166,7 +169,7 @@ export default function EmployeeLive() {
     return () => { cancelled = true; };
   }, [sb, org.orgId, view]);
 
-  // Einsatzorte (Dienstplaner allgemein, „Mehrere Einsatzorte“): where I work, for the viewed month and the next weeks
+  // Mehrere Standorte (Dienstplaner allgemein): the place is part of my published shift – for the viewed month and the next weeks
   useEffect(() => {
     if (!my) return undefined;
     let alive = true;
@@ -174,11 +177,11 @@ export default function EmployeeLive() {
       const from = [isoOf(view.y, view.m, 1), todayIso].sort()[0];
       const nx = new Date(view.y, view.m + 1, 1); const soon = new Date(); soon.setDate(soon.getDate() + 62);
       const to = [isoOf(nx.getFullYear(), nx.getMonth(), 1), isoOf(soon.getFullYear(), soon.getMonth(), soon.getDate())].sort()[1];
-      const r = await sb.from("location_assignments").select("work_date, location_id").eq("org_id", org.orgId).eq("staff_id", my).eq("status", "published").gte("work_date", from).lt("work_date", to);
-      if (!alive || r.error || !r.data || !r.data.length) { if (alive) setMyPlaces({}); return; } // no places / tables missing: nothing shown
-      const l = await sb.from("work_locations").select("id, name, address, color").eq("org_id", org.orgId);
+      const r = await sb.from("scheduled_shifts").select("shift_date, location_id").eq("org_id", org.orgId).eq("staff_id", my).eq("status", "published").not("location_id", "is", null).gte("shift_date", from).lt("shift_date", to);
+      if (!alive || r.error || !r.data || !r.data.length) { if (alive) setMyPlaces({}); return; } // one place / script 32 not run: nothing shown
+      const l = await sb.from("work_locations").select("id, name, code, address").eq("org_id", org.orgId);
       const byId = Object.fromEntries(((!l.error && l.data) || []).map((x) => [x.id, x]));
-      const m = {}; r.data.forEach((x) => { if (byId[x.location_id]) m[String(x.work_date).slice(0, 10)] = byId[x.location_id]; });
+      const m = {}; r.data.forEach((x) => { if (byId[x.location_id]) m[String(x.shift_date).slice(0, 10)] = byId[x.location_id]; });
       if (alive) setMyPlaces(m);
     })();
     return () => { alive = false; };
@@ -419,7 +422,7 @@ export default function EmployeeLive() {
           );
         })()}
 
-        {tab === "wishes" && <EmployeeWishes org={org} defs={defs} />}
+        {tab === "wishes" && <EmployeeWishes org={org} defs={defs ? defs.filter((d) => (multiPlaces ? !!d.location_id : !d.location_id)) : defs} />}
 
         <StampReminder org={org} onOpenTimes={() => setTab("time")} />
         {(org.products || []).includes("time_tracking") && org.staffId && (
