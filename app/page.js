@@ -11,7 +11,7 @@ export const metadata = {
   alternates: { canonical: "/" },
 };
 
-const DEMO = "mailto:info@dienstigo.de?subject=Demo%20Dienstigo";
+const DEMO = "/demo-anfrage";
 const DAYS = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"];
 const TODAY = 2; // Mittwoch is "heute" in the sample week
 const KIND = { F: "Früh", S: "Spät", N: "Nacht", U: "Urlaub" };
