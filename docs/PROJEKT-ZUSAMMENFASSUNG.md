@@ -1,4 +1,4 @@
-# Dienstplaner (SaaS) – خلاصهٔ کامل پروژه تا ۲۴ اکتبر ۲۰۲۶
+# Dienstplaner (SaaS) – خلاصهٔ کامل پروژه تا ۲۶ اکتبر ۲۰۲۶
 
 > **برای Claude در گفتگوی جدید:** کاربر برنامه‌نویس نیست؛ فقط با مرورگر کار می‌کند و فایل‌ها را مستقیم در GitHub آپلود می‌کند. همیشه فارسی جواب بده، قدم‌به‌قدم و ساده. کد پروژه در این گفتگو نیست: اول از کاربر بخواه از GitHub (شاخهٔ `main` → «Code → Download ZIP») فایل زیپ را بفرستد. بسته‌های تحویلی همیشه فقط شامل فایل‌های تغییرکرده‌اند (zip، با همان ساختار پوشه‌ها). **این فایل (`docs/PROJEKT-ZUSAMMENFASSUNG.md`) را با هر کار جدید به‌روز کن و در همان بسته بگذار.**
 
@@ -28,10 +28,13 @@
 ## ۳. آخرین بسته
 
 - بستهٔ ۳۲ (پیش‌نویس + Monatswechsel) در `main` است.
-- **`Upload-NUR-35-Impressum.zip`** (۲۵ اکتبر): Impressum و Datenschutz با اطلاعات صاحب برنامه (Mehran Eslami، Bohlkamp 21، 23564 Lübeck؛ ایمیل در Impressum و Datenschutz: info@dienstigo.de – ۲۵ اکتبر تست شد، می‌رسد، Webmail: mail.ionos.de)؛ بند «Gesundheitsdaten» (Art. 9 DSGVO) در Datenschutz؛ بخش‌های USt-IdNr و Handelsregister برداشته شد (ندارد / گزارش نشده). تلفن: +49 176 34340216. Impressum کامل است؛ سایت آنلاین می‌ماند (تصمیم کاربر). چک شد: بدون Tracking، بدون Google Fonts، بدون ادعای «DSGVO-konform/rechtssicher». هم test هم main.
-- حقوقی (تصمیم کاربر: فعلاً ارزان): AVV از روی قالب رایگان (مثلاً Bitkom-Muster) در گفتگوی بعد؛ مشاورهٔ رایگان IHK Lübeck؛ وکیل فقط برای «بررسی» بعد از اولین مشتری پولی.
-- بستهٔ ۳۳ (Einsatzorte، طرح اول با جدول دستی نفر × روز) **فقط در test** است و **نباید به main برود**: کاربر طرح بهتری خواست (بخش ۱۰، مورد ۳). اسکریپت دیتابیس ۳۱ اجرا شده و جدول‌هایش برای طرح جدید دوباره استفاده می‌شوند.
-- **برای گفتگوی بعدی:** زیپ شاخهٔ **test** را بفرستید («Code → Download ZIP» با شاخهٔ test)، چون کد بستهٔ ۳۳ (Route در اپ، «Ort:» در Stundenzettel، `work_locations`) فقط آنجاست.
+- بستهٔ ۳۳ (Einsatzorte، طرح اول با جدول دستی نفر × روز) فقط در test بود و **هرگز به main نمی‌رود**؛ با بستهٔ ۳۴ جایگزین شد.
+- **بستهٔ ۳۴ = مورد ۳ صف، بخش الف (Mehrere Standorte: تنظیمات، تیم‌ها، پلن دستی، اپ، Stundenzettel)** – ۲۶ اکتبر ساخته و تست شد. اسکریپت دیتابیس ۳۲ روی دیتابیس واقعی اجرا شده. زیپ شامل بخش‌های لازم بستهٔ ۳۳ هم هست (`lib/timesheet.js` با «Ort:»، `docs/sql/31-einsatzorte.sql`)، پس می‌تواند بعد از امتحان در test مستقیم به main برود. بدون فعال‌سازی ادمین هیچ چیز تازه‌ای دیده نمی‌شود.
+- فایل `components/EinsatzorteDialog.jsx` (بستهٔ ۳۳) فقط در test هست و دیگر استفاده نمی‌شود؛ می‌شود بعداً در GitHub پاکش کرد (اجباری نیست).
+- **بستهٔ ۳۵ = طراحی جدید، بخش ۱ (سبک D «Marke») برای Inhaber/Leitung/Schichtplaner** – ۲۶ اکتبر. **ترتیب آپلود: اول ۳۴، بعد ۳۵** (۳۵ به فایل‌های ۳۴ مثل `StandorteSettings.jsx` نیاز دارد). دیتابیس تغییر نمی‌کند.
+- **برای گفتگوی بعدی:** زیپ شاخهٔ **test** (بعد از آپلود ۳۴ و ۳۵) → **طراحی بخش ۲** (`/freigaben`، `/konto`، `/profil`، `/admin`؛ همان سبک D)، بعد بستهٔ ب مورد ۳.
+- **`Upload-NUR-35-Impressum.zip`** (۲۵ اکتبر): صفحه‌های Impressum و Datenschutz با اطلاعات صاحب برنامه — هم در `main` و هم در `test`.
+- AVV (قرارداد حقوقی): فعلاً از روی قالب رایگان Bitkom-Muster (تصمیم کاربر: فعلاً ارزان)؛ بعد از اولین مشتری پولی، بررسی رایگان در IHK Lübeck.
 
 ## ۴. مهاجرت‌های دیتابیس (`docs/sql/`) – همه روی Supabase واقعی اجرا شده‌اند
 
@@ -57,6 +60,7 @@
 | 28 | انواع درخواست (Mutterschutz، Elternzeit …)، `requests.cut_vacation`، Einspringen |
 | 29 | `attendance_review_seen` («Zu prüfen» در Anwesenheit) |
 | 31 | Einsatzorte: `work_locations`، `location_assignments` (draft/published)، `set_location_mode`، `save_work_location`، `save_location_draft`، تریگر `publish_locations` روی `schedule_months`؛ `discard_draft` محل‌ها را هم برمی‌گرداند |
+| 32 | Mehrere Standorte: `org_feature_on`؛ `work_locations.code` (کد کوتاه، یکتا در شرکت) + `team_period` (month/week)؛ `shift_definitions.location_id/count_weekday/count_weekend`؛ `scheduled_shifts.location_id` (FK مرکب با org)؛ جدول `location_team` (محل + نفر + شروع دوره: روز ۱ ماه یا دوشنبه؛ فقط Leitung می‌بیند)؛ `set_location_mode` فقط با کلید ادمین `einsatzorte_standorte`؛ `save_work_location` (امضای جدید با کد و دوره)، `save_location_shift`، `save_location_team`؛ `save_draft`/`publish_month`/`discard_draft`/`plan_snapshot` محل را نگه می‌دارند؛ `save_draft` با محل: هرگز دو شیفت یک نفر در یک روز. `location_assignments` (۳۱) دیگر استفاده نمی‌شود (خالی) |
 | 30 | `discard_draft` (دور ریختن پیش‌نویس پلن)، `save_attendance_edits` (ثبت یکجای تغییرهای ساعت، همه یا هیچ)، رفع باگ `set_absence` (حالا هر ۱۲ نوع غیبت؛ قبلاً فقط ۶) |
 | STAGING-SETUP.sql | اسکریپت‌های ۱–۱۹ یکجا برای دیتابیس آزمایشی جدا در آینده |
 
@@ -79,13 +83,23 @@
 - **Anwesenheit → «Zeiten bearbeiten (auch frühere Tage)»:** Korrigieren / Zeit nachtragen / Abwesenheit eintragen·ändern·aufheben فقط «vorgemerkt» می‌شوند. فهرست «n Änderungen für <Monat> – noch nicht gespeichert» با ✕ برای هر مورد، یک «Grund» برای همه، «Speichern (n)» → `save_attendance_edits` (یک تراکنش: همه یا هیچ؛ خطا روز و نفر را نام می‌برد)، «Abbrechen» = هیچ تغییری. فقط یک ماه در هر بار؛ هشدار هنگام رفتن به ماه دیگر، بستن پنجره یا صفحه. فرم «Abwesend …» در بالای پنجره (Nicht erschienen) مثل قبل فوری ثبت می‌کند.
 - تست: کلیک‌به‌کلیک در مرورگر بدون صفحه با دیتابیس ساختگی (Labor ۱۶، Allgemein ۱۶، Anwesenheit ۲۱ مورد) + تست دیتابیس با نقش‌های واقعی در تراکنش لغوشده.
 
-### Einsatzorte – طرح اول (بستهٔ ۳۳، فقط در test؛ با طرح بخش ۱۰ مورد ۳ جایگزین می‌شود)
-- دکمهٔ «📍 Einsatzorte» در نوار پلن (`components/EinsatzorteDialog.jsx`). تب «Orte & Einstellung» (فقط Inhaber/Leitung): «Ein Arbeitsort» (پیش‌فرض، هیچ تغییری) / «Mehrere Einsatzorte» (`org_features.einsatzorte`)؛ فهرست محل‌ها: نام، آدرس (برای Route)، رنگ؛ هرگز پاک نمی‌شود، فقط «inaktiv». Stammort وجود ندارد (تصمیم کاربر): همه دستی در جدول.
-- تب «Plan»: جدول نفر × روز مثل Wunschplan. محل را انتخاب کنید (قلم)، بعد: خانه = یک روز، اسم = همهٔ روزهای کاری آن نفر، عدد روز = همهٔ کسانی که آن روز شیفت دارند. روزهای بدون شیفت خاکستری؛ محل در روز بدون شیفت یا مرخصی = قرمز («⚠️ … entfernen»)؛ «n Schichten noch ohne Ort». «Übernehmen» فقط پیش‌نویس روی صفحه را عوض می‌کند.
-- پیش‌نویس مثل پلن: محل‌ها جزو «Nicht gespeicherte Änderungen»اند؛ «Zwischenspeichern» → `save_location_draft`؛ «Veröffentlichen» (مستقیم یا از Freigaben) → تریگر نسخهٔ draft را published می‌کند؛ «Plan laden» محل‌های همان نسخه را می‌آورد؛ «Alle Änderungen verwerfen» محل‌ها را هم برمی‌گرداند.
-- نمایش: در جدول پلن برچسب رنگی «📍 Filiale Nord» زیر اسم. اپ کارمند: زیر «nächste Schicht» و زیر روز انتخاب‌شده «📍 نام · آدرس» + دکمهٔ «Route» (آیفون: Apple Maps، بقیه: Google Maps). Stundenzettel: «Ort: …» در ستون Information. کارمند فقط published می‌بیند.
-- ⚠️ هنوز نه: محل در **چاپ/PDF و Excel پلن** (فقط روی صفحه). اگر لازم شد، بستهٔ کوچک بعدی.
-- تست: دیتابیس با نقش‌های واقعی شرکت B در تراکنش لغوشده (کارمند پیش‌نویس را نمی‌بیند، نمی‌تواند بنویسد، Labor رد می‌شود، Verwerfen برمی‌گرداند)؛ مرورگر: برنامه‌ریز ۱۵/۱۵، اپ کارمند آیفون/اندروید ۶/۶، Stundenzettel ۲/۲؛ تست‌های قبلی ۵۵/۵۵ بدون تغییر.
+### طراحی جدید – بخش ۱ (بستهٔ ۳۵، ۲۶ اکتبر)
+- **تصمیم کاربر:** سبک **D «Marke»** (نمونه‌ها: آرتیفکت «Dienstigo – Stilrichtungen»، سبک‌های A تا D) برای همهٔ صفحه‌های Inhaber/Leitung/Schichtplaner و `/admin`. **اپ کارمند همان‌طور که هست می‌ماند** (کاربر از آن راضی است؛ دکمهٔ شناور «Stempeln» همان قبلی).
+- **رنگ‌ها و قواعد فقط در یک جا:** `app/globals.css`، بخش «Erscheinungsbild D» (متغیرهای `--dg-*`: زمینه `#E9EEF8` مثل اپ، Navy `#243B6B`، متن `#1B2433`، خط `#D9DEE7`). کلاس‌های قدیمی teal و indigo در برنامه‌ریزها به Navy تبدیل می‌شوند. صفحه‌های با رنگ‌های inline (اپ، `/freigaben`، `/konto`، `/profil`، `/admin`) از این فایل اثر نمی‌گیرند.
+- **فونت:** Plus Jakarta Sans با `next/font/google` در `app/layout.js` (موقع ساخت در Vercel دانلود و از خود سایت داده می‌شود؛ مرورگر به Google وصل نمی‌شود، DSGVO). فقط داخل `.dg-root` استفاده می‌شود.
+- **قاب:** `components/PlannerShell.jsx` (منوی شناور چپ + محتوا؛ روی موبایل زیر ۹۶۰px منو یک ردیف دکمهٔ فشرده بالای صفحه). **`OrgBar.jsx` حالا خود منوی کناری است** با همان دکمه‌ها و پنجره‌ها: Planung (Dienstplan، Plan bearbeiten → حالا پنجره، Wünsche، Anträge، Freigaben & Archiv)، Team (Personen laden/speichern، Anwesenheit، Zugänge)، Für mich (Stempeln، Meine Zeiten)، پایین Schulung و **Abmelden**. **دکمه‌های منو (خواست کاربر):** همه **کرم کم‌رنگ** (`--dg-cream` #FBF6EA)، **همه یک اندازه** (۴۸px؛ متن بلند حداکثر دو خط)، سایهٔ کم‌رنگ و لبهٔ پایین مثل کلید، **موقع کلیک ۲px فرو می‌رود و برمی‌گردد** (مثل `active:translate-y-px` قبلی). وقتی چیزی منتظر است **فقط نوشته و عدد قرمز** می‌شود (`dg-item-alert`/`dg-item-warn`: Wünsche، Anträge، Anwesenheit، Freigaben/Einspringen)؛ صفحهٔ فعلی (Dienstplan) Navy می‌ماند؛ روی موبایل هم (نوار آبی بالا و دکمهٔ قرمز Abmelden حذف شد). برچسب‌های محصول (Dienstplaner allgemein …) دیگر در منو نیستند.
+- **تنظیمات تاشو:** `components/Fold.jsx` (`<details>`؛ محتوا همیشه در فرم می‌ماند). در هر دو برنامه‌ریز: Schichtzeiten، Mitarbeiter، Urlaub، Krank، Wünsche، (allgemein: Öffnungstage & Betriebsschließung)، Feiertage – همه بسته با خلاصه کنارش، **جز Öffnungstage که همیشه باز است** (کاربر در عکس‌ها پیدایش نکرد؛ روی کل پلن اثر دارد) («6 Personen»، «keiner» …). صفحهٔ allgemein از ۴۱۹۲ به ۲۶۱۳ پیکسل. دکمه‌های «Hinzufügen» / «Mitarbeiter hinzufügen» / «Schicht hinzufügen» (کلاس `dg-add`) حالا کلید واقعی‌اند، نه لینک متنی (خواست کاربر: «دکمه‌ها شکل کلید»).
+- تست: مرورگر با Tailwind واقعی (کپی محلی Tailwind 3.4) و عکس صفحه؛ همهٔ ۶۳ تست قبلی + ۱۳ تست جدید (Labor، تاشوها، پنجره‌ها، موبایل، Abmelden) = **۷۶/۷۶**؛ بعد از دکمه‌های کرم/کلیدی ۱۳ تست منو = **۸۹/۸۹**. فونت واقعی فقط روی Vercel دیده می‌شود (محیط تست اینترنت نداشت).
+
+### Mehrere Standorte – بخش الف (بستهٔ ۳۴، ۲۶ اکتبر؛ فقط Dienstplaner allgemein)
+- **فعال‌سازی:** ادمین در `/admin` → «Funktionen nur für diese Firma» → «Mehrere Standorte …» (`einsatzorte_standorte`). بدون آن هیچ چیز دیده نمی‌شود (دیتابیس هم رد می‌کند). بعد Inhaber/Leitung در بخش جدید **«📍 Arbeitsorte»** بالای برنامه‌ریز (`components/StandorteSettings.jsx`) بین «Ein Arbeitsort» (پیش‌فرض، مثل قبل) و «Mehrere Einsatzorte» (`org_features.einsatzorte`) انتخاب می‌کند. Schichtplaner فقط می‌بیند.
+- **کارت هر محل:** اسم + **کد کوتاه** (۱ تا ۶ حرف/عدد، مثلاً N1، SÜD؛ به جای رنگ) + آدرس (برای Route). شیفت‌های محل: اسم، از/تا، تعداد نفر Mo–Fr و Sa/So/Feiertag (۰ = آن روز نیست)، «Ruhe danach». تیم: «monatlich» یا «wöchentlich (Mo–So)»؛ هفته‌ای که بین دو ماه است در هر دو ماه همان تیم را دارد؛ دکمهٔ «für alle Wochen dieses Monats übernehmen». کنار هر اسم: **ساعت‌های این ماه در همهٔ محل‌ها / Ziel** (سبز = جا دارد، زرد = نزدیک، قرمز = بالای Ziel) و «auch SÜD» اگر در محل دیگری هم هست. محل و شیفت هرگز پاک نمی‌شوند، فقط inaktiv (دوباره قابل فعال‌سازی).
+- **پلن (فعلاً دستی):** در حالت چندمحلی شیفت‌های عمومی F/S و «Benötigte Personen» پنهان‌اند؛ «Leeren Plan anlegen» (مولد خودکار = بخش ب). ستون‌ها «N1 · Früh» … (کلید شیفت مثل `LAB12CD3`)، تعداد ستون = بیشترین تعداد نفر؛ جایی که لازم نیست «—». تب برای هر محل + «Alle». در هر خانه اول «Team N1» بعد «Nicht im Team»؛ کسی که آن روز شیفت دارد غیرفعال است «(schon N1F)» و تغییر هم رد می‌شود. نمای «nach Mitarbeiter» با کدهای N1F / SÜDF / N1N.
+- **هشدارها (فقط چندمحلی، `multiCtx` در `computeStatsAndWarnings`):** دو شیفت در یک روز؛ **کمتر از ۱۱ ساعت استراحت** بین شیفت دو روز پشت‌سرهم (جای «Früh nach Spät» که به کلیدهای F/S بسته بود؛ تصمیم کاربر ۲۶ اکتبر، با ماه قبل هم)؛ «nicht im Team». بقیه (۲ روز آزاد بعد از شب، بلوک ۲–۴، ۶ روز، Monatswechsel) مثل قبل.
+- **ذخیره/انتشار:** محل جزو خود شیفت است (`scheduled_shifts.location_id`)؛ پیش‌نویس، Freigabe، Verwerfen و نسخه‌ها مثل قبل. PublishPanel در حالت چندمحلی تعریف شیفت‌ها را عوض نمی‌کند؛ در حالت عادی فقط شیفت‌های بدون محل را. «Plan laden» با شیفت محلِ حذف‌شده پیام روشن می‌دهد.
+- **اپ کارمند:** محل از شیفت منتشرشده: «N1 📍 Filiale Nord · آدرس» + «Route» (آیفون Apple Maps، بقیه Google Maps)؛ اسم شیفت «N1 · Früh»؛ Wünsche فقط شیفت‌های محل‌ها. **Stundenzettel:** «Ort: Filiale Nord (N1)». Freigaben و Wünsche مدیر هم با کد محل.
+- **هنوز نه (بخش ب):** مولد خودکار برای همهٔ محل‌ها با هم؛ چاپ/PDF هر محل یک صفحه (فعلاً چاپ و Excel همهٔ ستون‌ها را با کد در اسم دارند، ولی آخر هفته با بیش از ۱ نفر را دقیق علامت نمی‌زنند).
+- تست: دیتابیس با نقش‌های واقعی شرکت B در تراکنش لغوشده **۲۸/۲۸**؛ مرورگر (اجزای واقعی + دیتابیس ساختگی) برنامه‌ریز **۴۳/۴۳**، Plan laden + بدون محل + اپ آیفون/اندروید + Stundenzettel **۲۰/۲۰**؛ مولد پلن (`generateSchedule`) دست نخورده.
 
 ### Monatswechsel – ماه جدید از جایی شروع می‌شود که ماه قبل تمام شد (۲۴ اکتبر، قانون اصلی)
 - `lib/monthTail.js`: ۷ روز آخر ماه قبل (نسخهٔ منتشرشده، وگرنه پیش‌نویس ذخیره‌شده) خوانده می‌شود (`loadMonthTail` → `tailCtx`) و مولد پلن آن‌ها را «روزهای قبل از روز ۱» می‌بیند. زیر فیلد ماه: «↪ Monatsübergang: Ende Oktober 2026 wird berücksichtigt». بدون پلن ماه قبل = مثل قبل.
@@ -158,7 +172,7 @@
 - **Ziel = Vertrag** حالا پیش‌فرض: `soll_vertrag` برای همهٔ شرکت‌ها روشن شد و `create_organization` آن را برای شرکت‌های جدید روشن می‌کند.
 
 ### کلیدهای ویژگی هر شرکت
-`lib/features.js` + جدول `org_features` + بخش «Funktionen nur für diese Firma» در `/admin`. کلیدها: `terminal_pin_only`، `soll_vertrag`، `mobil_stempeln`، `mobil_standort`.
+`lib/features.js` + جدول `org_features` + بخش «Funktionen nur für diese Firma» در `/admin`. کلیدها: `terminal_pin_only`، `soll_vertrag`، `mobil_stempeln`، `nur_mobil`، `mobil_standort`، `einsatzorte_standorte` (بستهٔ ۳۴). کلید `einsatzorte` انتخاب خود شرکت است (نه ادمین).
 
 ### Keep-alive سوپابیس
 - `app/api/keepalive/route.js` + `vercel.json` → `crons`: هر روز ساعت ۵ صبح (UTC) یک خواندن کوچک از دیتابیس تا پروژهٔ رایگان سوپابیس به‌خاطر بی‌استفادگی متوقف نشود. اختیاری: متغیر `CRON_SECRET` در Vercel (آن‌وقت فقط Vercel می‌تواند صدا بزند).
@@ -201,8 +215,21 @@
 
 ## ۹. کار بعدی
 
-1. گفتگوی جدید: زیپ شاخهٔ **test** + خواندن همین فایل → ساخت مورد ۳ به طرح جدید (بخش ۱۰)، در دو بسته.
-2. سپس مورد ۴ صف (Wochenrotation).
+1. کاربر بسته‌های ۳۴ و ۳۵ را (به همین ترتیب) در test امتحان می‌کند، بعد هر دو در main.
+2. **طراحی بخش ۲** (سبک D): `/freigaben`، `/konto`، `/profil`، `/admin` (رنگ‌ها و قاب، کارکرد بدون تغییر).
+3. **بخش ب مورد ۳**: مولد خودکار چندمحلی (کلید `eligible(نفر، شیفت، روز)` = عضو تیم؛ بلوک شب در یک محل؛ Sa=So همان شیفت همان محل؛ ۱۱ ساعت استراحت؛ همهٔ قوانین روی کل محل‌ها) + چاپ هر محل یک صفحه + بهبودهای وضوح (پایین).
+4. **Schulung با فیلم** (بعد از طراحی ۲ و بستهٔ ب، تا فیلم‌ها قدیمی نشوند) – جزئیات پایین.
+5. سپس ۳ب (Touren)، ۴ (Wochenrotation)، ۵ (پرداخت).
+
+**Schulung با فیلم (خواست کاربر ۲۶ اکتبر):**
+- **همه‌چیز، هیچ چیز جا نیفتد:** اول فهرست کامل از روی کد (هر دکمه، پنجره، تنظیم، صفحه، برای هر نقش: Inhaber، Leitung، Schichtplaner، Mitarbeiter)؛ هر مورد به یک درس وصل؛ **تست خودکار** که هیچ دکمه/صفحه‌ای بدون درس نماند؛ فهرست قبل از ضبط برای کاربر فرستاده شود.
+- فیلم واقعی از خود برنامه (ضبط با Playwright در محیط تست، فقط داده‌های تست – Datenschutz)، هر فیلم ۳۰–۶۰ ثانیه، **زیرنویس آلمانی** برای هر قدم، دایرهٔ رنگی جای کلیک، دکمهٔ ▶/توقف/تکرار، **بدون پخش خودکار**. صدا (گوینده) نداریم.
+- **بعد از هر کلید و کلیک، اثر آن هم نمایش داده شود:** نتیجه روی همان صفحه (مثلاً Urlaub در فهرست ثبت شد)، نتیجه در جای دیگر (مثلاً بعد از Veröffentlichen، اپ کارمند با شیفت و محل و Route)، و هشدارها/پیام‌های مربوط (مثلاً دو شیفت در یک روز) – هر کدام با زیرنویس که چه اتفاقی افتاد.
+- **زوم:** وقتی نشانگر به یک دکمهٔ مهم می‌رسد، تصویر نرم روی دکمه زوم می‌کند (۱٫۵–۲×، کمتر از ۱ ثانیه)، کلیک (دکمه فرو می‌رود)، بعد زوم به عقب تا نتیجه دیده شود. فقط روی کلیک‌های مهم.
+- درس‌های تازه حداقل: منوی جدید و معنی نوشتهٔ قرمز؛ تاشوها (Urlaub/Krank/Wünsche/Öffnungstage)؛ Mehrere Standorte (محل، شیفت، تیم)؛ پلن چندمحلی دستی و خودکار؛ اپ کارمند با محل و Route؛ Plan bearbeiten (پنجره)؛ Freigaben & Archiv.
+- **هیچ تبلیغی** برای Schulung ساخته نمی‌شود (خواست صریح کاربر).
+
+**بهبودهای وضوح برای بستهٔ ب (پیشنهاد ۲۶ اکتبر، کاربر هنوز انتخاب نکرده):** هشدار در کارت محل وقتی Öffnungstage روز آخر هفته را بسته؛ توضیح «Ruhe danach (z. B. Nachtdienst)» + هشدار وقتی شیفت روز تیک دارد یا شیفت شب ندارد؛ هشدار اسم مشابه در Mitarbeiter (مثل «clara b» / «Clara B.»)؛ راهنمای قدم‌به‌قدم بالای Arbeitsorte؛ درس Schulung برای Mehrere Standorte. کاربر می‌خواهد خودش سناریوی «نانوایی با دو فیلیال» را تمرین کند و نکته‌های گیج‌کننده را بفرستد.
 
 ## ۱۰. صف کارها (به ترتیب؛ هر کدام یک بستهٔ جدا و تست‌شده)
 
@@ -210,6 +237,7 @@
    - الف) برنامه‌ریز: وقتی ماهِ منتشرشده را «Bearbeiten» می‌کنم، تغییرات فقط پیش‌نویس باشد. کارمندها تا «Speichern / Veröffentlichen» همان پلن قبلی را ببینند. «Verwerfen» یا بستن بدون ذخیره = همه‌چیز مثل قبل. هشدار اگر صفحه با تغییرات ذخیره‌نشده بسته شود.
    - ب) Anwesenheit → «Zeiten bearbeiten (auch frühere Tage)»: تغییرهای یک ماه جمع شوند (فهرست «n Änderungen») و فقط با «Speichern» یکجا با دلیل ثبت شوند. «Abbrechen» = هیچ تغییری.
 
+۳. **Einsatzorte – طرح جدید (تصمیم کاربر ۲۴ اکتبر؛ فقط Dienstplaner allgemein).** بخش الف ✅ (بستهٔ ۳۴)؛ بخش ب باز. تصمیم‌های ۲۶ اکتبر: بلوک شب در یک محل؛ Wünsche = «شیفت X در محل Y»؛ هفتهٔ بین دو ماه یک تیم؛ «Früh nach Spät» در چندمحلی = حداقل ۱۱ ساعت استراحت؛ کنار هر اسم در تیم: ساعت‌ها در همهٔ محل‌ها / Ziel. مثال: شرکت پرستاری سیار که پرسنل را به چند محل می‌فرستد؛ هر محل شیفت، ساعت و تعداد نفر خودش را دارد.
 ۲ب. **حفاظت بیشتر از «Krank» (تصمیم کاربر ۲۵ اکتبر؛ بستهٔ کوچک، قبل یا همراه مورد ۳):** Leitung «Krank» را می‌بیند (لازم برای Entgeltfortzahlung، پلن و Stundenzettel)؛ برداشتن کامل «Krank» رد شد. به جایش:
    - **دسترسی:** دلیل غیبت (Krank، Krank ohne Attest، Kur/Reha، Mutterschutz …) و یادداشتش فقط برای Inhaber و Leitung؛ نقش «Schichtplaner» فقط «abwesend» بدون دلیل. (اول بررسی: RLS روی `attendance_absences` و `requests`، نمایش در برنامه‌ریز، AttendanceDialog، Stundenzettel؛ تست با نقش واقعی planner.)
    - **فیلد یادداشت غیبت:** راهنما «Keine Diagnose eintragen» (تشخیص پزشکی ننویسید).
@@ -248,3 +276,5 @@
 ۶. **جابه‌جایی شیفت در اپ** (پیشنهاد کارمند ← قبول همکار ← تأیید مدیر)، شیفت‌های باز، خروجی حقوق CSV آمادهٔ DATEV، اعلان Push.
 
 **قوانین اصلی که نباید به هم بخورد:** شب‌ها و آخر هفته‌ها برای تمام‌وقت‌ها تا جای ممکن یکسان؛ شنبه و یکشنبه شیفت یکسان برای هر نفر؛ بعد از شیفت شب ۲ روز آزاد؛ **Monatswechsel:** شروع ماه جدید ادامهٔ پایان ماه قبل است (شب‌کاری ادامه تا روی‌هم حداکثر ۴ شب پشت‌سرهم، یا بعد از پایانش ۲ روز آزاد؛ شنبهٔ آخر ماه → یکشنبهٔ اول ماه همان شیفت) – ✅ ساخته شد (بستهٔ ۳۲).
+
+۵. **پرداخت و حسابداری خود سایت (آخر صف، تصمیم ۲۶ اکتبر).** درگاه **Stripe** (SEPA-Lastschrift، کارت، PayPal، فاکتور خودکار، Customer Portal؛ اطلاعات کارت هرگز روی سرور ما نیست). در اپ Inhaber: «Abo & Rechnungen». در `/admin`: «Abrechnung» (هر شرکت: پلن، قیمت، وضعیت Testphase/bezahlt/überfällig/gekündigt، آخرین پرداخت، مبلغ باز، فاکتورها، جمع ماهانه، CSV برای Steuerberater). پرداخت‌نشده: یادآوری، بعد فقط‌خواندنی، هیچ‌وقت پاک نشود. حسابداری کامل (UStVA/DATEV) ساخته نمی‌شود → اتصال به lexoffice/sevDesk. **قیمت‌ها در `/admin` قابل تنظیم، نه در کد.** مدل قیمت هنوز باز (کاربر نمی‌داند)؛ قبل از ساخت: Steuerberater (Kleinunternehmer/USt، Reverse-Charge، §14 UStG، GoBD).

@@ -12,6 +12,7 @@ import Schulung from "./Schulung";
 import { loadReview } from "../lib/review";
 import ScanStamp from "./ScanStamp";
 import EmployeeTimes from "./EmployeeTimes";
+import { CalendarDays, PencilLine, Heart, Inbox, CheckCircle2, Users, Download, Upload, Clock, KeyRound, GraduationCap, LogOut, Timer } from "lucide-react";
 
 const ROLE_LABEL = { owner: "Inhaber", supervisor: "Leitung", planner: "Schichtplaner", employee: "Mitarbeitende" };
 const PRODUCT_LABEL = { lab_planner: "Dienstplaner Labor", generic_planner: "Dienstplaner allgemein", employee_app: "Mitarbeiter-App" };
@@ -228,7 +229,9 @@ export default function OrgBar({ onLoadStaff, staffList, toDb, onIdsChanged, yea
         if (!rows.length) { source = first === "draft" ? "published" : "draft"; rows = await q(source); }
       }
       if (!rows.length) { setMsg(`Für ${MONTHS[m - 1]} ${y} ist kein gespeicherter Plan vorhanden.`); setBusy(""); return; }
-      const d = source === "version" ? { data: [], error: null } : await sb.from("shift_definitions").select("key, label, start_time, end_time, frequency, quota_per_month, prefer_team_lead, requires_rest_after, sort_order").eq("org_id", org.orgId).eq("active", true);
+      const defCols = "key, label, start_time, end_time, frequency, quota_per_month, prefer_team_lead, requires_rest_after, sort_order";
+      let d = source === "version" ? { data: [], error: null } : await sb.from("shift_definitions").select(defCols + ", location_id").eq("org_id", org.orgId).eq("active", true);
+      if (d.error && /location_id/.test(d.error.message || "")) d = await sb.from("shift_definitions").select(defCols).eq("org_id", org.orgId).eq("active", true); // script 32 not run
       if (d.error) throw d.error;
       const st = await sb.from("staff").select("id, name, email, weekly_hours, employment_type, night_exempt, weekend_exempt, is_team_lead, no_office, personnel_no, active").eq("org_id", org.orgId).order("name");
       if (st.error) throw st.error;
@@ -307,47 +310,62 @@ export default function OrgBar({ onLoadStaff, staffList, toDb, onIdsChanged, yea
     setBusy("");
   }
 
+  // Seitenleiste (Erscheinungsbild D): dieselben Knöpfe und Fenster wie vorher, nur als Menü links.
+  const item = ({ icon: Icon, label, onClick, href, badge, tone, current, disabled, expanded, title }) => {
+    // Etwas wartet (badge): der ganze Knopf wird farbig wie früher – rot = Wünsche/Anträge, gelb = Anwesenheit/Einspringen
+    const cls = `dg-item${badge && tone ? ` dg-item-${tone}` : ""}`;
+    const inner = (<>{Icon && <Icon size={18} strokeWidth={1.9} aria-hidden="true" />}<span className="dg-item-label">{label}</span>{badge ? <span className="dg-badge">{badge}</span> : null}</>);
+    if (href) return <a href={href} className={cls} aria-current={current ? "page" : undefined} title={title}>{inner}</a>;
+    return <button type="button" onClick={onClick} disabled={disabled} aria-expanded={expanded} className={cls} title={title}>{inner}</button>;
+  };
+  const here = typeof window !== "undefined" ? window.location.pathname : "/";
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-3 text-sm">
-      {/* company + role */}
-        <div>
-          <span className="font-semibold text-slate-800">{org.orgName}</span>
-          <span className="text-slate-500"> · {ROLE_LABEL[org.role] || org.role}</span>
-          <div className="mt-1 flex flex-wrap gap-1">
-            {org.products.map((p) => (
-              <span key={p} className="rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] text-emerald-800">{PRODUCT_LABEL[p] || p}</span>
-            ))}
-          </div>
-        </div>
+    <nav aria-label="Hauptmenü" className="dg-nav">
+      <div className="dg-brand">
+        <span className="dg-mark" aria-hidden="true"><CalendarDays size={18} strokeWidth={2} /></span>
+        <span className="dg-brand-text"><span className="dg-brand-name">Dienstigo</span><span className="dg-brand-org">{org.orgName} · {ROLE_LABEL[org.role] || org.role}</span></span>
+      </div>
       {isLeader && pendingMonths.length > 0 && (
-        <a href="/freigaben" role="status" className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-rose-300 bg-rose-50 px-3 py-2 text-sm font-medium text-rose-800 hover:bg-rose-100">
-          <span>● {pendingMonths.length === 1 ? "Ein Plan wartet" : `${pendingMonths.length} Pläne warten`} auf deine Freigabe: {pendingMonths.map((m) => `${MONTHS[m.month - 1]} ${m.year}`).join(", ")}</span>
-          <span className="rounded-md bg-rose-700 px-2.5 py-1 text-xs font-semibold text-white">Jetzt prüfen</span>
+        <a href="/freigaben" role="status" className="dg-alert">
+          <span>{pendingMonths.length === 1 ? "Ein Plan wartet" : `${pendingMonths.length} Pläne warten`} auf deine Freigabe: {pendingMonths.map((m) => `${MONTHS[m.month - 1]} ${m.year}`).join(", ")}</span>
+          <span className="dg-alert-btn">Jetzt prüfen</span>
         </a>
       )}
-      {/* buttons in one row ("Abmelden" is at the very top of the page, next to the title band) */}
-      <div className="mt-3 flex flex-wrap items-center gap-2">
-          <button onClick={load} disabled={!!busy} className="rounded-lg border border-teal-200 bg-teal-50 px-3 py-2 text-sm text-teal-800 hover:bg-teal-100 disabled:opacity-60">
-            {busy === "load" ? "Lädt …" : "Personen aus Datenbank laden"}
-          </button>
-          <button onClick={save} disabled={!!busy} className="rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-sm text-indigo-800 hover:bg-indigo-100 disabled:opacity-60">
-            {busy === "save" ? "Speichert …" : "Personen in Datenbank speichern"}
-          </button>
-          {hasApp && <button onClick={() => setReqOpen(true)} className={`rounded-lg border px-3 py-2 text-sm active:translate-y-px ${openReq ? "border-rose-300 bg-rose-50 text-rose-800 hover:bg-rose-100" : "border-slate-200 text-slate-700 hover:bg-slate-50"}`}>Anträge{openReq ? ` (${openReq})` : ""}</button>}
-          {isLeader && hasApp && <button onClick={() => setZugOpen(true)} className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 active:translate-y-px">Zugänge</button>}
-          {org && <button onClick={() => setSchulung(true)} className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 active:translate-y-px">🎓 Schulung</button>}
-          {hasTime && org && org.staffId && (
-            <>
-              <button onClick={() => setSelfStamp((org.features || []).includes("mobil_stempeln") ? "mobil" : "qr")} className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 active:translate-y-px">⏱ Stempeln</button>
-              <button onClick={() => setMyTimesOpen(true)} className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 active:translate-y-px">Meine Zeiten</button>
-            </>
-          )}
-          {isLeader && hasTime && <button onClick={() => setAttOpen(true)} className={`rounded-lg border px-3 py-2 text-sm active:translate-y-px ${openCorr + toReview ? "border-amber-300 bg-amber-50 text-amber-900 hover:bg-amber-100" : "border-slate-200 text-slate-700 hover:bg-slate-50"}`}>Anwesenheit{openCorr + toReview ? ` (${openCorr + toReview})` : ""}</button>}
-          <button onClick={() => setWishesOpen(true)} className={`rounded-lg border px-3 py-2 text-sm active:translate-y-px ${openWishes > 0 ? "border-rose-200 bg-rose-50 font-medium text-rose-800 hover:bg-rose-100" : "border-slate-200 text-slate-700 hover:bg-slate-50"}`}>Wünsche{openWishes > 0 ? ` · ${openWishes} offen` : ""}</button>
-          <a href="/freigaben" className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">Freigaben &amp; Archiv{openJumps > 0 ? ` · ${openJumps} Einspringen offen` : ""}</a>
-          <button onClick={openEdit} disabled={!!busy} aria-expanded={editOpen} className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-900 hover:bg-amber-100 disabled:opacity-60">Plan bearbeiten</button>
+      <div className="dg-group">
+        <div className="dg-group-label">Planung</div>
+        {item({ icon: CalendarDays, label: "Dienstplan", href: here, current: true })}
+        {item({ icon: PencilLine, label: "Plan bearbeiten", onClick: openEdit, disabled: !!busy, expanded: editOpen, title: "Gespeicherten Plan oder eine frühere Fassung öffnen" })}
+        {item({ icon: Heart, label: "Wünsche", onClick: () => setWishesOpen(true), badge: openWishes > 0 ? `${openWishes} offen` : null, tone: "alert" })}
+        {hasApp && item({ icon: Inbox, label: "Anträge", onClick: () => setReqOpen(true), badge: openReq || null, tone: "alert" })}
+        {item({ icon: CheckCircle2, label: "Freigaben & Archiv", href: "/freigaben", badge: openJumps > 0 ? openJumps : null, tone: "warn", title: openJumps > 0 ? `${openJumps} Einspringen offen` : undefined })}
       </div>
-      <div className="mt-2 text-[11px] text-slate-500">Neue oder geänderte Personen sind erst nach „Personen in Datenbank speichern“ in der Datenbank. Nur Personen aus der Datenbank können Pläne veröffentlicht bekommen.</div>
+      <div className="dg-group">
+        <div className="dg-group-label">Team</div>
+        {item({ icon: Download, label: busy === "load" ? "Lädt …" : "Personen aus Datenbank laden", onClick: load, disabled: !!busy })}
+        {item({ icon: Upload, label: busy === "save" ? "Speichert …" : "Personen in Datenbank speichern", onClick: save, disabled: !!busy })}
+        {isLeader && hasTime && item({ icon: Clock, label: "Anwesenheit", onClick: () => setAttOpen(true), badge: openCorr + toReview || null, tone: "warn" })}
+        {isLeader && hasApp && item({ icon: KeyRound, label: "Zugänge", onClick: () => setZugOpen(true) })}
+        <p className="dg-note">Neue oder geänderte Personen sind erst nach „Personen in Datenbank speichern“ in der Datenbank. Nur Personen aus der Datenbank können Pläne veröffentlicht bekommen.</p>
+      </div>
+      {hasTime && org.staffId && (
+        <div className="dg-group">
+          <div className="dg-group-label">Für mich</div>
+          {item({ icon: Timer, label: "Stempeln", onClick: () => setSelfStamp((org.features || []).includes("mobil_stempeln") ? "mobil" : "qr") })}
+          {item({ icon: Clock, label: "Meine Zeiten", onClick: () => setMyTimesOpen(true) })}
+        </div>
+      )}
+      {(msg || autoMsg || (row && row.status === "pending") || (row && row.status === "draft" && row.review_note)) && (
+        <div className="dg-group" role="status">
+          {msg && <div className="dg-msg">{msg}</div>}
+          {autoMsg && <div className="dg-msg dg-msg-ok">✓ {autoMsg}</div>}
+          {row && row.status === "pending" && <div className="dg-msg dg-msg-warn">{MONTHS[monthIdx]} {year} wartet auf Freigabe durch die Leitung.</div>}
+          {row && row.status === "draft" && row.review_note && <div className="dg-msg dg-msg-alert">{MONTHS[monthIdx]} {year} wurde zurückgewiesen: {row.review_note}</div>}
+        </div>
+      )}
+      <div className="dg-bottom">
+        {item({ icon: GraduationCap, label: "Schulung", onClick: () => setSchulung(true) })}
+        {item({ icon: LogOut, label: "Abmelden", onClick: () => org.supabase.auth.signOut() })}
+      </div>
       {attOpen && <AttendanceDialog onClose={() => { setAttOpen(false); setReqBump((b) => b + 1); }} />}
       {selfStamp === "mobil" && <MobileStamp org={org} withLocation={(org.features || []).includes("mobil_standort")} onClose={() => setSelfStamp(null)} onOpenTimes={() => setMyTimesOpen(true)} onScanQr={() => setSelfStamp("qr")} />}
       {selfStamp === "qr" && <ScanStamp org={org} onClose={() => setSelfStamp(null)} onOpenTimes={() => setMyTimesOpen(true)} />}
@@ -372,8 +390,9 @@ export default function OrgBar({ onLoadStaff, staffList, toDb, onIdsChanged, yea
       {zugOpen && <ZugaengeDialog onClose={() => setZugOpen(false)} />}
       {wishesOpen && <WishesDialog year={year} monthIdx={monthIdx} onImport={onImportWishes} onChanged={() => setWishBump((b) => b + 1)} onClose={() => { setWishesOpen(false); setWishBump((b) => b + 1); }} />}
       {editOpen && (
-        <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
-          <div className="mb-2 font-semibold">Gespeicherten Plan zum Bearbeiten öffnen</div>
+        <div role="dialog" aria-modal="true" aria-label="Gespeicherten Plan zum Bearbeiten öffnen" className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-900/40 p-3 sm:p-10" onClick={(e) => { if (e.target === e.currentTarget) setEditOpen(false); }}>
+        <div className="w-full max-w-xl rounded-2xl border border-amber-200 bg-amber-50 p-4 text-xs text-amber-900 shadow-xl">
+          <div className="mb-3 flex items-center justify-between gap-2"><span className="text-sm font-semibold">Gespeicherten Plan zum Bearbeiten öffnen</span><button type="button" onClick={() => setEditOpen(false)} className="rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-sm text-amber-900 hover:bg-amber-100">Schließen</button></div>
           <div className="flex flex-wrap items-end gap-2">
             <label>Monat
               <select value={editMonth} onChange={(e) => setEditMonth(e.target.value)} className="ml-1 rounded-md border border-amber-300 bg-white px-2 py-1">
@@ -400,11 +419,8 @@ export default function OrgBar({ onLoadStaff, staffList, toDb, onIdsChanged, yea
             <div className="mt-2 text-amber-800">Gespeichert: {saved.map((x) => `${MONTHS[x.month - 1].slice(0, 3)} ${x.year} (${STATUS_TXT[x.status] || x.status})`).join(" · ")}</div>
           )}
         </div>
+        </div>
       )}
-      {msg && <div className="mt-1.5 text-xs text-slate-700">{msg}</div>}
-      {autoMsg && <div className="mt-1.5 text-xs text-teal-800">✓ {autoMsg}</div>}
-      {row && row.status === "pending" && <div className="mt-2 rounded-lg bg-amber-50 p-2 text-xs text-amber-800">{MONTHS[monthIdx]} {year} wartet auf Freigabe durch die Leitung.</div>}
-      {row && row.status === "draft" && row.review_note && <div className="mt-2 rounded-lg bg-rose-50 p-2 text-xs font-medium text-rose-700">{MONTHS[monthIdx]} {year} wurde zurückgewiesen: {row.review_note}</div>}
-    </div>
+    </nav>
   );
 }

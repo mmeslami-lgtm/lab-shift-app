@@ -5,6 +5,8 @@ import { OrgContext } from "../lib/orgContext";
 import { germanHolidays } from "../lib/timesheet";
 import { overtimeMode, payoutMinutesByMonth, planCarryHours } from "../lib/overtime";
 import OrgBar from "./OrgBar";
+import PlannerShell from "./PlannerShell";
+import Fold from "./Fold";
 import SickCoverDialog from "./SickCoverDialog";
 import { scorePlan, VARIANTS } from "../lib/planScore";
 import PublishPanel from "./PublishPanel";
@@ -2163,22 +2165,15 @@ function LabShiftSchedulerInner() {
   }
 
   return (
-    <div dir="ltr" className="min-h-screen bg-slate-50 text-slate-900" style={{ fontFamily: "system-ui, -apple-system, Segoe UI, sans-serif" }}>
-      <div className="max-w-5xl mx-auto px-4 py-6 space-y-5">
-        <div className="flex items-stretch gap-3">
-        <header className="kb-band flex-1 space-y-1">
-          <div className="flex items-center gap-2 text-teal-700">
-            <ClipboardList size={22} />
-            <h1 className="text-xl font-bold">Dienstplaner für das medizinisch-diagnostische Labor</h1>
+    <div dir="ltr" className="dg-root min-h-screen bg-slate-50 text-slate-900">
+      <PlannerShell sidebar={orgCtx ? <OrgBar onLoadStaff={loadStaffFromDb} staffList={staffList} toDb={staffToDb} onIdsChanged={applyStaffIds} year={year} monthIdx={monthIdx} onLoadPlan={applyLoadedPlan} hasPlan={!!schedule} onImportWishes={importWishes} onImportRequests={importRequests} /> : null}>
+        <header className="dg-pagehead">
+          <div>
+            <h1>Dienstplan Labor</h1>
+            <p>Vier feste Schichten unter Berücksichtigung der Wochenstunden, der Nachtdienstrotation und der Wochenendquote – nach dem Erstellen manuell bearbeitbar.</p>
           </div>
-          <p className="text-sm text-slate-500">Vier feste Schichten unter Berücksichtigung der Wochenstunden, der Nachtdienstrotation und der Wochenendquote — nach dem Erstellen manuell bearbeitbar.</p>
+          {!orgCtx && <span className="text-sm text-slate-500">Ohne Anmeldung: Plan nur in diesem Browser</span>}
         </header>
-          {orgCtx && (
-            <button onClick={() => orgCtx.supabase.auth.signOut()} className="kb-logout shrink-0 self-center rounded-xl px-4 py-2.5 text-sm font-semibold active:translate-y-px">Abmelden</button>
-          )}
-        </div>
-
-        {orgCtx && <OrgBar onLoadStaff={loadStaffFromDb} staffList={staffList} toDb={staffToDb} onIdsChanged={applyStaffIds} year={year} monthIdx={monthIdx} onLoadPlan={applyLoadedPlan} hasPlan={!!schedule} onImportWishes={importWishes} onImportRequests={importRequests} />}
 
         {/* Archive */}
         {archiveList.length > 0 && (
@@ -2283,8 +2278,7 @@ function LabShiftSchedulerInner() {
 
           {/* Shift definitions: F/S/N keep their special rules but are fully renameable/retimeable;
               the "middle" shifts are freely add/remove/editable. */}
-          <div>
-            <label className="text-sm font-medium text-slate-700 mb-2 block">Schichtzeiten</label>
+          <Fold title="Schichtzeiten" hint={`${dayOrderedKeys.length} Schichten`}><div>
             <div className="space-y-2">
               {["F", "S", "N"].map((key) => (
                 <div key={key} className="grid grid-cols-[auto,1fr,1fr,auto] gap-1.5 items-center bg-slate-50/60 rounded-lg p-2">
@@ -2362,17 +2356,14 @@ function LabShiftSchedulerInner() {
             </div>
             <button
               onClick={() => setDayShiftDefs((prev) => [...prev, { key: `custom${Date.now()}`, label: "Neue Schicht", time: "08:00-16:00", frequency: "daily", onFriday: true, onSaturday: false, onSunday: false }])}
-              className="mt-2 inline-flex items-center gap-1 text-sm text-teal-700 hover:text-teal-800 font-medium"
+              className="dg-add mt-2 inline-flex items-center gap-1 text-sm text-teal-700 hover:text-teal-800 font-medium"
             >
               <Plus size={15} /> Schicht hinzufügen
             </button>
-          </div>
+          </div></Fold>
 
           {/* Staff list */}
-          <div>
-            <label className="flex items-center gap-1.5 text-sm font-medium text-slate-700 mb-2">
-              <Users size={16} /> Mitarbeiter ({staffList.length})
-            </label>
+          <Fold title="Mitarbeiter" hint={`${staffList.length} Person${staffList.length === 1 ? "" : "en"}`}><div>
             <div className="hidden sm:grid grid-cols-[1.1fr,1.3fr,0.8fr,1.6fr,auto] gap-2 text-[11px] text-slate-400 px-1 mb-1">
               <span>Name</span>
               <span>E-Mail (für Dienstplan-Versand)</span>
@@ -2460,7 +2451,7 @@ function LabShiftSchedulerInner() {
                 </div>
               ))}
             </div>
-            <button onClick={addStaff} className="mt-2 inline-flex items-center gap-1 text-sm text-teal-700 hover:text-teal-800 font-medium">
+            <button onClick={addStaff} className="dg-add mt-2 inline-flex items-center gap-1 text-sm text-teal-700 hover:text-teal-800 font-medium">
               <Plus size={15} /> Mitarbeiter hinzufügen
             </button>
             <button
@@ -2475,11 +2466,10 @@ function LabShiftSchedulerInner() {
             >
               # Fehlende Personalnummern vergeben
             </button>
-          </div>
+          </div></Fold>
 
           {/* Leave (Urlaub) */}
-          <div>
-            <label className="text-sm font-medium text-slate-700 mb-2 block">Urlaub</label>
+          <Fold title="Urlaub" hint={leaveEntries.length ? `${leaveEntries.length} Eintr${leaveEntries.length === 1 ? "ag" : "äge"}` : "keiner"}><div>
             <div className="flex flex-wrap gap-1.5 mb-2">
               {leaveEntries.length === 0 && <span className="text-xs text-slate-400">Bisher ist kein Urlaub eingetragen</span>}
               {leaveEntries.map((e) => (
@@ -2508,15 +2498,14 @@ function LabShiftSchedulerInner() {
                 placeholder="Tage, z. B. 5,6,7 oder 5-9"
                 className="border border-slate-300 rounded-lg px-2.5 py-1.5 text-sm font-mono w-44 focus:outline-none focus:ring-2 focus:ring-teal-500"
               />
-              <button onClick={addLeaveEntry} className="inline-flex items-center gap-1 text-sm text-teal-700 hover:text-teal-800 font-medium px-2 py-1.5">
+              <button onClick={addLeaveEntry} className="dg-add inline-flex items-center gap-1 text-sm text-teal-700 hover:text-teal-800 font-medium px-2 py-1.5">
                 <Plus size={15} /> Hinzufügen
               </button>
             </div>
-          </div>
+          </div></Fold>
 
           {/* Sick (Krank) */}
-          <div>
-            <label className="text-sm font-medium text-slate-700 mb-2 block">Krank</label>
+          <Fold title="Krank" hint={sickEntries.length ? `${sickEntries.length} Eintr${sickEntries.length === 1 ? "ag" : "äge"}` : "niemand"}><div>
             <div className="flex flex-wrap gap-1.5 mb-2">
               {sickEntries.length === 0 && <span className="text-xs text-slate-400">Bisher ist niemand krankgemeldet</span>}
               {sickEntries.map((e) => (
@@ -2545,15 +2534,14 @@ function LabShiftSchedulerInner() {
                 placeholder="Tage, z. B. 5,6,7 oder 5-9"
                 className="border border-slate-300 rounded-lg px-2.5 py-1.5 text-sm font-mono w-44 focus:outline-none focus:ring-2 focus:ring-teal-500"
               />
-              <button onClick={addSickEntry} className="inline-flex items-center gap-1 text-sm text-teal-700 hover:text-teal-800 font-medium px-2 py-1.5">
+              <button onClick={addSickEntry} className="dg-add inline-flex items-center gap-1 text-sm text-teal-700 hover:text-teal-800 font-medium px-2 py-1.5">
                 <Plus size={15} /> Hinzufügen
               </button>
             </div>
-          </div>
+          </div></Fold>
 
           {/* Wishes (Wünsche): fixed shift requests, honored before the rest is auto-scheduled */}
-          <div>
-            <label className="text-sm font-medium text-slate-700 mb-2 block">Wünsche</label>
+          <Fold title="Wünsche" hint={wishEntries.length ? `${wishEntries.length} Eintr${wishEntries.length === 1 ? "ag" : "äge"}` : "keine"}><div>
             <div className="flex flex-wrap gap-1.5 mb-2">
               {wishEntries.length === 0 && <span className="text-xs text-slate-400">Noch keine Schichtwünsche eingetragen</span>}
               {wishEntries.map((e) => {
@@ -2598,16 +2586,15 @@ function LabShiftSchedulerInner() {
                 placeholder="Tage, z. B. 5,6,7 oder 5-9"
                 className="border border-slate-300 rounded-lg px-2.5 py-1.5 text-sm font-mono w-44 focus:outline-none focus:ring-2 focus:ring-teal-500"
               />
-              <button onClick={addWishEntry} className="inline-flex items-center gap-1 text-sm text-teal-700 hover:text-teal-800 font-medium px-2 py-1.5">
+              <button onClick={addWishEntry} className="dg-add inline-flex items-center gap-1 text-sm text-teal-700 hover:text-teal-800 font-medium px-2 py-1.5">
                 <Plus size={15} /> Hinzufügen
               </button>
             </div>
             <p className="text-[11px] text-slate-400 mt-1.5">Diese Schichten werden zuerst fest eingetragen; alle übrigen Schichten plant der Algorithmus automatisch drumherum.</p>
-          </div>
+          </div></Fold>
 
           {/* Holidays */}
-          <div>
-            <label className="text-sm font-medium text-slate-700 mb-2 block">Gesetzliche Feiertage in diesem Monat (Tage anklicken)</label>
+          <Fold title="Feiertage" hint={holidays.length ? `${holidays.length} in diesem Monat` : "keine in diesem Monat"}><div>
             <div className="flex flex-wrap gap-1.5">
               {Array.from({ length: totalDays }, (_, i) => i + 1).map((d) => {
                 const wd = new Date(year, monthIdx, d).getDay();
@@ -2631,7 +2618,7 @@ function LabShiftSchedulerInner() {
                 );
               })}
             </div>
-          </div>
+          </div></Fold>
 
           {/* Carried-over balances from previous months */}
           {balancesLoaded && Object.values(balances).some((v) => Math.abs(v.hours || 0) > 0.05 || (v.satDeficit || 0) > 0 || (v.sunDeficit || 0) > 0 || (v.nightDeficit || 0) > 0) && (
@@ -2970,7 +2957,7 @@ function LabShiftSchedulerInner() {
         <footer className="text-center text-[11px] text-slate-400 pb-4">
           Dieses Tool erstellt eine erste Verteilung nach den festgelegten Regeln; verbleibende Punkte im Bereich „zu überprüfen" können Sie direkt in der Tabelle korrigieren.
         </footer>
-      </div>
+      </PlannerShell>
     </div>
   );
 }

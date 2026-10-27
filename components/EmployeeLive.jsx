@@ -10,6 +10,7 @@ import StampReminder from "./StampReminder";
 import ScanStamp from "./ScanStamp";
 import MobileStamp from "./MobileStamp";
 import Schulung from "./Schulung";
+import { withPlaceCodes, routeHref } from "../lib/locations";
 
 // ---------------------------------------------------------------------------------------------
 // Employee app on REAL data. Reads only what the database rules allow for this login:
@@ -73,6 +74,21 @@ function makeCodes(defs) {
 const navBtn = { width: 34, height: 34, borderRadius: 12, border: `1px solid ${LINE}`, background: "#fff", display: "grid", placeItems: "center", color: INK, cursor: "pointer", padding: 0 };
 const Card = ({ children, style }) => <div style={{ background: "#fff", borderRadius: 20, padding: 16, border: "1px solid #A9BBDA", boxShadow: "0 6px 18px -12px rgba(36,59,107,.35)", ...style }}>{children}</div>;
 
+// Einsatzort of a shift (Mehrere Standorte): code, name, address and „Route“ (opens the maps app of the phone)
+function PlaceLine({ place, dark }) {
+  if (!place) return null;
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 10, padding: "8px 10px", borderRadius: 12, background: dark ? "rgba(255,255,255,0.12)" : "#F3F5F8" }}>
+      {place.code && <span style={{ flex: "none", fontSize: 12, fontWeight: 800, padding: "2px 7px", borderRadius: 6, border: `1.5px solid ${dark ? "#FFFFFF" : "#1B2433"}` }}>{place.code}</span>}
+      <div style={{ flex: 1, minWidth: 0, fontSize: 13 }}>
+        <div style={{ fontWeight: 700 }}>📍 {place.name}</div>
+        {place.address && <div style={{ opacity: 0.75, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{place.address}</div>}
+      </div>
+      {place.address && <a href={routeHref(place)} target="_blank" rel="noopener noreferrer" style={{ flex: "none", fontSize: 13, fontWeight: 700, padding: "6px 12px", borderRadius: 999, background: dark ? "#FFFFFF" : "#1B2433", color: dark ? "#1B2433" : "#FFFFFF", textDecoration: "none" }}>Route</a>}
+    </div>
+  );
+}
+
 export default function EmployeeLive() {
   const org = useContext(OrgContext);
   const now = useMemo(() => new Date(), []);
@@ -82,6 +98,8 @@ export default function EmployeeLive() {
   const [mobilOpen, setMobilOpen] = useState(false);
   const [schulung, setSchulung] = useState(false); // 🎓 Schulung (free, no AI) // "Mobil stempeln" (company feature mobil_stempeln)
   const mobil = (org.features || []).includes("mobil_stempeln");
+  // Mehrere Standorte (released in /admin + switched on by the company): wishes only for the shifts of the places
+  const multiPlaces = ["einsatzorte_standorte", "einsatzorte"].every((k) => (org.features || []).includes(k));
   const [view, setView] = useState({ y: now.getFullYear(), m: now.getMonth() });
   const [selIso, setSelIso] = useState(todayIso);
   const [teamMode, setTeamMode] = useState("people");
@@ -89,6 +107,7 @@ export default function EmployeeLive() {
   const [people, setPeople] = useState([]);
   const [myMonth, setMyMonth] = useState({});   // iso -> shift key, for the viewed month
   const [nextShift, setNextShift] = useState(undefined);
+  const [myPlaces, setMyPlaces] = useState({}); // Mehrere Standorte: iso -> { name, code, address } (published only)
   const [dayShifts, setDayShifts] = useState([]); // all published shifts on the selected day
   const [myChanges, setMyChanges] = useState({});   // iso -> [{ key, kind }] changes of MY shifts that have not happened yet
   const [error, setError] = useState("");
@@ -101,10 +120,13 @@ export default function EmployeeLive() {
   // static data: shift kinds + team names
   useEffect(() => {
     (async () => {
-      const d = await sb.from("shift_definitions").select("key, label, start_time, end_time, requires_rest_after, sort_order, active").eq("org_id", org.orgId).order("sort_order");
+      let d = await sb.from("shift_definitions").select("key, label, start_time, end_time, requires_rest_after, sort_order, active, location_id").eq("org_id", org.orgId).order("sort_order");
+      if (d.error) d = await sb.from("shift_definitions").select("key, label, start_time, end_time, requires_rest_after, sort_order, active").eq("org_id", org.orgId).order("sort_order"); // script 32 not run
       const p = await sb.from("team_directory").select("id, name").eq("org_id", org.orgId);
       if (d.error || p.error) { setError((d.error || p.error).message); return; }
-      setDefs(d.data); setPeople(p.data);
+      // Mehrere Standorte: shift names with the code of their place („N1 · Früh“)
+      const wl = d.data.some((x) => x.location_id) ? await sb.from("work_locations").select("id, code").eq("org_id", org.orgId) : null;
+      setDefs(withPlaceCodes(d.data, wl && !wl.error ? wl.data : [])); setPeople(p.data);
     })();
   }, [sb, org.orgId]);
 
@@ -146,6 +168,24 @@ export default function EmployeeLive() {
     })();
     return () => { cancelled = true; };
   }, [sb, org.orgId, view]);
+
+  // Mehrere Standorte (Dienstplaner allgemein): the place is part of my published shift – for the viewed month and the next weeks
+  useEffect(() => {
+    if (!my) return undefined;
+    let alive = true;
+    (async () => {
+      const from = [isoOf(view.y, view.m, 1), todayIso].sort()[0];
+      const nx = new Date(view.y, view.m + 1, 1); const soon = new Date(); soon.setDate(soon.getDate() + 62);
+      const to = [isoOf(nx.getFullYear(), nx.getMonth(), 1), isoOf(soon.getFullYear(), soon.getMonth(), soon.getDate())].sort()[1];
+      const r = await sb.from("scheduled_shifts").select("shift_date, location_id").eq("org_id", org.orgId).eq("staff_id", my).eq("status", "published").not("location_id", "is", null).gte("shift_date", from).lt("shift_date", to);
+      if (!alive || r.error || !r.data || !r.data.length) { if (alive) setMyPlaces({}); return; } // one place / script 32 not run: nothing shown
+      const l = await sb.from("work_locations").select("id, name, code, address").eq("org_id", org.orgId);
+      const byId = Object.fromEntries(((!l.error && l.data) || []).map((x) => [x.id, x]));
+      const m = {}; r.data.forEach((x) => { if (byId[x.location_id]) m[String(x.shift_date).slice(0, 10)] = byId[x.location_id]; });
+      if (alive) setMyPlaces(m);
+    })();
+    return () => { alive = false; };
+  }, [sb, org.orgId, my, view, todayIso]);
 
   // my next shift from today on
   useEffect(() => {
@@ -257,6 +297,7 @@ export default function EmployeeLive() {
                       </div>
                       <div className="tn" style={{ fontSize: 34, fontWeight: 700, margin: "10px 0 14px", letterSpacing: -0.8 }}>{hhmm(def.start_time)} – {hhmm(def.end_time)}</div>
                       <DayStrip def={def} />
+                      <PlaceLine place={myPlaces[nextShift.shift_date]} dark />
                     </>
                   );
                 })() : <div style={{ fontSize: 15 }}>Für dich ist noch keine Schicht veröffentlicht.</div>}
@@ -319,6 +360,7 @@ export default function EmployeeLive() {
                   </div>
                 );
               })() : <div style={{ fontSize: 14, color: MUTED }}>{closedDays.has(selIso) ? "Der Betrieb ist an diesem Tag geschlossen." : halfDays[selIso] ? `Kein Dienst. Der Betrieb ist an diesem Tag nur ${halfDays[selIso] === "am" ? "vormittags" : "nachmittags"} geöffnet.` : "Kein Dienst. Der Tag ist frei."}</div>}
+              {selKey && defByKey[selKey] && <PlaceLine place={myPlaces[selIso]} />}
               {(myChanges[selIso] || []).map((c, i) => (
                 <div key={i} style={{ marginTop: 10, background: "#FFF1D2", color: "#7A4E00", borderRadius: 12, padding: "9px 12px", fontSize: 13, fontWeight: 600 }}>
                   {c.kind === "cancelled"
@@ -380,7 +422,7 @@ export default function EmployeeLive() {
           );
         })()}
 
-        {tab === "wishes" && <EmployeeWishes org={org} defs={defs} />}
+        {tab === "wishes" && <EmployeeWishes org={org} defs={defs ? defs.filter((d) => (multiPlaces ? !!d.location_id : !d.location_id)) : defs} />}
 
         <StampReminder org={org} onOpenTimes={() => setTab("time")} />
         {(org.products || []).includes("time_tracking") && org.staffId && (

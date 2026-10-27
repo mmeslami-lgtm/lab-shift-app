@@ -1,4 +1,5 @@
 import "./globals.css";
+import { Plus_Jakarta_Sans } from "next/font/google";
 import RegisterSW from "../components/RegisterSW";
 import PasswordGate from "../components/PasswordGate";
 import SiteFooter from "../components/SiteFooter";
@@ -23,11 +24,15 @@ export const metadata = {
   icons: { icon: "/icons/icon-192.png", apple: "/icons/apple-touch-icon.png" },
 };
 
+// Schrift der Seiten für Inhaber/Leitung (Erscheinungsbild D). next/font lädt sie beim Bauen herunter und
+// liefert sie von der eigenen Seite aus – kein Aufruf bei Google im Browser (DSGVO).
+const brandFont = Plus_Jakarta_Sans({ subsets: ["latin", "latin-ext"], weight: ["400", "500", "600", "700"], variable: "--font-brand", display: "swap" });
+
 export const viewport = { themeColor: "#243B6B", width: "device-width", initialScale: 1 };
 
 export default function RootLayout({ children }) {
   return (
-    <html lang="de">
+    <html lang="de" className={brandFont.variable}>
       <body>
         {/* PasswordGate: a person who still has the temporary password sees only the "choose your own password" screen */}
         <PasswordGate>{children}</PasswordGate>

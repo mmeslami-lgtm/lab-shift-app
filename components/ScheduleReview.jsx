@@ -5,6 +5,7 @@ import { OrgContext } from "../lib/orgContext";
 import { PALETTE, makeCodes, netHours, hhmm } from "../lib/shiftStyle";
 import { fetchAll } from "../lib/fetchAll";
 import { computeChanges } from "../lib/planDiff";
+import { withPlaceCodes } from "../lib/locations";
 
 const INK = "#1B2433";
 const PRIMARY = "#243B6B";
@@ -133,9 +134,11 @@ export default function ScheduleReview() {
       const sorted = [...m.data].sort((a, b) => b.year - a.year || b.month - a.month);
       setMonths(sorted);
       setSel((cur) => { if (cur) return cur; const pick = sorted.find((x) => x.status === "pending") || sorted[0]; return pick ? { year: pick.year, month: pick.month } : null; });
-      const d = await sb.from("shift_definitions").select("key, label, start_time, end_time, sort_order, active").eq("org_id", org.orgId);
+      let d = await sb.from("shift_definitions").select("key, label, start_time, end_time, sort_order, active, location_id").eq("org_id", org.orgId);
+      if (d.error) d = await sb.from("shift_definitions").select("key, label, start_time, end_time, sort_order, active").eq("org_id", org.orgId); // script 32 not run
       if (d.error) throw d.error;
-      setDefs([...d.data].sort((a, b) => a.sort_order - b.sort_order));
+      const wl = d.data.some((x) => x.location_id) ? await sb.from("work_locations").select("id, code").eq("org_id", org.orgId) : null; // Mehrere Standorte: „N1 · Früh“
+      setDefs(withPlaceCodes([...d.data].sort((a, b) => a.sort_order - b.sort_order), wl && !wl.error ? wl.data : []));
       const st = await sb.from("staff").select("id, name").eq("org_id", org.orgId);
       if (st.error) throw st.error;
       const names = {}; st.data.forEach((x) => { names[x.id] = x.name; }); setStaffNames(names);

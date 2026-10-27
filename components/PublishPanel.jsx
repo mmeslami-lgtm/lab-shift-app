@@ -47,7 +47,9 @@ const ghost = "rounded-xl px-4 py-2 text-sm text-slate-500 hover:bg-slate-50";
 // A question is only asked when it matters: when a month that employees already see is changed.
 // unsaved: the plan on screen differs from what is stored (only a draft in this browser)
 // onSaved(days): called with the saved plan after „Zwischenspeichern“, „Einreichen“ or „Veröffentlichen“
-export default function PublishPanel({ schedule, staffList, year, monthIdx, shiftList, holidays, changeCount, editMode, unsaved, onSaved }) {
+// multi (Dienstplaner allgemein, „Mehrere Standorte“): the shifts belong to places (shiftList[].locationId). Their
+// definitions are kept by the place cards, so they are not rewritten here; each saved shift carries its location_id.
+export default function PublishPanel({ schedule, staffList, year, monthIdx, shiftList, holidays, changeCount, editMode, unsaved, onSaved, multi }) {
   const org = useContext(OrgContext);
   const [phase, setPhase] = useState("idle"); // idle | working | done | error
   const [info, setInfo] = useState("");
@@ -91,16 +93,21 @@ export default function PublishPanel({ schedule, staffList, year, monthIdx, shif
       times[s.key] = t;
     }
     const sb = org.supabase;
-    let r = await sb.from("shift_definitions").update({ active: false }).eq("org_id", org.orgId);
-    if (r.error) throw r.error;
-    const defRows = shiftList.map((s, i) => ({
-      org_id: org.orgId, key: s.key, label: s.label, start_time: times[s.key].start, end_time: times[s.key].end,
-      frequency: s.frequency === "quota" ? "quota" : "daily", quota_per_month: s.frequency === "quota" ? (s.quotaCount || null) : null,
-      prefer_team_lead: !!s.preferLead, requires_rest_after: !!s.requiresRestAfter, runs_on_weekends: !!s.runsOnWeekends, sort_order: i, active: true,
-      ...(s.onFriday !== undefined ? { on_friday: s.onFriday !== false, on_saturday: !!s.onSaturday, on_sunday: !!s.onSunday } : {}),
-    }));
-    r = await sb.from("shift_definitions").upsert(defRows, { onConflict: "org_id,key" });
-    if (r.error) throw r.error;
+    let r;
+    if (!multi) {
+      // only the shifts of the planner itself; shifts of places (Mehrere Standorte) stay as they are
+      r = await sb.from("shift_definitions").update({ active: false }).eq("org_id", org.orgId).is("location_id", null);
+      if (r.error && /location_id/.test(r.error.message || "")) r = await sb.from("shift_definitions").update({ active: false }).eq("org_id", org.orgId); // script 32 not run
+      if (r.error) throw r.error;
+      const defRows = shiftList.map((s, i) => ({
+        org_id: org.orgId, key: s.key, label: s.label, start_time: times[s.key].start, end_time: times[s.key].end,
+        frequency: s.frequency === "quota" ? "quota" : "daily", quota_per_month: s.frequency === "quota" ? (s.quotaCount || null) : null,
+        prefer_team_lead: !!s.preferLead, requires_rest_after: !!s.requiresRestAfter, runs_on_weekends: !!s.runsOnWeekends, sort_order: i, active: true,
+        ...(s.onFriday !== undefined ? { on_friday: s.onFriday !== false, on_saturday: !!s.onSaturday, on_sunday: !!s.onSunday } : {}),
+      }));
+      r = await sb.from("shift_definitions").upsert(defRows, { onConflict: "org_id,key" });
+      if (r.error) throw r.error;
+    }
 
     const rows = [];
     for (const day of schedule.days) {
@@ -110,7 +117,7 @@ export default function PublishPanel({ schedule, staffList, year, monthIdx, shif
           const start = new Date(year, monthIdx, day.day, t.sh, t.sm);
           const end = new Date(year, monthIdx, day.day, t.eh, t.em);
           if (end <= start) end.setDate(end.getDate() + 1);
-          rows.push({ staff_id: id, date: `${year}-${pad(month)}-${pad(day.day)}`, key: s.key, label: s.label, start: start.toISOString(), end: end.toISOString() });
+          rows.push({ staff_id: id, date: `${year}-${pad(month)}-${pad(day.day)}`, key: s.key, label: s.label, start: start.toISOString(), end: end.toISOString(), ...(s.locationId ? { location_id: s.locationId } : {}) });
         }
       }
     }

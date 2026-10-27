@@ -48,7 +48,8 @@ const CSS = `
 .dg-wrap{max-width:1120px;margin:0 auto;padding:0 22px}
 .dg-top{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:22px 0}
 .dg-mark{font-family:var(--dg-display),system-ui,sans-serif;font-weight:700;font-size:1.6rem;letter-spacing:-.03em;color:var(--navy);text-decoration:none}
-.dg-nav{display:flex;align-items:center;gap:22px;font-size:.98rem}
+.dg-mark{position:relative;padding:0;background:none}.dg-mark::before,.dg-mark::after{display:none!important;content:none!important}
+.dg-nav{display:flex;flex-direction:row;align-items:center;gap:22px;font-size:.98rem;background:none;border:0;box-shadow:none;padding:0;margin:0;position:static;width:auto;height:auto}
 .dg-nav a.dg-l{text-decoration:none;color:var(--muted)}
 .dg-nav a.dg-l:hover{color:var(--ink)}
 .dg-btn{display:inline-block;white-space:nowrap;text-decoration:none;font-weight:700;border-radius:12px;padding:12px 20px;font-size:1rem;line-height:1.2;transition:transform .08s ease,background-color .15s ease}

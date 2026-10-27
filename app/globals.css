@@ -2,69 +2,161 @@
 @tailwind components;
 @tailwind utilities;
 
-/* ===== Erscheinungsbild „Klares Blau“ =====
-   One place for the look of the planners (Tailwind pages). Colours only; layout is unchanged.
-   The employee app, /freigaben, /konto, /profil and /admin use the same colours via their PAPER/PRIMARY constants. */
+/* ===== Erscheinungsbild D „Marke“ (Seiten für Inhaber, Leitung, Schichtplaner) =====
+   Eine Stelle für das Aussehen der Dienstplaner und ihrer Fenster (Tailwind-Seiten). Nur Aussehen –
+   Inhalte und Abläufe sind unverändert. Die Mitarbeiter-App hat ihre eigenen Farben und bleibt, wie sie ist.
+   Gleiche Grundfarben wie die App: Navy #243B6B auf hellem Blaugrau #E9EEF8. */
 :root {
-  --kb-page: #E9EEF8;   /* page background */
-  --kb-ink: #243B6B;    /* header bands, headings */
-  --kb-accent: #185FA5; /* main buttons */
-  --kb-accent-dark: #0C447C;
-  --kb-line: #A9BBDA;   /* card borders */
-  --kb-tint: #E6F1FB;   /* light blue fills */
+  --dg-page: #E9EEF8;     /* Seitengrund (wie die App) */
+  --dg-surface: #FFFFFF;
+  --dg-ink: #1B2433;      /* Text */
+  --dg-muted: #556074;    /* Nebentext (Kontrast 5,9:1 auf Weiß) */
+  --dg-navy: #243B6B;     /* Hauptfarbe: Hauptknöpfe, aktiver Menüpunkt */
+  --dg-navy-dark: #1A2C52;
+  --dg-tint: #E3EBFA;     /* helle Navy-Fläche */
+  --dg-line: #D9DEE7;     /* Rahmen */
+  --dg-line-strong: #B9C4D6; /* Rahmen von Eingabefeldern und Knöpfen */
+  --dg-hover: #F1F4FA;
+  --dg-cream: #FBF6EA;      /* Knöpfe im Menü (Wunsch des Inhabers: helles Creme) */
+  --dg-cream-line: #ECE2CB;
+  --dg-cream-hover: #F4EBD5;
+  --dg-cream-edge: #E3D5B6;  /* untere Kante der Knöpfe (Tasten-Gefühl) */
+  --dg-font: var(--font-brand), system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  /* alte Namen, falls noch irgendwo benutzt */
+  --kb-page: var(--dg-page); --kb-ink: var(--dg-navy); --kb-accent: var(--dg-navy); --kb-accent-dark: var(--dg-navy-dark); --kb-line: var(--dg-line); --kb-tint: var(--dg-tint);
 }
-html, body { background: var(--kb-page); }
-.min-h-screen.bg-slate-50 { background-color: var(--kb-page) !important; }
+html, body { background: var(--dg-page); }
+.min-h-screen.bg-slate-50 { background-color: var(--dg-page) !important; }
+.dg-root, .dg-root button, .dg-root input, .dg-root select, .dg-root textarea { font-family: var(--dg-font) !important; }
+.dg-root { color: var(--dg-ink); }
 
-/* page title of the planners as a blue band */
-.kb-band { background: var(--kb-ink); color: #fff; border-radius: 14px; padding: 14px 18px; }
-.kb-band h1, .kb-band .text-teal-700 { color: #fff !important; }
-.kb-band p { color: #C9D6EE !important; }
-/* "Abmelden" at the very top right, outside the band, in a strong colour */
-.kb-logout { background: #A32D2D; color: #fff; border: 1.5px solid #791F1F; box-shadow: 0 4px 12px -6px rgba(121, 31, 31, 0.6); }
-.kb-logout:hover { background: #791F1F; }
+/* ---- Rahmen: Menü links, Inhalt rechts ---- */
+.dg-shell { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 20px; max-width: 1560px; margin: 0 auto; padding: 16px; }
+.dg-side { flex: 1 1 248px; max-width: 272px; position: sticky; top: 16px; max-height: calc(100vh - 32px); overflow-y: auto; }
+.dg-main { flex: 999 1 640px; min-width: 0; display: flex; flex-direction: column; gap: 20px; padding: 6px 0 40px; }
 
-/* cards: blue top band, blue-grey border, soft depth */
+.dg-nav { background: var(--dg-surface); border: 1px solid var(--dg-line); border-radius: 20px; padding: 16px 10px; display: flex; flex-direction: column; gap: 16px; box-shadow: 0 10px 30px -20px rgba(27, 36, 51, 0.45); font-size: 14px; }
+.dg-brand { display: flex; align-items: center; gap: 10px; padding: 0 6px; }
+.dg-mark { flex: none; width: 34px; height: 34px; border-radius: 10px; background: var(--dg-navy); color: #fff; display: flex; align-items: center; justify-content: center; }
+.dg-brand-text { display: flex; flex-direction: column; min-width: 0; }
+.dg-brand-name { font-size: 16px; font-weight: 700; letter-spacing: -0.01em; color: var(--dg-ink); }
+.dg-brand-org { font-size: 12px; color: var(--dg-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dg-group { display: flex; flex-direction: column; gap: 6px; }
+.dg-group-label { padding: 0 12px 4px; font-size: 12px; font-weight: 600; color: var(--dg-muted); }
+/* Menü-Knöpfe: alle gleich groß, cremefarben, leichter Schatten; beim Klicken „gedrückt“ (geht rein und kommt zurück) */
+.dg-item { display: flex; align-items: center; gap: 11px; width: 100%; height: 48px; padding: 0 12px; border: 0; border-radius: 12px; background: var(--dg-cream); color: #3A4558; font-size: 14px; font-weight: 500; line-height: 1.2; text-align: left; text-decoration: none; cursor: pointer; overflow: hidden;
+  box-shadow: inset 0 0 0 1px var(--dg-cream-line), 0 2px 0 var(--dg-cream-edge), 0 4px 10px -6px rgba(27, 36, 51, 0.35);
+  transition: transform 0.08s ease, box-shadow 0.08s ease, background-color 0.12s ease; }
+.dg-item:active:not(:disabled) { transform: translateY(2px); box-shadow: inset 0 0 0 1px var(--dg-cream-line), 0 0 0 var(--dg-cream-edge), 0 1px 3px -2px rgba(27, 36, 51, 0.35); }
+@media (prefers-reduced-motion: reduce) { .dg-item { transition: none; } }
+.dg-item svg { flex: none; }
+.dg-item-label { flex: 1; min-width: 0; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.dg-item:hover { background: var(--dg-cream-hover); color: var(--dg-ink); }
+.dg-item[aria-current="page"] { background: var(--dg-navy); box-shadow: 0 2px 0 #13213F, 0 4px 10px -6px rgba(27, 36, 51, 0.5); color: #fff; font-weight: 600; }
+.dg-item[aria-current="page"]:active { box-shadow: 0 0 0 #13213F, 0 1px 3px -2px rgba(27, 36, 51, 0.5); }
+.dg-item[aria-expanded="true"] { background: var(--dg-cream-hover); color: var(--dg-navy); }
+.dg-item:disabled { opacity: 0.55; cursor: default; }
+.dg-item:focus-visible, .dg-fold-sum:focus-visible { outline: 2px solid var(--dg-navy); outline-offset: 2px; }
+.dg-badge { flex: none; padding: 0 2px; background: transparent; color: inherit; font-size: 13px; font-weight: 700; }
+/* wartende Dinge: Knopf bleibt cremefarben, nur die Schrift (und die Zahl) wird rot */
+.dg-item-alert, .dg-item-warn { color: #B42323; font-weight: 700; }
+.dg-item-alert:hover, .dg-item-warn:hover { color: #8F1B1B; }
+.dg-note { margin: 4px 12px 0; font-size: 12px; line-height: 1.45; color: var(--dg-muted); }
+.dg-alert { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border-radius: 12px; background: #FDE8E8; color: #8A1C1C; font-size: 13px; font-weight: 500; text-decoration: none; }
+.dg-alert-btn { align-self: flex-start; padding: 4px 10px; border-radius: 8px; background: #A12828; color: #fff; font-size: 12px; font-weight: 700; }
+.dg-msg { margin: 0 6px; padding: 8px 10px; border-radius: 10px; background: var(--dg-hover); font-size: 12px; color: var(--dg-ink); }
+.dg-msg-ok { background: #E3F2EA; color: #1B5E3B; }
+.dg-msg-warn { background: #FFF5E4; color: #7A4700; }
+.dg-msg-alert { background: #FDE8E8; color: #8A1C1C; font-weight: 600; }
+.dg-bottom { display: flex; flex-direction: column; gap: 2px; padding-top: 10px; border-top: 1px solid var(--dg-line); }
+
+/* ---- Seitenkopf ---- */
+.dg-pagehead { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 12px; padding: 4px 4px 0; }
+.dg-pagehead h1 { margin: 0; font-size: 28px; font-weight: 700; letter-spacing: -0.025em; color: var(--dg-ink); }
+.dg-pagehead p { margin: 4px 0 0; max-width: 72ch; font-size: 14px; line-height: 1.5; color: var(--dg-muted); }
+
+/* ---- aufklappbare Abschnitte der Einstellungen ---- */
+.dg-fold { border: 1px solid var(--dg-line); border-radius: 14px; background: var(--dg-surface); }
+.dg-fold + .dg-fold { margin-top: 10px !important; }
+.dg-fold-sum { display: flex; align-items: center; gap: 12px; padding: 14px 16px; cursor: pointer; list-style: none; border-radius: 14px; }
+.dg-fold-sum::-webkit-details-marker { display: none; }
+.dg-fold-sum:hover { background: var(--dg-hover); }
+.dg-fold-title { font-size: 15px; font-weight: 600; color: var(--dg-ink); }
+.dg-fold-hint { margin-left: auto; font-size: 13px; color: var(--dg-muted); text-align: right; }
+.dg-fold-chev { flex: none; color: var(--dg-muted); transition: transform 0.15s ease; }
+.dg-fold-title + .dg-fold-chev { margin-left: auto; }
+.dg-fold[open] > .dg-fold-sum .dg-fold-chev { transform: rotate(180deg); }
+.dg-fold[open] > .dg-fold-sum { border-bottom: 1px solid var(--dg-line); border-radius: 14px 14px 0 0; }
+.dg-fold-body { padding: 14px 16px 16px; }
+@media (prefers-reduced-motion: reduce) { .dg-fold-chev { transition: none; } }
+
+/* „Hinzufügen“-Knöpfe (Urlaub, Krank, Wünsche, Mitarbeiter, Schicht): als richtiger Knopf statt Textlink */
+.dg-root button.dg-add { min-height: 36px; padding: 6px 14px !important; border: 1px solid #B3C3E2 !important; border-radius: 10px; background: var(--dg-tint) !important; color: var(--dg-navy) !important; font-weight: 600 !important; box-shadow: 0 1px 0 rgba(27, 36, 51, 0.06); }
+.dg-root button.dg-add:hover { background: #D3DFF5 !important; border-color: var(--dg-navy) !important; }
+.dg-root button.dg-add:active { transform: translateY(1px); }
+.dg-root button.dg-add:focus-visible { outline: 2px solid var(--dg-navy); outline-offset: 2px; }
+
+/* ---- Karten ---- */
 section.bg-white.rounded-2xl {
-  border-color: var(--kb-line) !important;
-  border-top: 5px solid var(--kb-ink) !important;
-  box-shadow: 0 1px 2px rgba(36, 59, 107, 0.06), 0 8px 20px -10px rgba(36, 59, 107, 0.25) !important;
+  border: 1px solid var(--dg-line) !important;
+  border-radius: 20px !important;
+  box-shadow: 0 1px 2px rgba(27, 36, 51, 0.04), 0 12px 32px -24px rgba(27, 36, 51, 0.45) !important;
 }
-section.bg-white.rounded-2xl h2 { color: var(--kb-ink) !important; }
-.rounded-xl.border.bg-white { border-color: var(--kb-line) !important; box-shadow: 0 1px 2px rgba(36, 59, 107, 0.06); }
+section.bg-white.rounded-2xl h2 { color: var(--dg-ink) !important; font-weight: 700; letter-spacing: -0.01em; }
+.rounded-xl.border.bg-white { border-color: var(--dg-line) !important; }
 
-/* accent colour: the former teal becomes blue everywhere */
-.bg-teal-600, .bg-teal-700 { background-color: var(--kb-accent) !important; }
-.hover\:bg-teal-700:hover, .hover\:bg-teal-800:hover { background-color: var(--kb-accent-dark) !important; }
-.text-teal-600, .text-teal-700 { color: var(--kb-accent) !important; }
-.text-teal-800, .text-teal-900, .hover\:text-teal-800:hover { color: var(--kb-accent-dark) !important; }
-.bg-teal-50 { background-color: var(--kb-tint) !important; }
-.bg-teal-100, .hover\:bg-teal-100:hover { background-color: #D5E6F8 !important; }
-.border-teal-200, .border-teal-300, .border-teal-600 { border-color: #B5D4F4 !important; }
-.focus\:ring-teal-500:focus { --tw-ring-color: #378ADD !important; }
-.bg-teal-600.border-teal-600 { border-color: var(--kb-accent) !important; }
+/* ---- Hauptfarbe: das frühere Türkis/Blau wird Navy ---- */
+.bg-teal-600, .bg-teal-700 { background-color: var(--dg-navy) !important; }
+.hover\:bg-teal-700:hover, .hover\:bg-teal-800:hover { background-color: var(--dg-navy-dark) !important; }
+.text-teal-600, .text-teal-700 { color: var(--dg-navy) !important; }
+.text-teal-800, .text-teal-900, .hover\:text-teal-800:hover { color: var(--dg-navy-dark) !important; }
+.bg-teal-50 { background-color: var(--dg-tint) !important; }
+.bg-teal-100, .hover\:bg-teal-100:hover { background-color: #D3DFF5 !important; }
+.border-teal-100, .border-teal-200, .border-teal-300, .border-teal-400, .border-teal-600 { border-color: #B3C3E2 !important; }
+.focus\:ring-teal-500:focus { --tw-ring-color: rgba(36, 59, 107, 0.45) !important; }
+.bg-teal-600.border-teal-600 { border-color: var(--dg-navy) !important; }
+/* Speichern/Veröffentlichen (früher Indigo) in derselben Hauptfarbe */
+.dg-root .bg-indigo-600, .dg-root .bg-indigo-700 { background-color: var(--dg-navy) !important; }
+.dg-root .hover\:bg-indigo-700:hover, .dg-root .hover\:bg-indigo-800:hover { background-color: var(--dg-navy-dark) !important; }
+.dg-root .text-indigo-600, .dg-root .text-indigo-700, .dg-root .text-indigo-800 { color: var(--dg-navy) !important; }
+.dg-root .bg-indigo-50 { background-color: var(--dg-tint) !important; }
+.dg-root .border-indigo-200, .dg-root .border-indigo-300 { border-color: #B3C3E2 !important; }
+.dg-root .rounded-xl.bg-teal-600, .dg-root button.bg-teal-600 { box-shadow: 0 6px 16px -10px rgba(36, 59, 107, 0.8); }
 
-/* buttons in the planners: stronger outline and one step larger text */
-button.border, a.rounded-lg.border { border-width: 1.5px !important; }
-button.border-slate-200, button.border-slate-300, a.rounded-lg.border-slate-200 { border-color: #93A7CB !important; }
-button.border-teal-200 { border-color: #85B7EB !important; }
-button.border-indigo-200 { border-color: #A5B4FC !important; }
-button.border-rose-200 { border-color: #FDA4AF !important; }
-button.border-emerald-200 { border-color: #6EE7B7 !important; }
-button.border-amber-300 { border-color: #FBBF24 !important; }
+/* ---- Knöpfe, Felder, Linien ---- */
+button.border, a.rounded-lg.border { border-width: 1px !important; }
+button.border-slate-200, button.border-slate-300, a.rounded-lg.border-slate-200 { border-color: var(--dg-line-strong) !important; }
+button.border-teal-200 { border-color: #B3C3E2 !important; }
+button.border-indigo-200 { border-color: #B8BFF2 !important; }
+button.border-rose-200 { border-color: #F5B5BE !important; }
+button.border-emerald-200 { border-color: #8FD9B6 !important; }
+button.border-amber-300 { border-color: #F2C76E !important; }
 button.text-xs, a.rounded-lg.text-xs { font-size: 0.8125rem !important; line-height: 1.25rem !important; }
 button.text-sm { font-size: 0.9375rem !important; }
+.border-slate-50 { border-color: #E6EAF1 !important; }
+.border-slate-100 { border-color: #DFE4EC !important; }
+.border-slate-200 { border-color: var(--dg-line) !important; }
+.border-slate-300, input.border, select.border, textarea.border { border-color: var(--dg-line-strong) !important; }
+.dg-root input.border, .dg-root select.border, .dg-root textarea.border { border-radius: 10px; }
+.divide-slate-50 > :not([hidden]) ~ :not([hidden]), .divide-slate-100 > :not([hidden]) ~ :not([hidden]) { border-color: #DFE4EC !important; }
+.text-slate-500 { color: var(--dg-muted) !important; }
+.text-slate-400 { color: #6B7588 !important; }
 
-/* lines that were too pale (tables, setting boxes, inputs) */
-.border-slate-50 { border-color: #DCE4F2 !important; }
-.border-slate-100 { border-color: #C3D0E7 !important; }
-.border-slate-200 { border-color: #A9BBDA !important; }
-.border-slate-300, input.border, select.border, textarea.border { border-color: #8EA2C6 !important; }
-.divide-slate-50 > :not([hidden]) ~ :not([hidden]), .divide-slate-100 > :not([hidden]) ~ :not([hidden]) { border-color: #C3D0E7 !important; }
+@media (max-width: 960px) {
+  /* schmaler Bildschirm: Menü als kompakte Knopf-Leiste über dem Inhalt */
+  .dg-side { position: static; max-width: none; max-height: none; }
+  .dg-nav { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; padding: 12px; border-radius: 16px; }
+  .dg-brand, .dg-alert, .dg-msg, .dg-bottom::before { grid-column: 1 / -1; }
+  .dg-brand { padding: 0 2px 4px; }
+  .dg-group, .dg-bottom { display: contents; }
+  .dg-group-label, .dg-note { display: none; }
+  .dg-item { height: 44px; font-size: 13px; }
+  .dg-alert, .dg-msg { width: 100%; margin: 0; }
+}
 
 /* plan table ("nach Tag" / "nach Mitarbeitenden") scrolls inside its own box, so the buttons above
    (Krankmeldung, Rückgängig, Drucken …) stay in view; the column headings stay on top while scrolling */
 .plan-scroll { max-height: 72vh; overflow: auto; }
-.plan-scroll thead th { position: sticky; top: 0; z-index: 6; background: #F8FAFC; box-shadow: inset 0 -1px 0 #E2E8F0; }
+.plan-scroll thead th { position: sticky; top: 0; z-index: 6; background: #F5F7FC; box-shadow: inset 0 -1px 0 var(--dg-line); }
 .plan-scroll thead th.sticky { z-index: 12; } /* top-left corner cell: above both sticky directions */
 @media print { .plan-scroll { max-height: none; overflow: visible; } }
