@@ -315,7 +315,9 @@ export default function OrgBar({ onLoadStaff, staffList, toDb, onIdsChanged, yea
     // Etwas wartet (badge): der ganze Knopf wird farbig wie früher – rot = Wünsche/Anträge, gelb = Anwesenheit/Einspringen
     const cls = `dg-item${badge && tone ? ` dg-item-${tone}` : ""}`;
     const inner = (<>{Icon && <Icon size={18} strokeWidth={1.9} aria-hidden="true" />}<span className="dg-item-label">{label}</span>{badge ? <span className="dg-badge">{badge}</span> : null}</>);
-    if (href) return <a href={href} className={cls} aria-current={current ? "page" : undefined} title={title}>{inner}</a>;
+    // Seite, auf der man schon ist: nicht neu laden (sonst gehen ungespeicherte Änderungen am Plan verloren), nur nach oben
+    const stay = current ? (e) => { e.preventDefault(); window.scrollTo({ top: 0, behavior: "smooth" }); } : undefined;
+    if (href) return <a href={href} onClick={stay} className={cls} aria-current={current ? "page" : undefined} title={current ? "Sie sind hier – nach oben" : title}>{inner}</a>;
     return <button type="button" onClick={onClick} disabled={disabled} aria-expanded={expanded} className={cls} title={title}>{inner}</button>;
   };
   const here = typeof window !== "undefined" ? window.location.pathname : "/";
