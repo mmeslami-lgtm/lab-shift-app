@@ -1,7 +1,7 @@
 import DemoTour from "../../components/DemoTour";
+import DemoButton from "../../components/DemoRequest";
 
 // /demo – Rundgang durch Dienstigo mit echten Bildschirmfotos (Klick oder "Abspielen").
-const DEMO = "mailto:info@dienstigo.de?subject=Demo%20Dienstigo";
 
 const CSS = `
 .dgd{--dg-display:"Avenir Next","Segoe UI Variable Display","Segoe UI",system-ui,-apple-system,Roboto,"Helvetica Neue",Arial,sans-serif;--dg-body:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;background:#F3F5F9;color:#18233A;font-family:var(--dg-body),system-ui,sans-serif;font-size:1.0625rem;line-height:1.6;min-height:100vh}
@@ -29,7 +29,7 @@ export default function DemoPage() {
           <a href="/" className="dgd-mark">Dienstigo</a>
           <nav className="dgd-nav" aria-label="Hauptnavigation">
             <a className="dgd-btn dgd-ghost" href="/login">Anmelden</a>
-            <a className="dgd-btn dgd-primary" href={DEMO}>Demo anfragen</a>
+            <DemoButton className="dgd-btn dgd-primary">Demo anfragen</DemoButton>
           </nav>
         </header>
         <main>
@@ -37,7 +37,7 @@ export default function DemoPage() {
           <p className="dgd-lead">Fünf kurze Kapitel mit Bildern aus dem echten Programm. Klicken Sie sich durch oder drücken Sie „Abspielen“, dann läuft der Rundgang von selbst.</p>
           <DemoTour />
           <div className="dgd-end">
-            <a className="dgd-btn dgd-primary" href={DEMO}>Persönliche Demo anfragen</a>
+            <DemoButton className="dgd-btn dgd-primary">Persönliche Demo anfragen</DemoButton>
             <a className="dgd-btn dgd-ghost" href="/">Zur Startseite</a>
           </div>
         </main>

@@ -1,5 +1,6 @@
 import SignedInRedirect from "../components/SignedInRedirect";
 import LoginMenu from "../components/LoginMenu";
+import DemoButton from "../components/DemoRequest";
 
 // Public start page (dienstigo.de). Visitors see what Dienstigo does; whoever is signed in is sent to their
 // own area right away (SignedInRedirect). The Labor planner lives at /labor, sign-in at /login.
@@ -154,7 +155,7 @@ export default function StartPage() {
             <a className="dg-l" href="#funktionen">Funktionen</a>
             <a className="dg-l" href="/demo">Rundgang</a>
             <LoginMenu />
-            <a className="dg-btn dg-primary" href={DEMO}>Demo anfragen</a>
+            <DemoButton className="dg-btn dg-primary">Demo anfragen</DemoButton>
           </nav>
         </header>
 
@@ -167,7 +168,7 @@ export default function StartPage() {
                 oder Chip und liefert am Monatsende die Stundenzettel für die Lohnabrechnung. Für Praxen, Labore und kleine Teams.
               </p>
               <div className="dg-cta">
-                <a className="dg-btn dg-primary" href={DEMO}>Demo anfragen</a>
+                <DemoButton className="dg-btn dg-primary">Demo anfragen</DemoButton>
                 <LoginMenu align="left" />
               </div>
               <p className="dg-note"><a href="/demo" style={{ color: "#243B6B", fontWeight: 700 }}>Rundgang ansehen</a>, Schritt für Schritt oder als Film.</p>
@@ -240,7 +241,7 @@ export default function StartPage() {
               <h2>Sehen Sie es sich an</h2>
               <p>Wir zeigen Ihnen Dienstigo in 20 Minuten, mit den Schichten Ihres eigenen Betriebs. Schreiben Sie an <a className="dg-mail" href={DEMO}>info@dienstigo.de</a>.</p>
             </div>
-            <div className="dg-cta"><a className="dg-btn dg-primary" href={DEMO}>Demo anfragen</a><a className="dg-btn dg-ghost" href="/demo">Rundgang ansehen</a></div>
+            <div className="dg-cta"><DemoButton className="dg-btn dg-primary">Demo anfragen</DemoButton><a className="dg-btn dg-ghost" href="/demo">Rundgang ansehen</a></div>
           </section>
         </main>
       </div>

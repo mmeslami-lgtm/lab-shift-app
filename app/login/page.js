@@ -4,6 +4,7 @@ import React, { useEffect, useState } from "react";
 import { supabase, supabaseConfigured } from "../../lib/supabaseClient";
 import { homeRoute } from "../../lib/homeRoute";
 import LoginForm from "../../components/LoginForm";
+import DemoButton from "../../components/DemoRequest";
 
 // /login – eine Anmeldung für alle. Oben wählt man, als wer man sich anmeldet (Mitarbeiter, Leitung, Inhaber);
 // danach geht es direkt in den passenden Bereich. Wer schon angemeldet ist, wird sofort weitergeleitet.
@@ -63,7 +64,7 @@ export default function LoginPage() {
           <div style={{ color: "#56617A", fontSize: 15 }}>{note || (state === "forwarding" ? "Angemeldet, einen Moment …" : "Lädt …")}</div>
         )}
         <p style={{ marginTop: 22, fontSize: 14, color: "#5B6578" }}>
-          Noch kein Zugang? Die Leitung Ihrer Firma richtet ihn ein. Neu bei Dienstigo? <a href="mailto:info@dienstigo.de?subject=Demo%20Dienstigo" style={{ color: "#243B6B", fontWeight: 600 }}>Demo anfragen</a>
+          Noch kein Zugang? Die Leitung Ihrer Firma richtet ihn ein. Neu bei Dienstigo? <DemoButton style={{ color: "#243B6B", fontWeight: 600 }}>Demo anfragen</DemoButton>
         </p>
       </div>
     </div>

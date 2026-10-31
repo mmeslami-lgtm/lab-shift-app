@@ -69,7 +69,7 @@ export default function AdminDashboard() {
 
   const load = useCallback(async () => {
     const r = await api("GET");
-    if (r.status === 200) setState({ status: "ok", me: r.me, firms: r.firms });
+    if (r.status === 200) setState({ status: "ok", me: r.me, firms: r.firms, demo: r.demoRequests || [] });
     else if (r.status === 403) setState({ status: "forbidden" });
     else if (r.status === 401) setState({ status: "login" });
     else setState({ status: "error", message: r.error || "Fehler" });
@@ -130,7 +130,8 @@ export default function AdminDashboard() {
   if (state.status === "forbidden") return shell(<><h1 style={{ fontSize: 22, fontWeight: 750 }}>Kein Zugriff</h1><div style={card}>Dieses Konto ist kein Plattform-Administrator.<div style={{ marginTop: 12 }}><button style={ghost} onClick={() => supabase.auth.signOut()}>Abmelden</button></div></div></>);
   if (state.status === "error") return shell(<div style={{ ...card, background: "#FCE5EA", color: "#8A2A3E" }}>Fehler: {state.message}</div>);
 
-  const { firms, me } = state;
+  const { firms, me, demo = [] } = state;
+  const demoOpen = demo.filter((d) => d.status !== "erledigt").length;
   const toggleProducts = (key) => setNf((f) => ({ ...f, products: { ...f.products, [key]: !f.products[key] } }));
 
   return shell(
@@ -155,6 +156,45 @@ export default function AdminDashboard() {
           </div>
         </div>
       )}
+
+      <details style={card} data-demo-list open={demoOpen > 0 ? true : undefined}>
+        <summary style={{ cursor: "pointer", fontSize: 16, fontWeight: 700 }}>
+          <span style={{ color: demoOpen > 0 ? "#C0262D" : INK }}>Demo-Anfragen</span>
+          {demoOpen > 0 && <span data-demo-count style={{ marginLeft: 8, display: "inline-block", minWidth: 22, textAlign: "center", borderRadius: 999, background: "#C0262D", color: "#fff", fontSize: 13, fontWeight: 750, padding: "2px 7px" }}>{demoOpen}</span>}
+          <span style={{ marginLeft: 8, fontSize: 13, fontWeight: 400, color: MUTED }}>{demo.length === 0 ? "noch keine" : `${demo.length} insgesamt`}</span>
+        </summary>
+        {demo.length > 0 && (
+          <div style={{ marginTop: 10, display: "grid", gap: 8 }}>
+            {demo.map((d) => {
+              const done = d.status === "erledigt";
+              return (
+                <div key={d.id} data-demo-row={d.id} style={{ border: `1px solid ${done ? LINE : "#F1B7BB"}`, background: done ? "#F7F8FB" : "#FFF7F7", borderRadius: 14, padding: "10px 12px", opacity: done ? 0.8 : 1 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap", alignItems: "baseline" }}>
+                    <div style={{ fontWeight: 700, fontSize: 15 }}>{d.company}</div>
+                    <div style={{ fontSize: 12, color: MUTED }}>{fmt(d.created_at)}</div>
+                  </div>
+                  <div style={{ fontSize: 14, marginTop: 3 }}>
+                    <a href={`mailto:${d.email}?subject=${encodeURIComponent("Ihre Demo-Anfrage bei Dienstigo")}`} style={{ color: PRIMARY, fontWeight: 600 }}>{d.email}</a>
+                    {d.phone && <> · <a href={`tel:${d.phone.replace(/[^0-9+]/g, "")}`} style={{ color: PRIMARY }}>{d.phone}</a></>}
+                  </div>
+                  {d.message && <div style={{ fontSize: 14, marginTop: 6, whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{d.message}</div>}
+                  <div style={{ fontSize: 12, marginTop: 6, color: d.mail_sent ? "#1F6347" : "#8A2A3E" }}>{d.mail_sent ? "✉ E-Mail an info@ gesendet" : `✉ E-Mail nicht gesendet${d.mail_error ? ` (${d.mail_error})` : ""}`}</div>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
+                    <button style={{ ...ghost, background: done ? "#fff" : "#DDF2E8", color: done ? INK : "#1F6347", borderColor: done ? LINE : "#B7E1CB" }} disabled={busy}
+                      onClick={() => act({ action: "demo_status", id: d.id, done: !done }, { key: "dm" + d.id, okText: done ? `„${d.company}“ wieder offen.` : `„${d.company}“ erledigt.` })}>
+                      {label("dm" + d.id, done ? "Wieder öffnen" : "Erledigt ✓")}
+                    </button>
+                    <button style={{ ...ghost, color: "#B3263E" }} disabled={busy}
+                      onClick={() => { if (window.confirm(`Anfrage von „${d.company}“ endgültig löschen?`)) act({ action: "demo_delete", id: d.id }, { key: "dd" + d.id, okText: "Anfrage gelöscht." }); }}>
+                      {label("dd" + d.id, "Löschen")}
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </details>
 
       <div style={card}>
         <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 8 }}>Neue Firma</div>

@@ -1,6 +1,6 @@
-# Dienstplaner (SaaS) – خلاصهٔ کامل پروژه تا ۲۶ اکتبر ۲۰۲۶
+# Dienstplaner (SaaS) – خلاصهٔ کامل پروژه تا ۳۰ اکتبر ۲۰۲۶
 
-> **برای Claude در گفتگوی جدید:** کاربر برنامه‌نویس نیست؛ فقط با مرورگر کار می‌کند و فایل‌ها را مستقیم در GitHub آپلود می‌کند. همیشه فارسی جواب بده، قدم‌به‌قدم و ساده. کد پروژه در این گفتگو نیست: اول از کاربر بخواه از GitHub (شاخهٔ `main` → «Code → Download ZIP») فایل زیپ را بفرستد. بسته‌های تحویلی همیشه فقط شامل فایل‌های تغییرکرده‌اند (zip، با همان ساختار پوشه‌ها). **این فایل (`docs/PROJEKT-ZUSAMMENFASSUNG.md`) را با هر کار جدید به‌روز کن و در همان بسته بگذار.**
+> **برای Claude در گفتگوی جدید:** کاربر برنامه‌نویس نیست؛ فینگلیش می‌نویسد، **جواب همیشه فارسی** (کلمه‌های آلمانی/انگلیسی کم و در خط جدا، چون متن راست‌به‌چپ به هم می‌ریزد). فقط با مرورگر کار می‌کند و فایل‌ها را مستقیم در GitHub آپلود می‌کند. همیشه فارسی جواب بده، قدم‌به‌قدم و ساده. کد پروژه در این گفتگو نیست: اول از کاربر بخواه از GitHub (شاخهٔ `main` → «Code → Download ZIP») فایل زیپ را بفرستد. بسته‌های تحویلی همیشه فقط شامل فایل‌های تغییرکرده‌اند (zip، با همان ساختار پوشه‌ها). **این فایل (`docs/PROJEKT-ZUSAMMENFASSUNG.md`) را با هر کار جدید به‌روز کن و در همان بسته بگذار.**
 
 ---
 
@@ -25,14 +25,14 @@
 5. «Delete branch» هرگز زده نشود.
 6. بسته‌ها همیشه روی آخرین `main` ساخته می‌شوند و فقط فایل‌های تغییرکرده را دارند.
 
-## ۳. آخرین بسته
+## ۳. آخرین بسته و وضعیت (۳۰ اکتبر)
 
-- بستهٔ ۳۲ (پیش‌نویس + Monatswechsel) در `main` است.
-- بستهٔ ۳۳ (Einsatzorte، طرح اول با جدول دستی نفر × روز) فقط در test بود و **هرگز به main نمی‌رود**؛ با بستهٔ ۳۴ جایگزین شد.
-- **بستهٔ ۳۴ = مورد ۳ صف، بخش الف (Mehrere Standorte: تنظیمات، تیم‌ها، پلن دستی، اپ، Stundenzettel)** – ۲۶ اکتبر ساخته و تست شد. اسکریپت دیتابیس ۳۲ روی دیتابیس واقعی اجرا شده. زیپ شامل بخش‌های لازم بستهٔ ۳۳ هم هست (`lib/timesheet.js` با «Ort:»، `docs/sql/31-einsatzorte.sql`)، پس می‌تواند بعد از امتحان در test مستقیم به main برود. بدون فعال‌سازی ادمین هیچ چیز تازه‌ای دیده نمی‌شود.
-- فایل `components/EinsatzorteDialog.jsx` (بستهٔ ۳۳) فقط در test هست و دیگر استفاده نمی‌شود؛ می‌شود بعداً در GitHub پاکش کرد (اجباری نیست).
-- **بستهٔ ۳۵ = طراحی جدید، بخش ۱ (سبک D «Marke») برای Inhaber/Leitung/Schichtplaner** – ۲۶ اکتبر. **ترتیب آپلود: اول ۳۴، بعد ۳۵** (۳۵ به فایل‌های ۳۴ مثل `StandorteSettings.jsx` نیاز دارد). دیتابیس تغییر نمی‌کند.
-- **برای گفتگوی بعدی:** زیپ شاخهٔ **test** (بعد از آپلود ۳۴ و ۳۵) → **طراحی بخش ۲** (`/freigaben`، `/konto`، `/profil`، `/admin`؛ همان سبک D)، بعد بستهٔ ب مورد ۳.
+- **main:** بسته‌های ۳۳، ۳۴، ۳۵ با «Merge pull request #9» به main رفتند؛ **۳۵b** مستقیم در main، روی dienstigo.de کار می‌کند. ۳۳ در main هست ولی استفاده نمی‌شود (`EinsatzorteDialog.jsx`، می‌شود پاکش کرد). `www.dienstigo.de` درست به Production (main) وصل است.
+- **از این به بعد هیچ Pull request:** زیپ‌ها مستقیم در test، بعد همان زیپ در main.
+- **بستهٔ ۳۵c (Abmelden بالا) رد شد.** Abmelden همیشه **پایین منو** می‌ماند. در test هم نیست (کلاس `dg-logout` وجود ندارد؛ چک ۳۰ اکتبر).
+- **اپ کارمند (گوشی و کامپیوتر) هرگز تغییر نمی‌کند، مگر کاربر صریح بخواهد.**
+- **بستهٔ ۳۶ = پنجرهٔ «Demo anfragen» (۳۰ اکتبر)** – جزئیات در بخش ۵. اسکریپت دیتابیس ۳۳ **قدم ۱** روی دیتابیس واقعی اجرا شد؛ **قدم ۲ بعد از رفتن ۳۶ به main** (Claude اجرا می‌کند).
+- **بعدی:** ۳۷ = Startwerte، ۳۸ = Testzugang ۱۴ روزه + رضایت‌نامه (بخش ۹).
 
 ## ۴. مهاجرت‌های دیتابیس (`docs/sql/`) – همه روی Supabase واقعی اجرا شده‌اند
 
@@ -60,6 +60,7 @@
 | 31 | Einsatzorte: `work_locations`، `location_assignments` (draft/published)، `set_location_mode`، `save_work_location`، `save_location_draft`، تریگر `publish_locations` روی `schedule_months`؛ `discard_draft` محل‌ها را هم برمی‌گرداند |
 | 32 | Mehrere Standorte: `org_feature_on`؛ `work_locations.code` (کد کوتاه، یکتا در شرکت) + `team_period` (month/week)؛ `shift_definitions.location_id/count_weekday/count_weekend`؛ `scheduled_shifts.location_id` (FK مرکب با org)؛ جدول `location_team` (محل + نفر + شروع دوره: روز ۱ ماه یا دوشنبه؛ فقط Leitung می‌بیند)؛ `set_location_mode` فقط با کلید ادمین `einsatzorte_standorte`؛ `save_work_location` (امضای جدید با کد و دوره)، `save_location_shift`، `save_location_team`؛ `save_draft`/`publish_month`/`discard_draft`/`plan_snapshot` محل را نگه می‌دارند؛ `save_draft` با محل: هرگز دو شیفت یک نفر در یک روز. `location_assignments` (۳۱) دیگر استفاده نمی‌شود (خالی) |
 | 30 | `discard_draft` (دور ریختن پیش‌نویس پلن)، `save_attendance_edits` (ثبت یکجای تغییرهای ساعت، همه یا هیچ)، رفع باگ `set_absence` (حالا هر ۱۲ نوع غیبت؛ قبلاً فقط ۶) |
+| 33 | Demo-Anfragen: ستون‌های `message`، `ip_hash` (هش کلیددار، نه خود IP)، `mail_sent`، `mail_error`، `done_at`، `done_by` روی جدول موجود `demo_requests` + محدودیت طول/وضعیت (`neu`/`erledigt`). **قدم ۱ اجرا شد (۳۰ اکتبر).** قدم ۲ (حذف policy «Besucher duerfen Demo-Anfragen senden» و حق insert برای anon/authenticated) فقط بعد از رفتن بستهٔ ۳۶ به main |
 | STAGING-SETUP.sql | اسکریپت‌های ۱–۱۹ یکجا برای دیتابیس آزمایشی جدا در آینده |
 
 ## ۵. ویژگی‌های ساخته‌شده
@@ -183,6 +184,14 @@
 - **`/demo` = رندگانگ (تور تعاملی)**: `components/DemoTour.jsx`، پنج فصل (Dienstplan Labor، Dienstplan allgemein، Mitarbeiter-App، Stempeln، Stundenzettel؛ فصل allgemein یک «Beispielansicht» کشیده‌شده است، نه عکس – بعداً با عکس واقعی جایگزین شود)، عکس‌های واقعی در `public/demo/*.webp` (از راهنماها)، کادر هایلایت با درصد، Weiter/Zurück/پیکان‌ها، «Abspielen» خودکار هر ۶٫۵ ثانیه. صفحهٔ قدیمی پیش‌نمایش کارمند از `/demo` برداشته شد. لینک «Rundgang» در صفحهٔ شروع.
 - سوپابیس → Authentication → URL Configuration: Site URL `https://www.dienstigo.de` + Redirect URLs `https://www.dienstigo.de/**`, `https://dienstigo.de/**` (آدرس‌های قدیمی بمانند).
 
+### Demo anfragen (بستهٔ ۳۶، ۳۰ اکتبر)
+- دکمه‌های «Demo anfragen» در `/` (۳ تا)، `/demo` (۲ تا) و `/login` یک **پنجره** باز می‌کنند (`components/DemoRequest.jsx`: `DemoButton`، `DemoDialog`، `DemoForm`؛ پنجره با portal مستقیم در body). فیلدها: Firmenname*، E-Mail*، Telefon، Nachricht، تیک Datenschutz*. Escape / کلیک بیرون / × می‌بندد. `/demo-anfrage` همان فرم را به‌صورت صفحه دارد (لینک‌های قدیمی، بدون JavaScript). لینک «info@dienstigo.de» در متن پایین صفحهٔ اصلی مثل قبل به `/demo-anfrage` می‌رود.
+- سرور `app/api/demo-anfrage/route.js`: ضد اسپم = فیلد پنهان `website` + حداقل ۳ ثانیه از باز شدن پنجره (ربات‌ها «ok» می‌گیرند ولی چیزی ذخیره نمی‌شود) + حداکثر ۳ درخواست در ساعت از هر دستگاه و ۳۰ در ساعت در کل (۴۲۹) + طول‌ها. ذخیره با service key، بعد ایمیل به `info@dienstigo.de` (Reply-To = مشتری). اگر ایمیل نرسد، درخواست باز هم ذخیره است و `/admin` دلیل را نشان می‌دهد.
+- ایمیل: `lib/mailer.js` بدون پکیج اضافه (فقط net/tls خود Node؛ ۴۶۵ = TLS، ۵۸۷ = STARTTLS؛ AUTH LOGIN؛ متن base64؛ بدون Header-Injection). **متغیرهای Vercel (Production + Preview):** `SMTP_HOST=smtp.ionos.de`، `SMTP_PORT=465`، `SMTP_USER=info@dienstigo.de`، `SMTP_PASS` (فقط خود کاربر). صندوق: IONOS Mail Basic.
+- `/admin`: بالای صفحه «Demo-Anfragen» با **عدد قرمز** (درخواست‌های باز)، هر مورد: شرکت، زمان، ایمیل (mailto)، تلفن (tel)، پیام، وضعیت ایمیل، «Erledigt ✓» / «Wieder öffnen»، «Löschen» (با سؤال). همه در `admin_log`.
+- Datenschutz: بند Demo-Anfrage (IONOS، رضایت، حذف حداکثر ۱۲ ماه بعد از آخرین تماس اگر قراردادی نشد).
+- تست: فرستندهٔ ایمیل با سرور SMTP ساختگی ۲۰/۲۰ (با یک باگ پیدا و رفع‌شده: پاسخ فقط با کد مثل «354» بدون متن قبلاً منتظر می‌ماند)؛ مسیر سرور ۲۳/۲۳؛ مرورگر کلیک‌به‌کلیک با صفحه‌های واقعی + دیتابیس ساختگی ۴۳/۴۳ (دسکتاپ و گوشی ۳۷۵px، /demo، /login، /demo-anfrage، /admin، غیرادمین)؛ دیتابیس واقعی در تراکنش لغوشده (anon/authenticated، محدودیت‌ها، admin_log). فایل‌های برنامه‌ریز و اپ کارمند دست نخورده.
+
 ### امنیت و حقوقی
 هدرهای امنیتی، `/impressum`، `/datenschutz`، فوتر، robots/sitemap؛ RLS روی همهٔ جدول‌ها.
 
@@ -213,11 +222,13 @@
 
 ## ۹. کار بعدی
 
-1. کاربر بسته‌های ۳۴ و ۳۵ را (به همین ترتیب) در test امتحان می‌کند، بعد هر دو در main.
-2. **طراحی بخش ۲** (سبک D): `/freigaben`، `/konto`، `/profil`، `/admin` (رنگ‌ها و قاب، کارکرد بدون تغییر).
-3. **بخش ب مورد ۳**: مولد خودکار چندمحلی (کلید `eligible(نفر، شیفت، روز)` = عضو تیم؛ بلوک شب در یک محل؛ Sa=So همان شیفت همان محل؛ ۱۱ ساعت استراحت؛ همهٔ قوانین روی کل محل‌ها) + چاپ هر محل یک صفحه + بهبودهای وضوح (پایین).
-4. **Schulung با فیلم** (بعد از طراحی ۲ و بستهٔ ب، تا فیلم‌ها قدیمی نشوند) – جزئیات پایین.
-5. سپس ۳ب (Touren)، ۴ (Wochenrotation)، ۵ (پرداخت).
+1. کاربر بستهٔ ۳۶ را در test امتحان می‌کند (بعد از واردکردن متغیرهای SMTP در Vercel)، بعد در main؛ سپس Claude **قدم ۲ اسکریپت ۳۳** را اجرا می‌کند.
+2. **بستهٔ ۳۷ – Startwerte (تأیید کاربر):** دکمهٔ جدا در منوی کناری، بخش Team، فقط Inhaber/Leitung (+ یادآوری کوچک در Mitarbeiter تا وقتی چیزی وارد نشده). ماه قبل از شروع؛ برای هر نفر: Soll (خودکار، فرمول Soll = Vertrag: ساعت هفتگی ÷ ۵ × دوشنبه–جمعهٔ غیرتعطیل؛ مرخصی/بیماری را کاربر در Ist حساب می‌کند)، Ist (ورودی)، Saldo = Ist − Soll (قابل تغییر دستی → Ist = Soll + Saldo). ذخیره با `save_month_balances` در `staff_month_balance` (contract_hours = Soll، planned_hours = Ist)؛ هشدار اگر آن ماه قبلاً بسته شده. بدون مهاجرت. اثر خودکار در Saldo Vormonat، Stundenzettel و Zeitkonto اپ کارمند (کد اپ عوض نمی‌شود؛ `EmployeeTimes.jsx` همین جدول را می‌خواند).
+3. **بستهٔ ۳۸ – Testzugang ۱۴ روزه + رضایت‌نامه (تأیید کاربر، نیمه‌خودکار):** در «Demo-Anfragen» دکمهٔ «Testzugang 14 Tage» → شرکت + حساب Inhaber ساخته می‌شود و ایمیل با لینک ورود (خودش رمز می‌گذارد). بالای صفحهٔ مدیر: روزهای باقی‌مانده. بعد از ۱۴ روز فقط دیدن (فقط بخش مدیر؛ اپ کارمند دست نمی‌خورد)؛ ادمین تمدید / دائمی می‌کند. **اولین ورود:** صفحهٔ قبول «Nutzungsbedingungen Testphase» و «Auftragsverarbeitungsvertrag (AVV)» (هر دو تیک اجباری؛ ثبت چه کسی/کی/کدام نسخه؛ در /admin دیده شود؛ قابل دانلود). متن‌ها آلمانی با شمارهٔ نسخه؛ **قبل از مشتری واقعی وکیل IT-Recht بخواند** (به کاربر گفته شد). **بعد از پایان بدون قرارداد:** ۳۰ روز فقط‌خواندنی، بعد ایمیل یادآوری به ادمین، **حذف فقط با دکمهٔ ادمین** (خودکار نه). ایمیل‌ها از همان `lib/mailer.js`.
+4. **طراحی بخش ۲** (سبک D): `/freigaben`، `/konto`، `/profil`، `/admin` + هشدار «Ungespeicherte Änderungen» موقع ترک صفحه.
+5. **بخش ب مورد ۳**: مولد خودکار چندمحلی (کلید `eligible(نفر، شیفت، روز)` = عضو تیم؛ بلوک شب در یک محل؛ Sa=So همان شیفت همان محل؛ ۱۱ ساعت استراحت؛ همهٔ قوانین روی کل محل‌ها) + چاپ هر محل یک صفحه + بهبودهای وضوح (پایین).
+6. **Schulung با فیلم** – جزئیات پایین.
+7. سپس ۳ب (Touren)، ۴ (Wochenrotation)، ۵ (پرداخت).
 
 **Schulung با فیلم (خواست کاربر ۲۶ اکتبر):**
 - **همه‌چیز، هیچ چیز جا نیفتد:** اول فهرست کامل از روی کد (هر دکمه، پنجره، تنظیم، صفحه، برای هر نقش: Inhaber، Leitung، Schichtplaner، Mitarbeiter)؛ هر مورد به یک درس وصل؛ **تست خودکار** که هیچ دکمه/صفحه‌ای بدون درس نماند؛ فهرست قبل از ضبط برای کاربر فرستاده شود.
