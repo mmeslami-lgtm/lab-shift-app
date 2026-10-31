@@ -9,9 +9,11 @@ export default function DemoAnfrage() {
       <div style={{ maxWidth: 560, margin: "0 auto", padding: "40px 0" }}>
         <div style={{ background: "#fff", border: "1px solid #E1E6EF", borderRadius: 22, padding: "28px 24px" }}>
           <a href="/" style={{ color: "#5B6578", textDecoration: "none" }}>← Zur Startseite</a>
-          <h1 style={{ fontSize: "2rem", margin: "14px 0 6px", color: "#243B6B" }}>Demo anfragen</h1>
-          <p style={{ margin: "0 0 20px", lineHeight: 1.6, color: "#18233A" }}>Hinterlassen Sie Ihre Kontaktdaten. Wir melden uns und zeigen Ihnen Dienstigo.</p>
-          <DemoForm />
+          <div style={{ height: 14 }} />
+          <DemoForm intro={<>
+            <h1 style={{ fontSize: "2rem", margin: "0 0 6px", color: "#243B6B" }}>Demo anfragen</h1>
+            <p style={{ margin: "0 0 20px", lineHeight: 1.6, color: "#18233A" }}>Hinterlassen Sie Ihre Kontaktdaten. Wir melden uns und zeigen Ihnen Dienstigo.</p>
+          </>} />
         </div>
       </div>
     </div>
