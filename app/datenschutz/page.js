@@ -42,6 +42,7 @@ export default function Page() {
           <li>Krankmeldungen werden nur der Leitung angezeigt; Kolleginnen und Kollegen sehen weder den Grund einer Abwesenheit noch, wer vertreten wurde.</li>
           <li>Zeiterfassung: Zeitpunkt (Serverzeit, UTC) und Richtung der Stempelung, verwendetes Gerät. Einträge sind unveränderlich; Korrekturen nur durch die Leitung mit Begründung, protokolliert.</li>
           <li>Mobiles Stempeln (nur wenn die Firma es einschaltet): Hat die Firma zusätzlich die Standortspeicherung aktiviert, wird beim Tippen auf „Kommen“ oder „Gehen“ einmalig der Standort des Geräts (Breiten- und Längengrad, Genauigkeit) zusammen mit der Stempelung gespeichert. Es findet keine laufende Ortung statt. Zweck: Nachweis des Arbeitsbeginns und -endes bei Tätigkeiten ohne festen Arbeitsort. Sichtbar nur für die Leitung der eigenen Firma.</li>
+          <li>Demo-Anfrage (Formular „Demo anfragen“): Firmenname, E-Mail-Adresse, optional Telefonnummer und Nachricht, Zeitpunkt. Zum Schutz vor Missbrauch wird statt der IP-Adresse nur ein nicht umkehrbarer Prüfwert gespeichert. Die Anfrage wird in unserer Datenbank gespeichert und per E-Mail an info@dienstigo.de weitergeleitet (E-Mail-Anbieter: IONOS SE, Montabaur, Deutschland). Rechtsgrundlage: Ihre Einwilligung (Art. 6 Abs. 1 lit. a DSGVO) und die Anbahnung eines Vertrags (Art. 6 Abs. 1 lit. b DSGVO). Die Einwilligung können Sie jederzeit per E-Mail an info@dienstigo.de widerrufen.</li>
           <li>Technische Daten: IP-Adresse und Zeitpunkt des Zugriffs (Server-Logdateien), kurzfristig zur Sicherheit und Fehlersuche.</li>
         </ul>
       </Section>
@@ -61,6 +62,7 @@ export default function Page() {
         Daten werden gelöscht, sobald sie für den Zweck nicht mehr erforderlich sind und keine gesetzlichen Aufbewahrungsfristen bestehen.
         Aufzeichnungen der Arbeitszeit werden mindestens zwei Jahre aufbewahrt; die Aufbewahrungsdauer für Pläne und Nachweise ist je Unternehmen
         einstellbar (Standard: 6 Jahre).
+        Demo-Anfragen, aus denen kein Vertrag entsteht, werden spätestens 12 Monate nach der letzten Kontaktaufnahme gelöscht.
       </Section>
 
       <Section title="7. Speicherung im Browser">

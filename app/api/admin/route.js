@@ -103,7 +103,9 @@ export async function GET(request) {
       members: mems.data.filter((m) => m.org_id === o.id).map((m) => ({ userId: m.user_id, email: (users[m.user_id] || {}).email || "?", lastSignIn: (users[m.user_id] || {}).lastSignIn || null, role: m.role, staffId: m.staff_id, staffName: m.staff_id ? staffName[m.staff_id] || null : null })),
       staff: staff.data.filter((s) => s.org_id === o.id && s.active).map((s) => ({ id: s.id, name: s.name, hasLogin: mems.data.some((m) => m.staff_id === s.id) })),
     }));
-    return json({ me: auth.user.email, firms });
+    // Demo-Anfragen (script 33). Missing columns or table = empty list, never breaks the page.
+    const dr = await supabaseAdmin.from("demo_requests").select("id, created_at, company, email, phone, message, status, mail_sent, mail_error, done_at").order("created_at", { ascending: false }).limit(300);
+    return json({ me: auth.user.email, firms, demoRequests: dr.error ? [] : dr.data });
   } catch (e) {
     return json({ error: "Laden fehlgeschlagen." }, 500);
   }
@@ -116,6 +118,22 @@ export async function POST(request) {
   const me = auth.user;
   try {
     switch (body.action) {
+      case "demo_status": {
+        const id = String(body.id || ""), done = !!body.done;
+        const r = await supabaseAdmin.from("demo_requests").update(done ? { status: "erledigt", done_at: new Date().toISOString(), done_by: me.id } : { status: "neu", done_at: null, done_by: null }).eq("id", id).select("id, company");
+        if (r.error) throw r.error;
+        if (!r.data || r.data.length === 0) return json({ error: "Anfrage nicht gefunden." }, 404);
+        await log(me, done ? "demo_done" : "demo_reopen", null, id, { company: r.data[0].company });
+        return json({ ok: true });
+      }
+      case "demo_delete": {
+        const id = String(body.id || "");
+        const r = await supabaseAdmin.from("demo_requests").delete().eq("id", id).select("id, company");
+        if (r.error) throw r.error;
+        if (!r.data || r.data.length === 0) return json({ error: "Anfrage nicht gefunden." }, 404);
+        await log(me, "demo_delete", null, id, { company: r.data[0].company });
+        return json({ ok: true });
+      }
       case "create_org": {
         const name = String(body.name || "").trim(), email = String(body.ownerEmail || "").trim().toLowerCase();
         const products = Array.isArray(body.products) ? body.products.filter((p) => PRODUCTS.includes(p)) : [];
