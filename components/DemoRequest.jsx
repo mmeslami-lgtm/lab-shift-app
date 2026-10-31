@@ -14,7 +14,7 @@ const lbl = { display: "block", fontWeight: 650, fontSize: 15, margin: "0 0 5px"
 const inp = { display: "block", width: "100%", boxSizing: "border-box", padding: "11px 13px", fontSize: 16, border: `1.5px solid ${LINE}`, borderRadius: 12, margin: "0 0 14px", fontFamily: "inherit", background: "#fff", color: INK };
 const opt = { color: MUTED, fontWeight: 400 };
 
-export function DemoForm({ onClose }) {
+export function DemoForm({ onClose, intro }) {
   const [f, setF] = useState({ company: "", email: "", phone: "", message: "", consent: false, website: "" });
   const [state, setState] = useState("idle"); // idle | sending | done
   const [error, setError] = useState("");
@@ -42,8 +42,8 @@ export function DemoForm({ onClose }) {
   if (state === "done") {
     return (
       <div data-demo="done">
-        <h2 style={{ fontSize: 24, margin: "0 0 8px", color: NAVY }}>Vielen Dank!</h2>
-        <p style={{ margin: "0 0 20px", lineHeight: 1.6, color: INK }}>Ihre Anfrage ist bei uns angekommen. Wir melden uns in Kürze.</p>
+        <h2 id="dr-title" style={{ fontSize: 24, margin: "0 40px 8px 0", color: NAVY }}>Vielen Dank!</h2>
+        <p style={{ margin: "0 0 20px", lineHeight: 1.6, color: INK }}>Ihre Anfrage ist bei uns angekommen. Wir melden uns so bald wie möglich bei Ihnen.</p>
         {onClose
           ? <button type="button" onClick={onClose} style={{ border: 0, borderRadius: 12, background: NAVY, color: "#fff", fontWeight: 700, fontSize: 16, padding: "12px 20px", cursor: "pointer" }}>Schließen</button>
           : <a href="/" style={{ display: "inline-block", borderRadius: 12, background: NAVY, color: "#fff", fontWeight: 700, padding: "12px 20px", textDecoration: "none" }}>Zur Startseite</a>}
@@ -53,6 +53,7 @@ export function DemoForm({ onClose }) {
 
   return (
     <form onSubmit={send} noValidate>
+      {intro}
       <label style={lbl} htmlFor="dr-company">Firmenname *</label>
       <input id="dr-company" ref={first} required maxLength={200} autoComplete="organization" value={f.company} onChange={set("company")} style={inp} />
       <label style={lbl} htmlFor="dr-email">E-Mail *</label>
@@ -95,9 +96,11 @@ export function DemoDialog({ onClose }) {
         style={{ position: "relative", width: "100%", maxWidth: 520, margin: "4vh 0", background: "#fff", borderRadius: 20, padding: "26px 22px 22px", boxShadow: "0 24px 60px -12px rgba(16,24,40,.45)", fontFamily: "system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif", textAlign: "left" }}>
         <button type="button" aria-label="Schließen" onClick={onClose}
           style={{ position: "absolute", top: 10, right: 10, width: 40, height: 40, border: 0, borderRadius: 12, background: "#EEF1F6", color: INK, fontSize: 22, lineHeight: 1, cursor: "pointer" }}>×</button>
-        <h2 id="dr-title" style={{ fontSize: 24, margin: "0 40px 6px 0", color: NAVY }}>Demo anfragen</h2>
-        <p style={{ margin: "0 0 18px", color: MUTED, lineHeight: 1.5, fontSize: 15 }}>Hinterlassen Sie Ihre Kontaktdaten. Wir melden uns und zeigen Ihnen Dienstigo.</p>
-        <DemoForm onClose={onClose} />
+        {/* Title + intro live inside the form, so after sending only „Vielen Dank!“ is shown. */}
+        <DemoForm onClose={onClose} intro={<>
+          <h2 id="dr-title" style={{ fontSize: 24, margin: "0 40px 6px 0", color: NAVY }}>Demo anfragen</h2>
+          <p style={{ margin: "0 0 18px", color: MUTED, lineHeight: 1.5, fontSize: 15 }}>Hinterlassen Sie Ihre Kontaktdaten. Wir melden uns und zeigen Ihnen Dienstigo.</p>
+        </>} />
       </div>
     </div>
   );
