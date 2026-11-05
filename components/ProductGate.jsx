@@ -4,6 +4,8 @@ import React, { useEffect, useState } from "react";
 import { supabase, supabaseConfigured } from "../lib/supabaseClient";
 import { OrgContext } from "../lib/orgContext";
 import LoginForm from "./LoginForm";
+import LegalConsent from "./LegalConsent";
+import { legalComplete } from "../lib/legal";
 
 const PAPER = "#E9EEF8";
 const INK = "#1B2433";
@@ -24,6 +26,7 @@ export default function ProductGate({ product, supervisorOnly = false, label, ch
   const wantedKey = wanted.join(",");
   const [session, setSession] = useState(undefined);
   const [state, setState] = useState({ status: "loading" });
+  const [reload, setReload] = useState(0);
 
   useEffect(() => {
     if (!supabaseConfigured) { setSession(null); return; }
@@ -49,6 +52,20 @@ export default function ProductGate({ product, supervisorOnly = false, label, ch
       const enabled = (orgId) => prod.data.filter((p) => p.org_id === orgId && p.enabled).map((p) => p.product);
       const ok = own.find((m) => enabled(m.org_id).some((p) => wanted.includes(p)) && (!supervisorOnly || m.role !== "employee"));
       if (!ok) { setState({ status: "denied", own: own.map((m) => ({ name: m.organizations ? m.organizations.name : "Firma", role: m.role, products: enabled(m.org_id) })) }); return; }
+      // Testphase (Skript 34): planner pages stay closed until the owner has accepted the current texts.
+      // Only the planner pages (supervisorOnly); the employee app is not touched. Missing column = no test phase.
+      if (supervisorOnly) {
+        const tr = await supabase.from("organizations").select("trial_until").eq("id", ok.org_id);
+        if (!tr.error && tr.data && tr.data[0] && tr.data[0].trial_until) {
+          const la = await supabase.from("legal_acceptances").select("doc, version").eq("org_id", ok.org_id);
+          if (cancelled) return;
+          if (la.error || !legalComplete(la.data)) {
+            setState({ status: "consent", orgId: ok.org_id, orgName: ok.organizations ? ok.organizations.name : "Firma", isOwner: ok.role === "owner" });
+            return;
+          }
+        }
+        if (cancelled) return;
+      }
       // company settings added by the approval/archive script; fall back to the defaults if it has not been run yet
       let requireApproval = true, retentionYears = 6, shortNoticeDays = 7;
       let settings = await supabase.from("organizations").select("id, require_approval, retention_years, short_notice_days").eq("id", ok.org_id);
@@ -68,7 +85,7 @@ export default function ProductGate({ product, supervisorOnly = false, label, ch
       });
     })();
     return () => { cancelled = true; };
-  }, [session, wantedKey, supervisorOnly]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [session, wantedKey, supervisorOnly, reload]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const what = label || wanted.map((p) => PRODUCT_LABEL[p] || p).join(" / ");
 
@@ -83,6 +100,9 @@ export default function ProductGate({ product, supervisorOnly = false, label, ch
         <LoginForm title="Anmelden" />
       </div></div>
     );
+  }
+  if (state.status === "consent") {
+    return <LegalConsent supabase={supabase} orgId={state.orgId} orgName={state.orgName} isOwner={state.isOwner} email={session.user.email} onDone={() => setReload((n) => n + 1)} />;
   }
   if (state.status === "error") {
     return <div style={shell}><div style={{ maxWidth: 520, margin: "0 auto", ...card, background: "#FCE5EA", color: "#8A2A3E" }}>Fehler beim Laden: {state.message}</div></div>;
