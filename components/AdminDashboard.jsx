@@ -4,6 +4,10 @@ import { FEATURES } from "../lib/features";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { supabase, supabaseConfigured } from "../lib/supabaseClient";
 import LoginForm from "./LoginForm";
+import { LEGAL_DOCS } from "../lib/legal";
+
+const LEGAL_LABEL = { testphase: "Nutzungsbedingungen", avv: "AVV", fiktive_daten: "nur fiktive Daten" };
+const LEGAL_HREF = Object.fromEntries(LEGAL_DOCS.filter((d) => d.href).map((d) => [d.key, d.href]));
 
 const INK = "#1B2433", PRIMARY = "#243B6B", PAPER = "#E9EEF8", MUTED = "#6B7588", LINE = "#D9DEE7";
 const PRODUCT_LABEL = { lab_planner: "Dienstplaner Labor", generic_planner: "Dienstplaner allgemein", employee_app: "Mitarbeiter-App", time_tracking: "Zeiterfassung" };
@@ -23,6 +27,7 @@ const CSS = `
 .adm button:not(:disabled):active{transform:scale(.96);filter:brightness(.88)}
 .adm button:disabled{opacity:.55;cursor:not-allowed}
 .adm button:focus-visible,.adm input:focus-visible,.adm select:focus-visible{outline:2px solid ${PRIMARY};outline-offset:2px}
+.adm .dg-row::-webkit-details-marker{display:none}
 @keyframes admToast{from{opacity:0;transform:translate(-50%,12px)}to{opacity:1;transform:translate(-50%,0)}}
 `;
 
@@ -38,6 +43,7 @@ export default function AdminDashboard() {
   const [copied, setCopied] = useState("");     // "ok" | "fail" | ""
   const [nf, setNf] = useState({ name: "", ownerEmail: "", password: "", products: { generic_planner: true, employee_app: true } });
   const [open, setOpen] = useState(null);
+  const [showDone, setShowDone] = useState(false);
   const [mf, setMf] = useState({ email: "", role: "supervisor", staffId: "", password: "" });
   const [mErr, setMErr] = useState("");
   const [nErr, setNErr] = useState("");
@@ -132,6 +138,7 @@ export default function AdminDashboard() {
 
   const { firms, me, demo = [] } = state;
   const demoOpen = demo.filter((d) => d.status !== "erledigt").length;
+  const demoShown = showDone ? demo : demo.filter((d) => d.status !== "erledigt");
   const toggleProducts = (key) => setNf((f) => ({ ...f, products: { ...f.products, [key]: !f.products[key] } }));
 
   return shell(
@@ -164,35 +171,48 @@ export default function AdminDashboard() {
           <span style={{ marginLeft: 8, fontSize: 13, fontWeight: 400, color: MUTED }}>{demo.length === 0 ? "noch keine" : `${demo.length} insgesamt`}</span>
         </summary>
         {demo.length > 0 && (
-          <div style={{ marginTop: 10, display: "grid", gap: 8 }}>
-            {demo.map((d) => {
-              const done = d.status === "erledigt";
-              return (
-                <div key={d.id} data-demo-row={d.id} style={{ border: `1px solid ${done ? LINE : "#F1B7BB"}`, background: done ? "#F7F8FB" : "#FFF7F7", borderRadius: 14, padding: "10px 12px", opacity: done ? 0.8 : 1 }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap", alignItems: "baseline" }}>
-                    <div style={{ fontWeight: 700, fontSize: 15 }}>{d.company}</div>
-                    <div style={{ fontSize: 12, color: MUTED }}>{fmt(d.created_at)}</div>
-                  </div>
-                  <div style={{ fontSize: 14, marginTop: 3 }}>
-                    <a href={`mailto:${d.email}?subject=${encodeURIComponent("Ihre Demo-Anfrage bei Dienstigo")}`} style={{ color: PRIMARY, fontWeight: 600 }}>{d.email}</a>
-                    {d.phone && <> · <a href={`tel:${d.phone.replace(/[^0-9+]/g, "")}`} style={{ color: PRIMARY }}>{d.phone}</a></>}
-                  </div>
-                  {d.message && <div style={{ fontSize: 14, marginTop: 6, whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{d.message}</div>}
-                  <div style={{ fontSize: 12, marginTop: 6, color: d.mail_sent ? "#1F6347" : "#8A2A3E" }}>{d.mail_sent ? "✉ E-Mail an info@ gesendet" : `✉ E-Mail nicht gesendet${d.mail_error ? ` (${d.mail_error})` : ""}`}</div>
-                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
-                    <button style={{ ...ghost, background: done ? "#fff" : "#DDF2E8", color: done ? INK : "#1F6347", borderColor: done ? LINE : "#B7E1CB" }} disabled={busy}
-                      onClick={() => act({ action: "demo_status", id: d.id, done: !done }, { key: "dm" + d.id, okText: done ? `„${d.company}“ wieder offen.` : `„${d.company}“ erledigt.` })}>
-                      {label("dm" + d.id, done ? "Wieder öffnen" : "Erledigt ✓")}
-                    </button>
-                    <button style={{ ...ghost, color: "#B3263E" }} disabled={busy}
-                      onClick={() => { if (window.confirm(`Anfrage von „${d.company}“ endgültig löschen?`)) act({ action: "demo_delete", id: d.id }, { key: "dd" + d.id, okText: "Anfrage gelöscht." }); }}>
-                      {label("dd" + d.id, "Löschen")}
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+          <>
+            {demo.length > demoOpen && (
+              <label style={{ display: "inline-flex", gap: 6, alignItems: "center", fontSize: 13, color: MUTED, margin: "8px 0 0", cursor: "pointer" }}>
+                <input type="checkbox" data-demo-showdone checked={showDone} onChange={() => setShowDone((v) => !v)} />
+                Erledigte anzeigen ({demo.length - demoOpen})
+              </label>
+            )}
+            <div data-demo-scroll style={{ marginTop: 8, maxHeight: 380, overflowY: "auto", border: `1px solid ${LINE}`, borderRadius: 12 }}>
+              {demoShown.length === 0 && <div style={{ padding: "10px 12px", fontSize: 14, color: MUTED }}>Keine offenen Anfragen.</div>}
+              {demoShown.map((d, i) => {
+                const done = d.status === "erledigt";
+                return (
+                  <details key={d.id} data-demo-row={d.id} style={{ borderTop: i ? `1px solid ${LINE}` : "none", background: done ? "#F7F8FB" : "#fff" }}>
+                    <summary className="dg-row" style={{ cursor: "pointer", display: "flex", gap: 10, alignItems: "center", padding: "8px 12px", fontSize: 14, listStyle: "none" }}>
+                      <span style={{ width: 8, height: 8, borderRadius: 999, background: done ? "#AEB8CB" : "#C0262D", flex: "0 0 auto" }} />
+                      <span style={{ fontWeight: 650, flex: "1 1 auto", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: done ? MUTED : INK }}>{d.company}</span>
+                      <span style={{ fontSize: 12, color: MUTED, flex: "0 0 auto" }}>{fmt(d.created_at)}</span>
+                      <span style={{ fontSize: 11, fontWeight: 650, borderRadius: 999, padding: "2px 8px", flex: "0 0 auto", background: done ? "#EEF0F4" : "#FCE5EA", color: done ? MUTED : "#8A2A3E" }}>{done ? "erledigt" : "offen"}</span>
+                    </summary>
+                    <div style={{ padding: "0 12px 10px 30px" }}>
+                      <div style={{ fontSize: 14 }}>
+                        <a href={`mailto:${d.email}?subject=${encodeURIComponent("Ihre Demo-Anfrage bei Dienstigo")}`} style={{ color: PRIMARY, fontWeight: 600 }}>{d.email}</a>
+                        {d.phone && <> · <a href={`tel:${d.phone.replace(/[^0-9+]/g, "")}`} style={{ color: PRIMARY }}>{d.phone}</a></>}
+                      </div>
+                      {d.message && <div style={{ fontSize: 14, marginTop: 6, whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{d.message}</div>}
+                      <div style={{ fontSize: 12, marginTop: 6, color: d.mail_sent ? "#1F6347" : "#8A2A3E" }}>{d.mail_sent ? "✉ E-Mail an info@ gesendet" : `✉ E-Mail nicht gesendet${d.mail_error ? ` (${d.mail_error})` : ""}`}</div>
+                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
+                        <button style={{ ...ghost, background: done ? "#fff" : "#DDF2E8", color: done ? INK : "#1F6347", borderColor: done ? LINE : "#B7E1CB" }} disabled={busy}
+                          onClick={() => act({ action: "demo_status", id: d.id, done: !done }, { key: "dm" + d.id, okText: done ? `„${d.company}“ wieder offen.` : `„${d.company}“ erledigt.` })}>
+                          {label("dm" + d.id, done ? "Wieder öffnen" : "Erledigt ✓")}
+                        </button>
+                        <button style={{ ...ghost, color: "#B3263E" }} disabled={busy}
+                          onClick={() => { if (window.confirm(`Anfrage von „${d.company}“ endgültig löschen?`)) act({ action: "demo_delete", id: d.id }, { key: "dd" + d.id, okText: "Anfrage gelöscht." }); }}>
+                          {label("dd" + d.id, "Löschen")}
+                        </button>
+                      </div>
+                    </div>
+                  </details>
+                );
+              })}
+            </div>
+          </>
         )}
       </details>
 
@@ -226,6 +246,7 @@ export default function AdminDashboard() {
               }}>{label("rn" + f.id, "Umbenennen")}</button>
               <span style={{ marginLeft: 8, fontSize: 11, fontWeight: 650, borderRadius: 999, padding: "2px 9px", background: f.active ? "#DDF2E8" : "#FCE5EA", color: f.active ? "#1F6347" : "#8A2A3E" }}>{f.active ? "aktiv" : "deaktiviert"}</span>
               <div style={{ fontSize: 12, color: MUTED }}>seit {fmt(f.created_at)} · {f.staff.length} Personen · {f.members.length} Konten</div>
+              <TrialInfo f={f} />
             </div>
             <button style={ghost} disabled={busy} onClick={() => { if (f.active && !window.confirm(`„${f.name}“ deaktivieren? Niemand aus dieser Firma kann sich dann noch anmelden. Daten bleiben erhalten.`)) return; act({ action: "set_org_active", orgId: f.id, active: !f.active }, { key: "act" + f.id, okText: f.active ? `„${f.name}“ deaktiviert.` : `„${f.name}“ aktiviert.` }); }}>{label("act" + f.id, f.active ? "Deaktivieren" : "Aktivieren")}</button>
           </div>
@@ -236,6 +257,16 @@ export default function AdminDashboard() {
                 {busyKey === "p" + f.id + k ? "Moment …" : (f.products[k] ? "✓ " : "+ ") + PRODUCT_LABEL[k]}
               </button>
             ))}
+          </div>
+          <div data-trial-actions={f.id} style={{ display: "flex", gap: 8, flexWrap: "wrap", margin: "0 0 10px" }}>
+            <button style={ghost} disabled={busy} onClick={() => act({ action: "set_trial", orgId: f.id, mode: "start" }, { key: "ts" + f.id, okText: `Testphase für „${f.name}“: 14 Tage ab heute.` })}>
+              {label("ts" + f.id, f.trialUntil ? "Testphase neu: 14 Tage ab heute" : "Testphase 14 Tage starten")}
+            </button>
+            {f.trialUntil && (
+              <button style={{ ...ghost, background: "#DDF2E8", color: "#1F6347", borderColor: "#B7E1CB" }} disabled={busy} onClick={() => { if (window.confirm(`„${f.name}“ dauerhaft freischalten (keine Testphase mehr)?`)) act({ action: "set_trial", orgId: f.id, mode: "off" }, { key: "to" + f.id, okText: `„${f.name}“ ist dauerhaft freigeschaltet.` }); }}>
+                {label("to" + f.id, "Dauerhaft freischalten")}
+              </button>
+            )}
           </div>
           {Object.keys(FEATURES).length > 0 && (
             <details style={{ margin: "0 0 10px" }}>
@@ -314,6 +345,35 @@ export default function AdminDashboard() {
           )}
         </div>
       ))}
+    </>
+  );
+}
+
+// Testphase und Zustimmungen einer Firma (Skript 34): Restlaufzeit + wer wann welche Fassung angenommen hat.
+function TrialInfo({ f }) {
+  const acc = f.acceptances || [];
+  const day = (iso) => { try { return new Date(iso).toLocaleDateString("de-DE"); } catch (e) { return ""; } };
+  let badge = null;
+  if (f.trialUntil) {
+    const left = Math.ceil((new Date(f.trialUntil).getTime() - Date.now()) / 86400000);
+    const over = left <= 0;
+    badge = (
+      <div data-trial={f.id} style={{ fontSize: 12, marginTop: 4 }}>
+        <span style={{ fontWeight: 650, borderRadius: 999, padding: "2px 9px", background: over ? "#FCE5EA" : "#FFF1D2", color: over ? "#8A2A3E" : "#7A4E00" }}>
+          {over ? `Testphase abgelaufen am ${day(f.trialUntil)}` : `Testphase bis ${day(f.trialUntil)} · noch ${left} ${left === 1 ? "Tag" : "Tage"}`}
+        </span>
+      </div>
+    );
+  }
+  if (!badge && acc.length === 0) return null;
+  return (
+    <>
+      {badge}
+      <div data-acceptances={f.id} style={{ fontSize: 12, color: MUTED, marginTop: 4 }}>
+        {acc.length === 0 ? "Zustimmungen: noch keine" : <>Zustimmungen: {acc.map((a, i) => (
+          <span key={i}>{i ? " · " : ""}{LEGAL_HREF[a.doc] ? <a href={LEGAL_HREF[a.doc]} target="_blank" rel="noopener" style={{ color: PRIMARY }}>{LEGAL_LABEL[a.doc]}</a> : (LEGAL_LABEL[a.doc] || a.doc)} {a.version} am {fmt(a.at)} von {a.email || "?"}</span>
+        ))}</>}
+      </div>
     </>
   );
 }

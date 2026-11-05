@@ -96,12 +96,18 @@ export async function GET(request) {
       if (data.users.length < 200) break;
     }
     const staffName = {}; staff.data.forEach((s) => { staffName[s.id] = s.name; });
+    // Testphase + Zustimmungen (script 34). Missing column/table = no test phase, never breaks the page.
+    const tr = await supabaseAdmin.from("organizations").select("id, trial_until");
+    const la = await supabaseAdmin.from("legal_acceptances").select("org_id, doc, version, accepted_at, user_email").order("accepted_at");
+    const trialOf = {}; if (!tr.error) (tr.data || []).forEach((t) => { trialOf[t.id] = t.trial_until; });
     const firms = orgs.data.map((o) => ({
       ...o,
       products: Object.fromEntries(PRODUCTS.map((p) => [p, !!prods.data.find((x) => x.org_id === o.id && x.product === p && x.enabled)])),
       features: Object.fromEntries(Object.keys(FEATURES).map((k) => [k, !feats.error && !!(feats.data || []).find((x) => x.org_id === o.id && x.feature === k && x.enabled)])),
       members: mems.data.filter((m) => m.org_id === o.id).map((m) => ({ userId: m.user_id, email: (users[m.user_id] || {}).email || "?", lastSignIn: (users[m.user_id] || {}).lastSignIn || null, role: m.role, staffId: m.staff_id, staffName: m.staff_id ? staffName[m.staff_id] || null : null })),
       staff: staff.data.filter((s) => s.org_id === o.id && s.active).map((s) => ({ id: s.id, name: s.name, hasLogin: mems.data.some((m) => m.staff_id === s.id) })),
+      trialUntil: trialOf[o.id] || null,
+      acceptances: la.error ? [] : (la.data || []).filter((a) => a.org_id === o.id).map((a) => ({ doc: a.doc, version: a.version, at: a.accepted_at, email: a.user_email })),
     }));
     // Demo-Anfragen (script 33). Missing columns or table = empty list, never breaks the page.
     const dr = await supabaseAdmin.from("demo_requests").select("id, created_at, company, email, phone, message, status, mail_sent, mail_error, done_at").order("created_at", { ascending: false }).limit(300);
@@ -132,6 +138,17 @@ export async function POST(request) {
         if (r.error) throw r.error;
         if (!r.data || r.data.length === 0) return json({ error: "Anfrage nicht gefunden." }, 404);
         await log(me, "demo_delete", null, id, { company: r.data[0].company });
+        return json({ ok: true });
+      }
+      case "set_trial": {
+        // start: test phase of 14 days from now; off: no test phase any more ("dauerhaft")
+        const orgId = String(body.orgId || ""), start = body.mode === "start";
+        if (!start && body.mode !== "off") return json({ error: "Ungültige Anfrage." }, 400);
+        const until = start ? new Date(Date.now() + 14 * 86400000).toISOString() : null;
+        const r = await supabaseAdmin.from("organizations").update({ trial_until: until }).eq("id", orgId).select("id, name");
+        if (r.error) return json({ error: /trial_until/.test(r.error.message) ? "Bitte zuerst Datenbank-Skript 34 ausführen." : "Speichern fehlgeschlagen." }, 500);
+        if (!r.data || r.data.length === 0) return json({ error: "Firma nicht gefunden." }, 404);
+        await log(me, start ? "trial_start" : "trial_off", orgId, null, { until });
         return json({ ok: true });
       }
       case "create_org": {
