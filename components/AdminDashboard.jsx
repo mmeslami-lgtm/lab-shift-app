@@ -234,6 +234,7 @@ export default function AdminDashboard() {
       </div>
 
       <div style={{ fontSize: 14, color: MUTED, margin: "6px 2px 8px" }}>{firms.length} Firmen</div>
+      <BillingSummary firms={firms} />
       {firms.map((f) => (
         <div key={f.id} style={{ ...card, opacity: f.active ? 1 : 0.75 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
@@ -268,6 +269,7 @@ export default function AdminDashboard() {
               </button>
             )}
           </div>
+          <BillingBox f={f} act={act} busy={busy} label={label} />
           {Object.keys(FEATURES).length > 0 && (
             <details style={{ margin: "0 0 10px" }}>
               <summary style={{ cursor: "pointer", fontSize: 13, color: MUTED }}>Funktionen nur für diese Firma ({Object.keys(FEATURES).filter((k) => f.features && f.features[k]).length} an)</summary>
@@ -375,5 +377,110 @@ function TrialInfo({ f }) {
         ))}</>}
       </div>
     </>
+  );
+}
+
+// ---------- Abrechnung von Hand (Skript 35) ----------
+const todayISO = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
+const eur = (n) => Number(n || 0).toLocaleString("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " €";
+const dayDE = (iso) => (iso ? iso.split("-").reverse().join(".") : "");
+const daysUntil = (iso) => Math.round((Date.parse(iso + "T00:00:00Z") - Date.parse(todayISO() + "T00:00:00Z")) / 86400000);
+
+function dueState(b) {
+  if (!b || !b.next_due) return null;
+  const n = daysUntil(b.next_due);
+  if (n < 0) return { kind: "over", text: `überfällig seit ${-n} ${n === -1 ? "Tag" : "Tagen"} (fällig ${dayDE(b.next_due)})`, bg: "#FCE5EA", fg: "#8A2A3E" };
+  if (n <= 7) return { kind: "soon", text: n === 0 ? "heute fällig" : `fällig am ${dayDE(b.next_due)} (in ${n} ${n === 1 ? "Tag" : "Tagen"})`, bg: "#FFF1D2", fg: "#7A4E00" };
+  return { kind: "ok", text: `bezahlt · nächste Zahlung am ${dayDE(b.next_due)}`, bg: "#DDF2E8", fg: "#1F6347" };
+}
+
+function BillingSummary({ firms }) {
+  const billed = firms.filter((f) => f.billing && Number(f.billing.amount) > 0);
+  if (billed.length === 0) return null;
+  const monthly = billed.reduce((s, f) => s + (f.billing.cycle === "jaehrlich" ? Number(f.billing.amount) / 12 : Number(f.billing.amount)), 0);
+  const over = billed.filter((f) => (dueState(f.billing) || {}).kind === "over");
+  return (
+    <div data-billing-summary style={{ ...card, display: "flex", gap: 16, flexWrap: "wrap", alignItems: "center", fontSize: 14 }}>
+      <b>Abrechnung</b>
+      <span>{billed.length} zahlende {billed.length === 1 ? "Firma" : "Firmen"}</span>
+      <span>monatlich gesamt: <b>{eur(monthly)}</b> <span style={{ color: MUTED }}>netto, zzgl. MwSt.</span></span>
+      <span style={{ fontWeight: 700, color: over.length ? "#C0262D" : "#1F6347" }}>{over.length ? `${over.length} überfällig: ${over.map((f) => f.name).join(", ")}` : "nichts überfällig ✓"}</span>
+    </div>
+  );
+}
+
+function BillingBox({ f, act, busy, label }) {
+  const b = f.billing;
+  const [mode, setMode] = useState(""); // "" | "edit" | "pay"
+  const [ed, setEd] = useState({ amount: "", cycle: "monatlich", nextDue: "", note: "" });
+  const [pay, setPay] = useState({ amount: "", paidOn: "" });
+  const [err, setErr] = useState("");
+  const st = dueState(b);
+  const pays = f.payments || [];
+  const small = { ...ghost, padding: "5px 9px", fontSize: 13 };
+  const inp = { ...fld, marginTop: 2, padding: "7px 9px", fontSize: 14 };
+
+  const openEdit = () => { setEd({ amount: b ? String(b.amount).replace(".", ",") : "", cycle: b ? b.cycle : "monatlich", nextDue: b && b.next_due ? b.next_due : "", note: b && b.note ? b.note : "" }); setErr(""); setMode("edit"); };
+  const openPay = () => { setPay({ amount: b ? String(b.amount).replace(".", ",") : "", paidOn: todayISO() }); setErr(""); setMode("pay"); };
+
+  return (
+    <div data-billing={f.id} style={{ border: `1px solid ${LINE}`, borderRadius: 12, padding: "8px 10px", margin: "0 0 10px", fontSize: 14 }}>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+        <b>Abrechnung:</b>
+        {!b ? <span style={{ color: MUTED }}>noch nicht eingerichtet</span> : (
+          <span>{eur(b.amount)} / {b.cycle === "jaehrlich" ? "Jahr" : "Monat"} <span style={{ color: MUTED }}>zzgl. MwSt.</span></span>
+        )}
+        {st && <span data-billing-state={st.kind} style={{ fontSize: 12, fontWeight: 650, borderRadius: 999, padding: "2px 9px", background: st.bg, color: st.fg }}>{st.text}</span>}
+        {b && b.note && <span style={{ fontSize: 12, color: MUTED }}>· {b.note}</span>}
+        <span style={{ flex: "1 1 auto" }} />
+        {b && b.next_due && <button style={{ ...small, background: "#DDF2E8", color: "#1F6347", borderColor: "#B7E1CB" }} disabled={busy} onClick={openPay}>Zahlung erhalten</button>}
+        <button style={small} disabled={busy} onClick={openEdit}>{b ? "Bearbeiten" : "Einrichten"}</button>
+      </div>
+
+      {mode === "edit" && (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 8, marginTop: 8 }}>
+          <label style={{ fontSize: 12, color: MUTED }}>Betrag netto (€)<input inputMode="decimal" value={ed.amount} onChange={(e) => setEd({ ...ed, amount: e.target.value })} style={inp} placeholder="z. B. 49,00" /></label>
+          <label style={{ fontSize: 12, color: MUTED }}>Zahlweise<select value={ed.cycle} onChange={(e) => setEd({ ...ed, cycle: e.target.value })} style={inp}><option value="monatlich">monatlich</option><option value="jaehrlich">jährlich</option></select></label>
+          <label style={{ fontSize: 12, color: MUTED }}>Nächste Zahlung fällig am<input type="date" value={ed.nextDue} onChange={(e) => setEd({ ...ed, nextDue: e.target.value })} style={inp} /></label>
+          <label style={{ fontSize: 12, color: MUTED }}>Notiz (z. B. Rechnung per E-Mail)<input value={ed.note} maxLength={300} onChange={(e) => setEd({ ...ed, note: e.target.value })} style={inp} /></label>
+          <div style={{ display: "flex", gap: 8, alignItems: "end" }}>
+            <button style={{ ...small, background: PRIMARY, color: "#fff", borderColor: PRIMARY }} disabled={busy} onClick={async () => {
+              const ok = await act({ action: "billing_save", orgId: f.id, amount: ed.amount, cycle: ed.cycle, nextDue: ed.nextDue || null, note: ed.note }, { key: "bs" + f.id, okText: `Abrechnung für „${f.name}“ gespeichert.`, onError: setErr });
+              if (ok) setMode("");
+            }}>{label("bs" + f.id, "Speichern")}</button>
+            <button style={small} onClick={() => setMode("")}>Abbrechen</button>
+          </div>
+        </div>
+      )}
+
+      {mode === "pay" && (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 8, marginTop: 8 }}>
+          <label style={{ fontSize: 12, color: MUTED }}>Erhaltener Betrag (€)<input inputMode="decimal" value={pay.amount} onChange={(e) => setPay({ ...pay, amount: e.target.value })} style={inp} /></label>
+          <label style={{ fontSize: 12, color: MUTED }}>Eingegangen am<input type="date" value={pay.paidOn} onChange={(e) => setPay({ ...pay, paidOn: e.target.value })} style={inp} /></label>
+          <div style={{ display: "flex", gap: 8, alignItems: "end" }}>
+            <button style={{ ...small, background: "#1F6347", color: "#fff", borderColor: "#1F6347" }} disabled={busy} onClick={async () => {
+              const ok = await act({ action: "billing_paid", orgId: f.id, amount: pay.amount, paidOn: pay.paidOn }, { key: "bp" + f.id, okText: `Zahlung von „${f.name}“ erfasst.`, onError: setErr });
+              if (ok) setMode("");
+            }}>{label("bp" + f.id, "Als bezahlt speichern")}</button>
+            <button style={small} onClick={() => setMode("")}>Abbrechen</button>
+          </div>
+          <div style={{ gridColumn: "1 / -1", fontSize: 12, color: MUTED }}>Bezahlt wird die Fälligkeit vom {dayDE(b.next_due)}; danach rückt die nächste Fälligkeit um einen {b.cycle === "jaehrlich" ? "Jahr" : "Monat"} weiter.</div>
+        </div>
+      )}
+
+      {err && <div role="alert" style={{ ...errBox, marginTop: 8 }}>{err}</div>}
+
+      {pays.length > 0 && (
+        <details style={{ marginTop: 6 }}>
+          <summary style={{ cursor: "pointer", fontSize: 12, color: MUTED }}>Letzte Zahlungen ({pays.length})</summary>
+          {pays.map((p, i) => (
+            <div key={p.id} data-payment={p.id} style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 13, padding: "3px 0" }}>
+              <span>{dayDE(p.paid_on)} · <b>{eur(p.amount)}</b>{p.for_due ? <span style={{ color: MUTED }}> · für Fälligkeit {dayDE(p.for_due)}</span> : null}</span>
+              {i === 0 && <button style={{ ...small, padding: "2px 8px", fontSize: 12, color: "#B3263E" }} disabled={busy} onClick={() => { if (window.confirm(`Zahlung vom ${dayDE(p.paid_on)} über ${eur(p.amount)} löschen? Die Fälligkeit wird wieder offen.`)) act({ action: "billing_payment_delete", id: p.id }, { key: "pd" + p.id, okText: "Zahlung gelöscht." }); }}>{label("pd" + p.id, "Rückgängig")}</button>}
+            </div>
+          ))}
+        </details>
+      )}
+    </div>
   );
 }

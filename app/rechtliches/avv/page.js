@@ -10,8 +10,10 @@ export const metadata = { title: "Auftragsverarbeitungsvertrag (AVV)", robots: {
 
 const ol = { margin: "6px 0 0", paddingLeft: 22 };
 const H = ({ children }) => <h3 style={{ fontSize: 15, fontWeight: 700, margin: "14px 0 4px" }}>{children}</h3>;
-const L = ({ children }) => <ol type="a" style={ol}>{children}</ol>;
-const N = ({ children }) => <ol type="1" style={ol}>{children}</ol>;
+// listStyleType explizit: das globale CSS (Tailwind) blendet Listenzeichen sonst aus,
+// die Klauseln verweisen aber auf "Buchstabe a/b".
+const L = ({ children }) => <ol type="a" style={{ ...ol, listStyleType: "lower-alpha" }}>{children}</ol>;
+const N = ({ children }) => <ol type="1" style={{ ...ol, listStyleType: "decimal" }}>{children}</ol>;
 const li = { marginBottom: 4 };
 
 export default function Page() {
