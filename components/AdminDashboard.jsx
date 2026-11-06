@@ -18,6 +18,8 @@ const ghost = { border: "1.5px solid #9AAED0", borderRadius: 10, background: "#f
 const fld = { display: "block", width: "100%", boxSizing: "border-box", marginTop: 4, border: `1px solid ${LINE}`, borderRadius: 10, padding: "9px 10px", fontSize: 15, background: "#fff", color: INK };
 // dunkelblaue Wechsel-Knöpfe zwischen /admin und /admin/finanzen
 const navBtn = { display: "inline-flex", alignItems: "center", gap: 8, borderRadius: 12, background: PRIMARY, color: "#fff", fontSize: 15, fontWeight: 650, padding: "9px 14px", textDecoration: "none", whiteSpace: "nowrap" };
+// Abmelden: rot, damit er sich klar von den anderen Knöpfen unterscheidet
+const logoutBtn = { border: 0, borderRadius: 12, background: "#C0262D", color: "#fff", fontSize: 15, fontWeight: 650, padding: "9px 14px", cursor: "pointer", whiteSpace: "nowrap" };
 const errBox = { marginTop: 10, background: "#FCE5EA", color: "#8A2A3E", borderRadius: 10, padding: "8px 10px", fontSize: 14 };
 const fmt = (iso) => { try { return new Date(iso).toLocaleString("de-DE", { dateStyle: "short", timeStyle: "short" }); } catch (e) { return ""; } };
 
@@ -135,7 +137,7 @@ export default function AdminDashboard({ view = "admin" }) {
   if (!supabaseConfigured) return shell(<div style={{ ...card, background: "#FFF1D2" }}>Supabase ist nicht eingerichtet.</div>);
   if (state.status === "loading") return shell(<div style={{ color: MUTED }}>Lädt …</div>);
   if (state.status === "login") return shell(<><h1 style={{ fontSize: 24, fontWeight: 750, margin: "4px 0 14px" }}>Plattform-Verwaltung</h1><div style={{ maxWidth: 520 }}><LoginForm title="Anmelden" /></div></>);
-  if (state.status === "forbidden") return shell(<><h1 style={{ fontSize: 22, fontWeight: 750 }}>Kein Zugriff</h1><div style={card}>Dieses Konto ist kein Plattform-Administrator.<div style={{ marginTop: 12 }}><button style={ghost} onClick={() => supabase.auth.signOut()}>Abmelden</button></div></div></>);
+  if (state.status === "forbidden") return shell(<><h1 style={{ fontSize: 22, fontWeight: 750 }}>Kein Zugriff</h1><div style={card}>Dieses Konto ist kein Plattform-Administrator.<div style={{ marginTop: 12 }}><button style={logoutBtn} onClick={() => supabase.auth.signOut()}>Abmelden</button></div></div></>);
   if (state.status === "error") return shell(<div style={{ ...card, background: "#FCE5EA", color: "#8A2A3E" }}>Fehler: {state.message}</div>);
 
   const { firms, me, demo = [] } = state;
@@ -155,7 +157,7 @@ export default function AdminDashboard({ view = "admin" }) {
           <div><div style={{ fontSize: 13, color: MUTED }}>Angemeldet als {me}</div><h1 style={{ fontSize: 24, fontWeight: 750, letterSpacing: -0.4, margin: 0 }}>Finanzen</h1></div>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             <a href="/admin" data-nav-admin style={navBtn}>← Plattform-Verwaltung</a>
-            <button style={ghost} onClick={() => supabase.auth.signOut()}>Abmelden</button>
+            <button style={logoutBtn} onClick={() => supabase.auth.signOut()}>Abmelden</button>
           </div>
         </div>
         {err && <div role="alert" style={{ ...errBox, marginBottom: 12 }}>{err}</div>}
@@ -181,7 +183,7 @@ export default function AdminDashboard({ view = "admin" }) {
         <div><div style={{ fontSize: 13, color: MUTED }}>Angemeldet als {me}</div><h1 style={{ fontSize: 24, fontWeight: 750, letterSpacing: -0.4, margin: 0 }}>Plattform-Verwaltung</h1></div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           <FinanzenLink firms={firms} />
-          <button style={ghost} onClick={() => supabase.auth.signOut()}>Abmelden</button>
+          <button style={logoutBtn} onClick={() => supabase.auth.signOut()}>Abmelden</button>
         </div>
       </div>
 
