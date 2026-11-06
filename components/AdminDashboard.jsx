@@ -16,10 +16,6 @@ const card = { background: "#fff", borderRadius: 18, padding: 16, marginBottom: 
 const btn = { border: 0, borderRadius: 12, background: PRIMARY, color: "#fff", fontSize: 15, fontWeight: 650, padding: "10px 14px", cursor: "pointer" };
 const ghost = { border: "1.5px solid #9AAED0", borderRadius: 10, background: "#fff", color: INK, fontSize: 14, fontWeight: 600, padding: "7px 10px", cursor: "pointer" };
 const fld = { display: "block", width: "100%", boxSizing: "border-box", marginTop: 4, border: `1px solid ${LINE}`, borderRadius: 10, padding: "9px 10px", fontSize: 15, background: "#fff", color: INK };
-// dunkelblaue Wechsel-Knöpfe zwischen /admin und /admin/finanzen
-const navBtn = { display: "inline-flex", alignItems: "center", gap: 8, borderRadius: 12, background: PRIMARY, color: "#fff", fontSize: 15, fontWeight: 650, padding: "9px 14px", textDecoration: "none", whiteSpace: "nowrap" };
-// Abmelden: rot, damit er sich klar von den anderen Knöpfen unterscheidet
-const logoutBtn = { border: 0, borderRadius: 12, background: "#C0262D", color: "#fff", fontSize: 15, fontWeight: 650, padding: "9px 14px", cursor: "pointer", whiteSpace: "nowrap" };
 const errBox = { marginTop: 10, background: "#FCE5EA", color: "#8A2A3E", borderRadius: 10, padding: "8px 10px", fontSize: 14 };
 const fmt = (iso) => { try { return new Date(iso).toLocaleString("de-DE", { dateStyle: "short", timeStyle: "short" }); } catch (e) { return ""; } };
 
@@ -37,7 +33,7 @@ const CSS = `
 
 // Platform administration for the operator: all companies, products, accounts. The page only shows what the
 // server route allows (it checks platform_admins itself). Nothing secret lives here.
-export default function AdminDashboard({ view = "admin" }) {
+export default function AdminDashboard() {
   const [session, setSession] = useState(undefined);
   const [state, setState] = useState({ status: "loading" });
   const [secret, setSecret] = useState(null);   // { title, email, password } shown once
@@ -137,7 +133,7 @@ export default function AdminDashboard({ view = "admin" }) {
   if (!supabaseConfigured) return shell(<div style={{ ...card, background: "#FFF1D2" }}>Supabase ist nicht eingerichtet.</div>);
   if (state.status === "loading") return shell(<div style={{ color: MUTED }}>Lädt …</div>);
   if (state.status === "login") return shell(<><h1 style={{ fontSize: 24, fontWeight: 750, margin: "4px 0 14px" }}>Plattform-Verwaltung</h1><div style={{ maxWidth: 520 }}><LoginForm title="Anmelden" /></div></>);
-  if (state.status === "forbidden") return shell(<><h1 style={{ fontSize: 22, fontWeight: 750 }}>Kein Zugriff</h1><div style={card}>Dieses Konto ist kein Plattform-Administrator.<div style={{ marginTop: 12 }}><button style={logoutBtn} onClick={() => supabase.auth.signOut()}>Abmelden</button></div></div></>);
+  if (state.status === "forbidden") return shell(<><h1 style={{ fontSize: 22, fontWeight: 750 }}>Kein Zugriff</h1><div style={card}>Dieses Konto ist kein Plattform-Administrator.<div style={{ marginTop: 12 }}><button style={ghost} onClick={() => supabase.auth.signOut()}>Abmelden</button></div></div></>);
   if (state.status === "error") return shell(<div style={{ ...card, background: "#FCE5EA", color: "#8A2A3E" }}>Fehler: {state.message}</div>);
 
   const { firms, me, demo = [] } = state;
@@ -145,46 +141,11 @@ export default function AdminDashboard({ view = "admin" }) {
   const demoShown = showDone ? demo : demo.filter((d) => d.status !== "erledigt");
   const toggleProducts = (key) => setNf((f) => ({ ...f, products: { ...f.products, [key]: !f.products[key] } }));
 
-  // Finanzen = eigene Seite /admin/finanzen (gleiche Anmeldung, gleiche Daten, nur Abrechnung).
-  if (view === "finanzen") {
-    const sorted = [...firms].sort((a, b) => {
-      const rank = (f) => { const k = (dueState(f.billing) || {}).kind; return k === "over" ? 0 : k === "soon" ? 1 : f.billing ? 2 : 3; };
-      return rank(a) - rank(b) || a.name.localeCompare(b.name, "de");
-    });
-    return shell(
-      <>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 12 }}>
-          <div><div style={{ fontSize: 13, color: MUTED }}>Angemeldet als {me}</div><h1 style={{ fontSize: 24, fontWeight: 750, letterSpacing: -0.4, margin: 0 }}>Finanzen</h1></div>
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            <a href="/admin" data-nav-admin style={navBtn}>← Plattform-Verwaltung</a>
-            <button style={logoutBtn} onClick={() => supabase.auth.signOut()}>Abmelden</button>
-          </div>
-        </div>
-        {err && <div role="alert" style={{ ...errBox, marginBottom: 12 }}>{err}</div>}
-        <BillingSummary firms={firms} always />
-        <div style={{ fontSize: 13, color: MUTED, margin: "2px 2px 8px" }}>Von Hand: Preis und Fälligkeit je Firma eintragen, eingegangene Zahlungen bestätigen. Überfällige stehen oben.</div>
-        {sorted.map((f) => (
-          <div key={f.id} data-fin-firm={f.id} style={{ ...card, padding: 12 }}>
-            <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginBottom: 6 }}>
-              <b style={{ fontSize: 16 }}>{f.name}</b>
-              {!f.active && <span style={{ fontSize: 12, color: "#8A2A3E" }}>deaktiviert</span>}
-              <TrialInfo f={f} compact />
-            </div>
-            <BillingBox f={f} act={act} busy={busy} label={label} />
-          </div>
-        ))}
-      </>
-    );
-  }
-
   return shell(
     <>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 12 }}>
         <div><div style={{ fontSize: 13, color: MUTED }}>Angemeldet als {me}</div><h1 style={{ fontSize: 24, fontWeight: 750, letterSpacing: -0.4, margin: 0 }}>Plattform-Verwaltung</h1></div>
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <FinanzenLink firms={firms} />
-          <button style={logoutBtn} onClick={() => supabase.auth.signOut()}>Abmelden</button>
-        </div>
+        <button style={ghost} onClick={() => supabase.auth.signOut()}>Abmelden</button>
       </div>
 
       {err && <div role="alert" style={{ ...card, background: "#FCE5EA", color: "#8A2A3E", fontSize: 14 }}>{err}</div>}
@@ -273,6 +234,7 @@ export default function AdminDashboard({ view = "admin" }) {
       </div>
 
       <div style={{ fontSize: 14, color: MUTED, margin: "6px 2px 8px" }}>{firms.length} Firmen</div>
+      <BillingSummary firms={firms} />
       {firms.map((f) => (
         <div key={f.id} style={{ ...card, opacity: f.active ? 1 : 0.75 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
@@ -307,6 +269,7 @@ export default function AdminDashboard({ view = "admin" }) {
               </button>
             )}
           </div>
+          <BillingBox f={f} act={act} busy={busy} label={label} />
           {Object.keys(FEATURES).length > 0 && (
             <details style={{ margin: "0 0 10px" }}>
               <summary style={{ cursor: "pointer", fontSize: 13, color: MUTED }}>Funktionen nur für diese Firma ({Object.keys(FEATURES).filter((k) => f.features && f.features[k]).length} an)</summary>
@@ -389,7 +352,7 @@ export default function AdminDashboard({ view = "admin" }) {
 }
 
 // Testphase und Zustimmungen einer Firma (Skript 34): Restlaufzeit + wer wann welche Fassung angenommen hat.
-function TrialInfo({ f, compact = false }) {
+function TrialInfo({ f }) {
   const acc = f.acceptances || [];
   const day = (iso) => { try { return new Date(iso).toLocaleDateString("de-DE"); } catch (e) { return ""; } };
   let badge = null;
@@ -404,7 +367,6 @@ function TrialInfo({ f, compact = false }) {
       </div>
     );
   }
-  if (compact) return badge;
   if (!badge && acc.length === 0) return null;
   return (
     <>
@@ -432,9 +394,9 @@ function dueState(b) {
   return { kind: "ok", text: `bezahlt · nächste Zahlung am ${dayDE(b.next_due)}`, bg: "#DDF2E8", fg: "#1F6347" };
 }
 
-function BillingSummary({ firms, always = false }) {
+function BillingSummary({ firms }) {
   const billed = firms.filter((f) => f.billing && Number(f.billing.amount) > 0);
-  if (billed.length === 0) return always ? <div style={{ ...card, fontSize: 14, color: MUTED }}>Noch keine zahlende Firma eingerichtet.</div> : null;
+  if (billed.length === 0) return null;
   const monthly = billed.reduce((s, f) => s + (f.billing.cycle === "jaehrlich" ? Number(f.billing.amount) / 12 : Number(f.billing.amount)), 0);
   const over = billed.filter((f) => (dueState(f.billing) || {}).kind === "over");
   return (
@@ -455,7 +417,7 @@ function BillingBox({ f, act, busy, label }) {
   const [err, setErr] = useState("");
   const st = dueState(b);
   const pays = f.payments || [];
-  const small = { ...ghost, padding: "5px 9px", fontSize: 13, whiteSpace: "nowrap" };
+  const small = { ...ghost, padding: "5px 9px", fontSize: 13 };
   const inp = { ...fld, marginTop: 2, padding: "7px 9px", fontSize: 14 };
 
   const openEdit = () => { setEd({ amount: b ? String(b.amount).replace(".", ",") : "", cycle: b ? b.cycle : "monatlich", nextDue: b && b.next_due ? b.next_due : "", note: b && b.note ? b.note : "" }); setErr(""); setMode("edit"); };
@@ -477,12 +439,12 @@ function BillingBox({ f, act, busy, label }) {
 
       {mode === "edit" && (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 8, marginTop: 8 }}>
-          <label style={{ fontSize: 12, color: MUTED }}>Vereinbarter Preis netto (€)<input inputMode="decimal" value={ed.amount} onChange={(e) => setEd({ ...ed, amount: e.target.value })} style={inp} placeholder="z. B. 49,00" /></label>
+          <label style={{ fontSize: 12, color: MUTED }}>Betrag netto (€)<input inputMode="decimal" value={ed.amount} onChange={(e) => setEd({ ...ed, amount: e.target.value })} style={inp} placeholder="z. B. 49,00" /></label>
           <label style={{ fontSize: 12, color: MUTED }}>Zahlweise<select value={ed.cycle} onChange={(e) => setEd({ ...ed, cycle: e.target.value })} style={inp}><option value="monatlich">monatlich</option><option value="jaehrlich">jährlich</option></select></label>
           <label style={{ fontSize: 12, color: MUTED }}>Nächste Zahlung fällig am<input type="date" value={ed.nextDue} onChange={(e) => setEd({ ...ed, nextDue: e.target.value })} style={inp} /></label>
           <label style={{ fontSize: 12, color: MUTED }}>Notiz (z. B. Rechnung per E-Mail)<input value={ed.note} maxLength={300} onChange={(e) => setEd({ ...ed, note: e.target.value })} style={inp} /></label>
-          <div style={{ display: "flex", gap: 8, alignItems: "end", flexWrap: "wrap", gridColumn: "1 / -1" }}>
-            <button style={{ ...small, background: PRIMARY, color: "#fff", borderColor: PRIMARY, padding: "8px 16px", fontSize: 14 }} disabled={busy} onClick={async () => {
+          <div style={{ display: "flex", gap: 8, alignItems: "end" }}>
+            <button style={{ ...small, background: PRIMARY, color: "#fff", borderColor: PRIMARY }} disabled={busy} onClick={async () => {
               const ok = await act({ action: "billing_save", orgId: f.id, amount: ed.amount, cycle: ed.cycle, nextDue: ed.nextDue || null, note: ed.note }, { key: "bs" + f.id, okText: `Abrechnung für „${f.name}“ gespeichert.`, onError: setErr });
               if (ok) setMode("");
             }}>{label("bs" + f.id, "Speichern")}</button>
@@ -493,10 +455,10 @@ function BillingBox({ f, act, busy, label }) {
 
       {mode === "pay" && (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 8, marginTop: 8 }}>
-          <label style={{ fontSize: 12, color: MUTED }}>Tatsächlich erhalten (€)<input inputMode="decimal" value={pay.amount} onChange={(e) => setPay({ ...pay, amount: e.target.value })} style={inp} /></label>
+          <label style={{ fontSize: 12, color: MUTED }}>Erhaltener Betrag (€)<input inputMode="decimal" value={pay.amount} onChange={(e) => setPay({ ...pay, amount: e.target.value })} style={inp} /></label>
           <label style={{ fontSize: 12, color: MUTED }}>Eingegangen am<input type="date" value={pay.paidOn} onChange={(e) => setPay({ ...pay, paidOn: e.target.value })} style={inp} /></label>
-          <div style={{ display: "flex", gap: 8, alignItems: "end", flexWrap: "wrap", gridColumn: "1 / -1" }}>
-            <button style={{ ...small, background: "#1F6347", color: "#fff", borderColor: "#1F6347", padding: "8px 16px", fontSize: 14 }} disabled={busy} onClick={async () => {
+          <div style={{ display: "flex", gap: 8, alignItems: "end" }}>
+            <button style={{ ...small, background: "#1F6347", color: "#fff", borderColor: "#1F6347" }} disabled={busy} onClick={async () => {
               const ok = await act({ action: "billing_paid", orgId: f.id, amount: pay.amount, paidOn: pay.paidOn }, { key: "bp" + f.id, okText: `Zahlung von „${f.name}“ erfasst.`, onError: setErr });
               if (ok) setMode("");
             }}>{label("bp" + f.id, "Als bezahlt speichern")}</button>
@@ -520,16 +482,5 @@ function BillingBox({ f, act, busy, label }) {
         </details>
       )}
     </div>
-  );
-}
-
-// Dunkelblauer Knopf in /admin: Weg zur Seite Finanzen + rote Zahl bei überfälligen Zahlungen.
-function FinanzenLink({ firms }) {
-  const over = firms.filter((f) => (dueState(f.billing) || {}).kind === "over");
-  return (
-    <a href="/admin/finanzen" data-finanzen-link style={navBtn}>
-      Finanzen →
-      {over.length > 0 && <span style={{ fontSize: 12, fontWeight: 750, color: "#fff", background: "#C0262D", borderRadius: 999, padding: "1px 8px" }}>{over.length} überfällig</span>}
-    </a>
   );
 }
