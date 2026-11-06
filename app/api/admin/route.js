@@ -20,6 +20,16 @@ const PRODUCTS = ["lab_planner", "generic_planner", "employee_app", "time_tracki
 const ROLES = ["supervisor", "planner", "employee"];
  // never "owner" here; owners are created with a company
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+const DATE = /^\d{4}-\d{2}-\d{2}$/;
+// "2026-01-31" + 1 Monat = "2026-02-28" (Monatsende wird gekappt)
+function addCycle(iso, cycle) {
+  const [y, m, d] = iso.split("-").map(Number);
+  const months = cycle === "jaehrlich" ? 12 : 1;
+  const ty = y + Math.floor((m - 1 + months) / 12), tm = ((m - 1 + months) % 12) + 1;
+  const last = new Date(Date.UTC(ty, tm, 0)).getUTCDate();
+  return `${ty}-${String(tm).padStart(2, "0")}-${String(Math.min(d, last)).padStart(2, "0")}`;
+}
+const money = (v) => { const n = Number(String(v ?? "").replace(",", ".")); return Number.isFinite(n) && n >= 0 && n <= 100000 ? Math.round(n * 100) / 100 : null; };
 const json = (body, status = 200) => Response.json(body, { status, headers: { "Cache-Control": "no-store" } });
 
 function newPassword() {
@@ -99,6 +109,9 @@ export async function GET(request) {
     // Testphase + Zustimmungen (script 34). Missing column/table = no test phase, never breaks the page.
     const tr = await supabaseAdmin.from("organizations").select("id, trial_until");
     const la = await supabaseAdmin.from("legal_acceptances").select("org_id, doc, version, accepted_at, user_email").order("accepted_at");
+    // Abrechnung von Hand (script 35). Missing tables = keine Angaben.
+    const bl = await supabaseAdmin.from("org_billing").select("org_id, amount, cycle, next_due, note");
+    const py = await supabaseAdmin.from("org_payments").select("id, org_id, amount, paid_on, for_due, note, created_at").order("created_at", { ascending: false }).limit(2000);
     const trialOf = {}; if (!tr.error) (tr.data || []).forEach((t) => { trialOf[t.id] = t.trial_until; });
     const firms = orgs.data.map((o) => ({
       ...o,
@@ -107,6 +120,8 @@ export async function GET(request) {
       members: mems.data.filter((m) => m.org_id === o.id).map((m) => ({ userId: m.user_id, email: (users[m.user_id] || {}).email || "?", lastSignIn: (users[m.user_id] || {}).lastSignIn || null, role: m.role, staffId: m.staff_id, staffName: m.staff_id ? staffName[m.staff_id] || null : null })),
       staff: staff.data.filter((s) => s.org_id === o.id && s.active).map((s) => ({ id: s.id, name: s.name, hasLogin: mems.data.some((m) => m.staff_id === s.id) })),
       trialUntil: trialOf[o.id] || null,
+      billing: bl.error ? null : ((bl.data || []).find((b) => b.org_id === o.id) || null),
+      payments: py.error ? [] : (py.data || []).filter((p) => p.org_id === o.id).slice(0, 6),
       acceptances: la.error ? [] : (la.data || []).filter((a) => a.org_id === o.id).map((a) => ({ doc: a.doc, version: a.version, at: a.accepted_at, email: a.user_email })),
     }));
     // Demo-Anfragen (script 33). Missing columns or table = empty list, never breaks the page.
@@ -149,6 +164,54 @@ export async function POST(request) {
         if (r.error) return json({ error: /trial_until/.test(r.error.message) ? "Bitte zuerst Datenbank-Skript 34 ausführen." : "Speichern fehlgeschlagen." }, 500);
         if (!r.data || r.data.length === 0) return json({ error: "Firma nicht gefunden." }, 404);
         await log(me, start ? "trial_start" : "trial_off", orgId, null, { until });
+        return json({ ok: true });
+      }
+      case "billing_save": {
+        const orgId = String(body.orgId || "");
+        const amount = money(body.amount);
+        const cycle = body.cycle === "jaehrlich" ? "jaehrlich" : "monatlich";
+        const nextDue = body.nextDue ? String(body.nextDue) : null;
+        const note = String(body.note || "").trim().slice(0, 300) || null;
+        if (amount === null) return json({ error: "Bitte einen gültigen Betrag angeben (0 bis 100000)." }, 400);
+        if (nextDue && !DATE.test(nextDue)) return json({ error: "Ungültiges Datum." }, 400);
+        const r = await supabaseAdmin.from("org_billing").upsert({ org_id: orgId, amount, cycle, next_due: nextDue, note, updated_at: new Date().toISOString(), updated_by: me.id }).select("org_id");
+        if (r.error) return json({ error: /org_billing/.test(r.error.message) ? "Bitte zuerst Datenbank-Skript 35 ausführen." : "Speichern fehlgeschlagen." }, 500);
+        await log(me, "billing_save", orgId, null, { amount, cycle, nextDue });
+        return json({ ok: true });
+      }
+      case "billing_paid": {
+        // records a payment; if it pays the current due date, the next due date moves on by one cycle
+        const orgId = String(body.orgId || "");
+        const amount = money(body.amount);
+        const paidOn = String(body.paidOn || "");
+        if (amount === null) return json({ error: "Bitte einen gültigen Betrag angeben." }, 400);
+        if (!DATE.test(paidOn)) return json({ error: "Ungültiges Zahlungsdatum." }, 400);
+        const b = await supabaseAdmin.from("org_billing").select("cycle, next_due").eq("org_id", orgId);
+        if (b.error) return json({ error: "Bitte zuerst Datenbank-Skript 35 ausführen." }, 500);
+        const bill = b.data && b.data[0];
+        const forDue = bill && bill.next_due ? bill.next_due : null;
+        const ins = await supabaseAdmin.from("org_payments").insert({ org_id: orgId, amount, paid_on: paidOn, for_due: forDue, note: String(body.note || "").trim().slice(0, 300) || null, created_by: me.id }).select("id");
+        if (ins.error) return json({ error: "Speichern fehlgeschlagen." }, 500);
+        if (forDue) {
+          const up = await supabaseAdmin.from("org_billing").update({ next_due: addCycle(forDue, bill.cycle), updated_at: new Date().toISOString(), updated_by: me.id }).eq("org_id", orgId);
+          if (up.error) return json({ error: "Zahlung gespeichert, aber nächste Fälligkeit nicht verschoben." }, 500);
+        }
+        await log(me, "billing_paid", orgId, ins.data[0].id, { amount, paidOn, forDue });
+        return json({ ok: true });
+      }
+      case "billing_payment_delete": {
+        // undo a wrong entry; the due date it paid becomes the next due date again
+        const id = String(body.id || "");
+        const one = await supabaseAdmin.from("org_payments").select("org_id").eq("id", id);
+        if (one.error || !one.data || one.data.length === 0) return json({ error: "Zahlung nicht gefunden." }, 404);
+        const last = await supabaseAdmin.from("org_payments").select("id").eq("org_id", one.data[0].org_id).order("created_at", { ascending: false }).limit(1);
+        if (last.error || !last.data[0] || last.data[0].id !== id) return json({ error: "Nur die zuletzt erfasste Zahlung kann gelöscht werden." }, 400);
+        const r = await supabaseAdmin.from("org_payments").delete().eq("id", id).select("id, org_id, amount, for_due");
+        if (r.error) return json({ error: "Löschen fehlgeschlagen." }, 500);
+        if (!r.data || r.data.length === 0) return json({ error: "Zahlung nicht gefunden." }, 404);
+        const p = r.data[0];
+        if (p.for_due) await supabaseAdmin.from("org_billing").update({ next_due: p.for_due, updated_at: new Date().toISOString(), updated_by: me.id }).eq("org_id", p.org_id);
+        await log(me, "billing_payment_delete", p.org_id, id, { amount: p.amount, forDue: p.for_due });
         return json({ ok: true });
       }
       case "create_org": {
