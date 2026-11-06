@@ -16,6 +16,8 @@ const card = { background: "#fff", borderRadius: 18, padding: 16, marginBottom: 
 const btn = { border: 0, borderRadius: 12, background: PRIMARY, color: "#fff", fontSize: 15, fontWeight: 650, padding: "10px 14px", cursor: "pointer" };
 const ghost = { border: "1.5px solid #9AAED0", borderRadius: 10, background: "#fff", color: INK, fontSize: 14, fontWeight: 600, padding: "7px 10px", cursor: "pointer" };
 const fld = { display: "block", width: "100%", boxSizing: "border-box", marginTop: 4, border: `1px solid ${LINE}`, borderRadius: 10, padding: "9px 10px", fontSize: 15, background: "#fff", color: INK };
+// dunkelblaue Wechsel-Knöpfe zwischen /admin und /admin/finanzen
+const navBtn = { display: "inline-flex", alignItems: "center", gap: 8, borderRadius: 12, background: PRIMARY, color: "#fff", fontSize: 15, fontWeight: 650, padding: "9px 14px", textDecoration: "none", whiteSpace: "nowrap" };
 const errBox = { marginTop: 10, background: "#FCE5EA", color: "#8A2A3E", borderRadius: 10, padding: "8px 10px", fontSize: 14 };
 const fmt = (iso) => { try { return new Date(iso).toLocaleString("de-DE", { dateStyle: "short", timeStyle: "short" }); } catch (e) { return ""; } };
 
@@ -150,8 +152,11 @@ export default function AdminDashboard({ view = "admin" }) {
     return shell(
       <>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 12 }}>
-          <div><a href="/admin" style={{ fontSize: 14, color: PRIMARY, textDecoration: "none" }}>← Plattform-Verwaltung</a><h1 style={{ fontSize: 24, fontWeight: 750, letterSpacing: -0.4, margin: "2px 0 0" }}>Finanzen</h1></div>
-          <button style={ghost} onClick={() => supabase.auth.signOut()}>Abmelden</button>
+          <div><div style={{ fontSize: 13, color: MUTED }}>Angemeldet als {me}</div><h1 style={{ fontSize: 24, fontWeight: 750, letterSpacing: -0.4, margin: 0 }}>Finanzen</h1></div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <a href="/admin" data-nav-admin style={navBtn}>← Plattform-Verwaltung</a>
+            <button style={ghost} onClick={() => supabase.auth.signOut()}>Abmelden</button>
+          </div>
         </div>
         {err && <div role="alert" style={{ ...errBox, marginBottom: 12 }}>{err}</div>}
         <BillingSummary firms={firms} always />
@@ -174,7 +179,10 @@ export default function AdminDashboard({ view = "admin" }) {
     <>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 12 }}>
         <div><div style={{ fontSize: 13, color: MUTED }}>Angemeldet als {me}</div><h1 style={{ fontSize: 24, fontWeight: 750, letterSpacing: -0.4, margin: 0 }}>Plattform-Verwaltung</h1></div>
-        <button style={ghost} onClick={() => supabase.auth.signOut()}>Abmelden</button>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <FinanzenLink firms={firms} />
+          <button style={ghost} onClick={() => supabase.auth.signOut()}>Abmelden</button>
+        </div>
       </div>
 
       {err && <div role="alert" style={{ ...card, background: "#FCE5EA", color: "#8A2A3E", fontSize: 14 }}>{err}</div>}
@@ -263,7 +271,6 @@ export default function AdminDashboard({ view = "admin" }) {
       </div>
 
       <div style={{ fontSize: 14, color: MUTED, margin: "6px 2px 8px" }}>{firms.length} Firmen</div>
-      <FinanzenLink firms={firms} />
       {firms.map((f) => (
         <div key={f.id} style={{ ...card, opacity: f.active ? 1 : 0.75 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
@@ -514,16 +521,13 @@ function BillingBox({ f, act, busy, label }) {
   );
 }
 
-// Kleine Karte in /admin: Weg zur Seite Finanzen + Warnung bei überfälligen Zahlungen.
+// Dunkelblauer Knopf in /admin: Weg zur Seite Finanzen + rote Zahl bei überfälligen Zahlungen.
 function FinanzenLink({ firms }) {
   const over = firms.filter((f) => (dueState(f.billing) || {}).kind === "over");
   return (
-    <a href="/admin/finanzen" data-finanzen-link style={{ ...card, display: "flex", gap: 10, alignItems: "center", textDecoration: "none", color: INK, padding: "12px 16px" }}>
-      <b style={{ fontSize: 16 }}>Finanzen</b>
-      <span style={{ fontSize: 13, color: MUTED }}>Preise, Fälligkeiten, Zahlungen</span>
-      {over.length > 0 && <span style={{ fontSize: 13, fontWeight: 700, color: "#fff", background: "#C0262D", borderRadius: 999, padding: "2px 9px" }}>{over.length} überfällig</span>}
-      <span style={{ flex: "1 1 auto" }} />
-      <span style={{ color: PRIMARY, fontWeight: 650 }}>Öffnen →</span>
+    <a href="/admin/finanzen" data-finanzen-link style={navBtn}>
+      Finanzen →
+      {over.length > 0 && <span style={{ fontSize: 12, fontWeight: 750, color: "#fff", background: "#C0262D", borderRadius: 999, padding: "1px 8px" }}>{over.length} überfällig</span>}
     </a>
   );
 }
