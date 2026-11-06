@@ -3,7 +3,7 @@
 import React, { useCallback, useContext, useEffect, useRef, useState } from "react";
 import { OrgContext } from "../lib/orgContext";
 import { ABSENCE, absenceMap, elternzeitCut } from "../lib/absence";
-import { loadReview, markSeen } from "../lib/review";
+import { loadReview, markSeen, markLater } from "../lib/review";
 import { fetchAll } from "../lib/fetchAll";
 import { useUnsavedWarning } from "../lib/draftGuard";
 import { OVERTIME_MODES, overtimeMode, payoutMinutesByMonth } from "../lib/overtime";
@@ -64,8 +64,60 @@ export default function AttendanceDialog({ onClose }) {
   const [payList, setPayList] = useState([]);   // payouts of the month shown // { year, rows: { staffId: { entitlement, carryover } } }
   const [pairName, setPairName] = useState(null); // null = closed, string = form open
   const [mobilEv, setMobilEv] = useState({}); // event id -> { lat, lng } for "mobil" stamps
-  const [review, setReview] = useState(null); // { items, present } – "Zu prüfen", stays until "Gesehen ✓"
-  const reloadReview = async () => { try { setReview(await loadReview(org.supabase, org.orgId)); } catch (e) { setReview({ items: [], present: 0 }); } };
+  const [review, setReview] = useState(null); // { items, later, present } – "Zu prüfen" (6f)
+  const reloadReview = async () => { try { setReview(await loadReview(org.supabase, org.orgId)); } catch (e) { setReview({ items: [], later: [], present: 0 }); } };
+  // "Erledigen ▾": only ONE row open at a time. erl = { id, mode: "abs" | "zeit" | "gehen" | null, kind, note, in, out, reason }
+  const [erl, setErl] = useState(null);
+  const [flash, setFlash] = useState([]); // short green lines "✓ … eingetragen" (a few seconds)
+  const [laterOpen, setLaterOpen] = useState(false);
+  const isProblem = (it) => it.kind === "fehlt" || it.kind === "gehen";
+  function showFlash(text) {
+    const id = Date.now() + Math.random();
+    setFlash((f) => [...f, { id, text }]);
+    setTimeout(() => setFlash((f) => f.filter((x) => x.id !== id)), 5000);
+  }
+  function openErl(id, it) {
+    if (erl && erl.id === id) { setErl(null); return; }
+    setErl({ id, mode: it.kind === "gehen" ? "gehen" : null, kind: "krank", note: "", reason: "",
+      in: it.plannedStart ? clock(it.plannedStart) : "", out: it.kind === "gehen" ? (it.plannedEnd ? clock(it.plannedEnd) : "") : (it.plannedEnd ? clock(it.plannedEnd) : "") });
+  }
+  async function later(keys) {
+    setBusy("later");
+    const { error } = await markLater(org.supabase, org.orgId, keys);
+    setBusy(""); if (error) { setMsg(error.message); return; }
+    setErl(null); reloadReview();
+  }
+  async function doneReload() { setErl(null); await Promise.all([reloadReview(), load()]); }
+  async function erlSaveAbsence(it) {
+    setBusy("erl");
+    const { error } = await org.supabase.rpc("set_absence", { p_org: org.orgId, p_staff: it.staffId, p_date: it.date, p_kind: erl.kind, p_note: erl.note.trim() || null });
+    setBusy(""); if (error) { setMsg(error.message); return; }
+    showFlash(`✓ ${it.name}: ${ABSENCE[erl.kind].label} eingetragen${ABSENCE[erl.kind].sick ? " – Ersatz finden: im Dienstplan „Krankmeldung / Ausfall“." : ""}`);
+    doneReload();
+  }
+  async function erlSaveTime(it) {
+    if (erl.reason.trim().length < 3) { setMsg("Bitte einen Grund angeben."); return; }
+    let edits;
+    if (it.kind === "gehen") {
+      const dIso = localIso(it.checkIn);
+      const tout = atTime(dIso, erl.out, new Date(it.checkIn));
+      if (!tout) { setMsg("Bitte „Gehen“ als Uhrzeit eintragen (z. B. 16:30)."); return; }
+      if (tout - new Date(it.checkIn) > 16 * 3600000) { setMsg("Mehr als 16 Stunden – bitte prüfen."); return; }
+      edits = [{ op: "fix", session_id: it.sessionId, check_in: null, check_out: tout.toISOString() }];
+    } else {
+      const tin = atTime(it.date, erl.in), tout = atTime(it.date, erl.out, tin);
+      if (!tin || !tout) { setMsg("Bitte Kommen und Gehen als Uhrzeit eintragen (z. B. 07:00)."); return; }
+      if (tout - tin > 16 * 3600000) { setMsg("Mehr als 16 Stunden – bitte prüfen."); return; }
+      edits = [{ op: "add", staff_id: it.staffId, check_in: tin.toISOString(), check_out: tout.toISOString() }];
+    }
+    const day = it.kind === "gehen" ? localIso(it.checkIn) : it.date;
+    if ((await monthClosed(it.staffId, day)) && !window.confirm("Dieser Monat ist für die Person schon abgeschlossen (Saldo). Trotzdem speichern?")) return;
+    setBusy("erl");
+    const { error } = await org.supabase.rpc("save_attendance_edits", { p_org: org.orgId, p_edits: edits, p_reason: erl.reason.trim() });
+    setBusy(""); if (error) { setMsg(`Nicht gespeichert: ${String(error.message || "").replace(/^Änderung \d+: /, "")}`); return; }
+    showFlash(`✓ ${it.name}: Zeit eingetragen`);
+    doneReload();
+  }
   useEffect(() => { reloadReview(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   async function seen(keys) {
     setBusy("seen");
@@ -95,7 +147,7 @@ export default function AttendanceDialog({ onClose }) {
     setStaffList((st.data || []).slice().sort((a, b) => String(a.name).localeCompare(String(b.name))));
     // "Noch nicht eingestempelt": published shifts that started 3 to 20 hours ago without any Kommen
     const now = Date.now();
-    const sh = await org.supabase.from("scheduled_shifts").select("staff_id, shift_label, shift_key, planned_start, shift_date").eq("org_id", org.orgId).eq("status", "published").gte("planned_start", new Date(now - 20 * 3600000).toISOString()).lt("planned_start", new Date(now - 3 * 3600000).toISOString());
+    const sh = await org.supabase.from("scheduled_shifts").select("staff_id, shift_label, shift_key, planned_start, planned_end, shift_date").eq("org_id", org.orgId).eq("status", "published").gte("planned_start", new Date(now - 20 * 3600000).toISOString()).lt("planned_start", new Date(now - 3 * 3600000).toISOString());
     const recent = (s.data || []);
     // absences (Leitung) and approved Anträge: no warning for those people/days
     const ab = await org.supabase.from("attendance_absences").select("staff_id, work_date, kind, voided_at").eq("org_id", org.orgId).gte("work_date", new Date(now - 2 * 86400000).toISOString().slice(0, 10));
@@ -110,6 +162,74 @@ export default function AttendanceDialog({ onClose }) {
   useEffect(() => { load(); const t = setInterval(load, 30000); return () => clearInterval(t); }, [load]);
   useEffect(() => { const k = (e) => { if (e.key === "Escape") closeRef.current(); }; window.addEventListener("keydown", k); return () => window.removeEventListener("keydown", k); }, []);
 
+  // ---- "Zu prüfen" rows (6f) ----
+  const missItem = (x) => ({ key: `miss:${x.staff_id}:${String(x.shift_date).slice(0, 10)}`, kind: "fehlt", staffId: x.staff_id, name: names[x.staff_id] || "?", date: String(x.shift_date).slice(0, 10), plannedStart: x.planned_start, plannedEnd: x.planned_end });
+  const erlButton = (id, it) => (
+    <button onClick={() => openErl(id, it)} aria-expanded={!!(erl && erl.id === id)} className={`shrink-0 rounded-md border px-2.5 py-1 text-xs font-semibold ${erl && erl.id === id ? "border-teal-600 bg-teal-600 text-white" : "border-amber-400 bg-white text-amber-900 hover:bg-amber-100"}`}>Erledigen {erl && erl.id === id ? "▴" : "▾"}</button>
+  );
+  const inp = "mt-1 block rounded-md border border-slate-300 px-2 py-1.5 text-sm";
+  const optBtn = (on) => `rounded-md border px-3 py-1.5 text-xs font-semibold ${on ? "border-teal-600 bg-teal-50 text-teal-800" : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"}`;
+  function erlPanel(it, withLater) {
+    const e = erl;
+    return (
+      <div className="mt-2 rounded-lg border border-slate-200 bg-white p-2.5">
+        {it.kind === "fehlt" && (
+          <div className="flex flex-wrap gap-2">
+            <button onClick={() => setErl({ ...e, mode: "abs" })} className={optBtn(e.mode === "abs")}>Nicht gekommen …</button>
+            <button onClick={() => setErl({ ...e, mode: "zeit" })} className={optBtn(e.mode === "zeit")}>Hat gearbeitet – Zeit eintragen</button>
+            {withLater && <button disabled={busy === "later"} onClick={() => later([it.key])} className={optBtn(false)}>Später klären</button>}
+          </div>
+        )}
+        {it.kind === "gehen" && withLater && (
+          <div className="mb-2 flex flex-wrap gap-2">
+            <button disabled={busy === "later"} onClick={() => later([it.key])} className={optBtn(false)}>Später klären</button>
+          </div>
+        )}
+        {e.mode === "abs" && (
+          <div className="mt-2 flex flex-wrap items-end gap-2">
+            <label className="text-xs text-slate-600">Grund
+              <select value={e.kind} onChange={(ev) => setErl({ ...e, kind: ev.target.value })} className={inp}>
+                {Object.keys(ABSENCE).map((k) => <option key={k} value={k}>{ABSENCE[k].label}{ABSENCE[k].credit ? "" : " (Stunden fehlen)"}</option>)}
+              </select>
+            </label>
+            <label className="text-xs text-slate-600">Notiz (optional)<input value={e.note} maxLength={500} onChange={(ev) => setErl({ ...e, note: ev.target.value })} className={`${inp} w-52`} /></label>
+            <button onClick={() => erlSaveAbsence(it)} disabled={busy === "erl"} className="rounded-md bg-teal-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-teal-700 active:translate-y-px">{busy === "erl" ? "Moment …" : "Speichern"}</button>
+          </div>
+        )}
+        {(e.mode === "zeit" || e.mode === "gehen") && (
+          <div className="mt-2 flex flex-wrap items-end gap-2">
+            {e.mode === "zeit" && <label className="text-xs text-slate-600">Kommen<input value={e.in} onChange={(ev) => setErl({ ...e, in: ev.target.value })} placeholder="07:00" inputMode="numeric" className={`${inp} w-20`} /></label>}
+            {e.mode === "gehen" && <span className="pb-2 text-xs text-slate-600">Kommen {clock(it.checkIn)} ·</span>}
+            <label className="text-xs text-slate-600">Gehen<input value={e.out} onChange={(ev) => setErl({ ...e, out: ev.target.value })} placeholder="15:30" inputMode="numeric" className={`${inp} w-20`} /></label>
+            <label className="text-xs text-slate-600">Grund (Pflicht)<input value={e.reason} maxLength={300} onChange={(ev) => setErl({ ...e, reason: ev.target.value })} placeholder="z. B. Stempeln vergessen" className={`${inp} w-56`} /></label>
+            <button onClick={() => erlSaveTime(it)} disabled={busy === "erl"} className="rounded-md bg-teal-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-teal-700 active:translate-y-px">{busy === "erl" ? "Moment …" : "Speichern"}</button>
+          </div>
+        )}
+        {e.mode === "zeit" && (it.plannedStart || it.plannedEnd) && <div className="mt-1 text-[11px] text-slate-500">Vorausgefüllt mit der geplanten Schicht – bitte prüfen.</div>}
+      </div>
+    );
+  }
+  function reviewRow(it, id, withLater) {
+    const problem = isProblem(it);
+    return (
+      <li key={id} className="px-3 py-2 text-sm">
+        <div className="flex items-center gap-2">
+          <span aria-hidden="true">{it.kind === "mobil" ? (it.loc ? "📍" : "📱") : it.kind === "manuell" ? "✎" : "⚠️"}</span>
+          <span className="min-w-0 flex-1">
+            <span className="font-semibold text-slate-800">{it.name}</span>
+            <span className="text-slate-500"> · {new Date(it.at).toLocaleString("de-DE", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}</span>
+            <span className={`block text-xs ${problem ? "font-semibold text-rose-700" : "text-slate-600"}`}>{it.text}{it.loc ? <> · <a className="text-sky-700 underline" target="_blank" rel="noopener noreferrer" href={`https://www.openstreetmap.org/?mlat=${it.loc.lat}&mlon=${it.loc.lng}#map=17/${it.loc.lat}/${it.loc.lng}`}>Karte</a></> : null}</span>
+          </span>
+          {problem ? erlButton(id, it) : <button disabled={busy === "seen"} onClick={() => seen([it.key])} className="shrink-0 rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50">Gesehen ✓</button>}
+        </div>
+        {problem && erl && erl.id === id && erlPanel(it, withLater)}
+      </li>
+    );
+  }
+
+  // items moved to "Später klären" are shown only there
+  const laterKeys = new Set(review ? review.later.map((x) => x.key) : []);
+  const topMissing = missing.filter((x) => !laterKeys.has(missItem(x).key));
   const present = (rows || []).filter((r) => r.check_in && !r.check_out);
   const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
   const today = (rows || []).filter((r) => new Date(r.check_in || r.check_out) >= todayStart || !r.check_out);
@@ -153,14 +273,6 @@ export default function AttendanceDialog({ onClose }) {
     const { error } = await org.supabase.rpc("decide_correction_request", { p_id: q.id, p_approve: approve, p_note: note || null });
     setBusy(""); setDenyReq(null);
     setMsg(error ? error.message : approve ? `Korrektur für ${names[q.staff_id]} übernommen ✓` : "Antrag abgelehnt ✓"); load();
-  }
-  async function saveAbsence() {
-    setBusy("abs");
-    const { error } = await org.supabase.rpc("set_absence", { p_org: org.orgId, p_staff: absForm.staffId, p_date: absForm.date, p_kind: absForm.kind, p_note: absForm.note || null });
-    setBusy(""); if (error) { setMsg(error.message); return; }
-    setMsg(`${names[absForm.staffId]}: ${ABSENCE[absForm.kind].label} eingetragen ✓${absForm.kind === "krank" ? " – Ersatz finden: im Dienstplan „Krankmeldung / Ausfall“." : ""}`);
-    const same = edit.staffId === absForm.staffId && edit.date === absForm.date;
-    setAbsForm(null); load(); if (same) loadDay(edit.staffId, edit.date);
   }
   async function voidAbsence(a) {
     const reason = window.prompt("Abwesenheit aufheben – Grund:", "falsch eingetragen");
@@ -424,52 +536,55 @@ export default function AttendanceDialog({ onClose }) {
                 </ul>
               </div>
             )}
-            {missing.length > 0 && (
+            {topMissing.length > 0 && (
               <>
-                <h3 className="mt-4 text-xs font-semibold uppercase tracking-wide text-amber-800">Noch nicht eingestempelt ({missing.length})</h3>
-                <div className="mt-1 flex flex-wrap gap-2">{missing.map((x, i) => (
-                  <span key={i} className="inline-flex items-center gap-2 rounded-lg border border-amber-300 bg-amber-50 px-2.5 py-1.5 text-amber-900">● {names[x.staff_id] || "?"} <span className="text-amber-700">{x.shift_label || x.shift_key} seit {clock(x.planned_start)}</span>
-                    <button onClick={() => setAbsForm({ staffId: x.staff_id, date: String(x.shift_date).slice(0, 10), kind: "krank", note: "" })} className="rounded-md border border-amber-400 bg-white px-2 py-0.5 text-xs text-amber-900 hover:bg-amber-100">Abwesend …</button>
-                  </span>
-                ))}</div>
-                <div className="mt-1 text-[11px] text-slate-500">Schicht hat vor mehr als 3 Stunden begonnen, aber kein Kommen. Nicht gekommen? → „Abwesend …“. Gestempelt vergessen? → unten „Zeiten bearbeiten“.</div>
+                <h3 className="mt-4 text-xs font-semibold uppercase tracking-wide text-amber-800">Noch nicht eingestempelt ({topMissing.length})</h3>
+                <div className="mt-1 rounded-xl border border-amber-300 bg-amber-50/60">
+                  <ul className="divide-y divide-amber-100">{topMissing.map((x) => {
+                    const it = missItem(x); const id = `top:${it.key}`;
+                    return (
+                      <li key={id} className="px-3 py-2 text-sm">
+                        <div className="flex items-center gap-2">
+                          <span className="min-w-0 flex-1 text-amber-900">● <span className="font-semibold">{it.name}</span> <span className="text-amber-700">{x.shift_label || x.shift_key} seit {clock(x.planned_start)}</span></span>
+                          {erlButton(id, it)}
+                        </div>
+                        {erl && erl.id === id && erlPanel(it, true)}
+                      </li>
+                    );
+                  })}</ul>
+                </div>
+                <div className="mt-1 text-[11px] text-slate-500">Schicht hat vor mehr als 3 Stunden begonnen, aber kein Kommen. → „Erledigen ▾“.</div>
               </>
             )}
-            {absForm && !absForm.queue && (
-              <div className="mt-2 flex flex-wrap items-end gap-2 rounded-lg border border-slate-200 bg-slate-50 p-2.5">
-                <div className="w-full text-xs font-semibold text-slate-700">{names[absForm.staffId]} · {absForm.date.split("-").reverse().join(".")}</div>
-                <label className="text-xs text-slate-600">Grund
-                  <select value={absForm.kind} onChange={(e) => setAbsForm({ ...absForm, kind: e.target.value })} className="mt-1 block rounded-md border border-slate-300 px-2 py-1.5 text-sm">
-                    {Object.keys(ABSENCE).map((k) => <option key={k} value={k}>{ABSENCE[k].label}{ABSENCE[k].credit ? "" : " (Stunden fehlen)"}</option>)}
-                  </select>
-                </label>
-                <label className="text-xs text-slate-600">Notiz (optional)<input value={absForm.note} maxLength={500} onChange={(e) => setAbsForm({ ...absForm, note: e.target.value })} className="mt-1 block w-52 rounded-md border border-slate-300 px-2 py-1.5 text-sm" /></label>
-                <button onClick={saveAbsence} disabled={busy === "abs"} className="rounded-md bg-teal-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-teal-700 active:translate-y-px">{busy === "abs" ? "Moment …" : "Eintragen"}</button>
-                <button onClick={() => setAbsForm(null)} className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-600">Abbrechen</button>
-              </div>
-            )}
             <h3 className="mt-4 text-xs font-semibold uppercase tracking-wide text-slate-500">Zu prüfen {review ? `(${review.items.length})` : ""}</h3>
+            {flash.map((f) => <div key={f.id} role="status" className="mt-1 rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-800">{f.text}</div>)}
             {!review ? <div className="mt-1 text-xs text-slate-500">Lädt …</div> : review.items.length === 0 ? (
-              <div className="mt-1 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-900">Alles gesehen ✓ – nichts zu prüfen.</div>
+              <div className="mt-1 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-900">Nichts zu prüfen ✓</div>
             ) : (
               <div className="mt-1 rounded-xl border border-amber-200 bg-amber-50/50">
-                <div className="flex items-center justify-between gap-2 border-b border-amber-200 px-3 py-2 text-xs text-amber-900">
-                  <span>Bleibt hier, bis jemand aus der Leitung „Gesehen“ tippt. Die Stempelungen selbst bleiben immer gespeichert.</span>
-                  <button disabled={busy === "seen"} onClick={() => seen(review.items.map((x) => x.key))} className="shrink-0 rounded-md border border-amber-300 bg-white px-2.5 py-1 font-semibold text-amber-900 hover:bg-amber-100">Alle gesehen ✓</button>
+                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-amber-200 px-3 py-2 text-xs text-amber-900">
+                  <span className="min-w-0 flex-1">Probleme direkt hier lösen: „Erledigen ▾“. Hinweise (📱 ✎) mit „Gesehen ✓“ abhaken.</span>
+                  {review.items.some((x) => !isProblem(x)) && <button disabled={busy === "seen"} onClick={() => seen(review.items.filter((x) => !isProblem(x)).map((x) => x.key))} className="shrink-0 rounded-md border border-amber-300 bg-white px-2.5 py-1 font-semibold text-amber-900 hover:bg-amber-100">Alle gesehen ✓</button>}
+                  {review.items.some(isProblem) && <button disabled={busy === "later"} onClick={() => later(review.items.filter(isProblem).map((x) => x.key))} className="shrink-0 rounded-md border border-amber-300 bg-white px-2.5 py-1 font-semibold text-amber-900 hover:bg-amber-100">Alle später klären</button>}
                 </div>
-                <ul className="max-h-72 divide-y divide-amber-100 overflow-y-auto">
-                  {review.items.map((it) => (
-                    <li key={it.key} className="flex items-center gap-2 px-3 py-2 text-sm">
-                      <span aria-hidden="true">{it.kind === "mobil" ? (it.loc ? "📍" : "📱") : it.kind === "manuell" ? "✎" : "⚠️"}</span>
-                      <span className="min-w-0 flex-1">
-                        <span className="font-semibold text-slate-800">{it.name}</span>
-                        <span className="text-slate-500"> · {new Date(it.at).toLocaleString("de-DE", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}</span>
-                        <span className={`block text-xs ${it.kind === "fehlt" || it.kind === "gehen" ? "font-semibold text-rose-700" : "text-slate-600"}`}>{it.text}{it.loc ? <> · <a className="text-sky-700 underline" target="_blank" rel="noopener noreferrer" href={`https://www.openstreetmap.org/?mlat=${it.loc.lat}&mlon=${it.loc.lng}#map=17/${it.loc.lat}/${it.loc.lng}`}>Karte</a></> : null}</span>
-                      </span>
-                      <button disabled={busy === "seen"} onClick={() => seen([it.key])} className="shrink-0 rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50">Gesehen ✓</button>
-                    </li>
-                  ))}
+                <ul className="max-h-96 divide-y divide-amber-100 overflow-y-auto">
+                  {review.items.map((it) => reviewRow(it, `r:${it.key}`, true))}
                 </ul>
+              </div>
+            )}
+            {review && review.later.length > 0 && (
+              <div className="mt-2 rounded-xl border border-orange-300 bg-orange-50/60">
+                <button onClick={() => setLaterOpen(!laterOpen)} aria-expanded={laterOpen} className="flex w-full items-center justify-between px-3 py-2 text-left text-xs font-semibold text-orange-900">
+                  <span>Später klären ({review.later.length})</span><span aria-hidden="true">{laterOpen ? "▾" : "▸"}</span>
+                </button>
+                {laterOpen && (
+                  <>
+                    <div className="border-t border-orange-200 px-3 py-1.5 text-[11px] text-orange-900">Bleibt hier, bis ein Grund (Abwesenheit) oder eine Zeit eingetragen ist.</div>
+                    <ul className="max-h-72 divide-y divide-orange-100 overflow-y-auto">
+                      {review.later.map((it) => reviewRow(it, `l:${it.key}`, false))}
+                    </ul>
+                  </>
+                )}
               </div>
             )}
             <h3 className="mt-4 text-xs font-semibold uppercase tracking-wide text-slate-500">Jetzt da ({present.length})</h3>

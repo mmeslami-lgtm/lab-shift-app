@@ -49,7 +49,7 @@ export default function OrgBar({ onLoadStaff, staffList, toDb, onIdsChanged, yea
   useEffect(() => {
     if (!org || !org.supabase || !(org.role === "owner" || org.role === "supervisor") || !(org.products || []).includes("time_tracking")) return;
     let off = false;
-    loadReview(org.supabase, org.orgId).then((r) => { if (!off) setToReview(r.items.length); }).catch(() => {});
+    loadReview(org.supabase, org.orgId).then((r) => { if (!off) setToReview(r.items.length + (r.later || []).length); }).catch(() => {});
     return () => { off = true; };
   }, [org && org.orgId, attOpen]); // eslint-disable-line react-hooks/exhaustive-deps
   // Leitung/Inhaber who also work in the plan (account linked to a person): stamp themselves and see "Meine Zeiten".
@@ -61,7 +61,7 @@ export default function OrgBar({ onLoadStaff, staffList, toDb, onIdsChanged, yea
   const [zugOpen, setZugOpen] = useState(false); // popup "Zugänge"
   const [openReq, setOpenReq] = useState(0);
   const [openCorr, setOpenCorr] = useState(0); // open Zeit-Korrekturanträge
-  const [toReview, setToReview] = useState(0); // Anwesenheit "Zu prüfen" (until someone taps "Gesehen")
+  const [toReview, setToReview] = useState(0); // Anwesenheit "Zu prüfen" incl. "Später klären" (reminder until closed)
   const [reqBump, setReqBump] = useState(0);
   const hasApp = org && (org.products || []).includes("employee_app");
   const hasTime = org && (org.products || []).includes("time_tracking");
