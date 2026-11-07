@@ -6,6 +6,8 @@ import { germanHolidays } from "../lib/timesheet";
 import { overtimeMode, payoutMinutesByMonth, planCarryHours } from "../lib/overtime";
 import OrgBar from "./OrgBar";
 import PublishPanel from "./PublishPanel";
+import SickCoverDialog from "./SickCoverDialog";
+import { absentConflicts, conflictKey, offKindMap, loadCovers, coverIndex, draftPairs, shortNote } from "../lib/absentConflicts";
 import StandorteSettings from "./StandorteSettings";
 import PlannerShell from "./PlannerShell";
 import Fold from "./Fold";
@@ -1248,6 +1250,9 @@ function LabShiftSchedulerInner() {
   );
   const nextIdRef = useRef(10);
   const nextEntryIdRef = useRef(1);
+  const [sickCoverOpen, setSickCoverOpen] = useState(false); // popup "Krankmeldung / Ausfall" (like Labor, 7 Nov 2026)
+  const [sickCoverMsg, setSickCoverMsg] = useState("");
+  const [sickInit, setSickInit] = useState(null); // { staffId, from, to } – pre-filled from the red box, rows highlighted
   const [perShiftCount, setPerShiftCount] = useState({ F: 2, S: 1 });
   // F/S keep one special built-in rule between them (no Frühdienst the morning right after a
   // Spätdienst) — label/time fully editable, but the key/role stays fixed so that rule keeps
@@ -1982,6 +1987,53 @@ function LabShiftSchedulerInner() {
     addEntries(sickEntries);
     return map;
   }, [leaveEntries, sickEntries, totalDays, staffMap]);
+  // planned although Urlaub / krank that day (also when entered after the plan was made) – red box + red cells
+  const conflicts = useMemo(() => absentConflicts(schedule, leaveEntries, sickEntries, totalDays, parseDayList, { wishEntries, staffList }), [schedule, leaveEntries, sickEntries, wishEntries, staffList, totalDays]);
+  // why someone is "entfällt" / whom a person replaced (Krankmeldung / Ausfall) – shown in the plan and the print
+  const offKind = useMemo(() => offKindMap(leaveEntries, sickEntries, totalDays, parseDayList, wishEntries), [leaveEntries, sickEntries, wishEntries, totalDays]);
+  const [coverRows, setCoverRows] = useState([]);
+  useEffect(() => {
+    let off = false;
+    if (!orgCtx || !orgCtx.supabase || !orgCtx.orgId) { setCoverRows([]); return undefined; }
+    loadCovers(orgCtx.supabase, orgCtx.orgId, year, monthIdx).then((rows) => { if (!off) setCoverRows(rows); }).catch(() => { if (!off) setCoverRows([]); });
+    return () => { off = true; };
+  }, [orgCtx, year, monthIdx, savedDays]);
+  const cover = useMemo(() => coverIndex([...coverRows, ...draftPairs(schedule, baseline)], schedule), [coverRows, schedule, baseline]);
+  const reasonOff = (id, day) => (offKind[id] && offKind[id][day])
+    || (cover.swapGone[`${id}|${day}`] ? `Tausch mit ${staffMap[cover.swapGone[`${id}|${day}`]] || "?"}` : "")
+    || shortNote((cover.byReplaced[`${id}|${day}`] || {}).note);
+  // "Nach Mitarbeiter" + print: violet ⇄ = getauscht, red ↺ = eingesprungen (or a new draft change). { kind, text } | null
+  const coverInfo = (id, day, code) => {
+    if (!code || code === "U" || code === "K") return null;
+    const k = `${id}|${day}`;
+    const sw = cover.swapBy[k];
+    if (sw) return { kind: "swap", text: `Getauscht mit ${staffMap[sw.with] || "?"}${sw.draft ? " – noch nicht veröffentlicht" : ""}` };
+    const c = cover.byStaff[k];
+    if (!c) return null;
+    if (c.draft) return { kind: "rep", text: `Neu eingeteilt${c.replacedId ? ` für ${staffMap[c.replacedId] || "?"}` : ""} – noch nicht veröffentlicht` };
+    const why = c.replacedId ? reasonOff(c.replacedId, day) : shortNote(c.note);
+    return { kind: "rep", text: `Eingesprungen${c.replacedId ? ` für ${staffMap[c.replacedId] || "?"}` : ""}${why ? ` (${why})` : ""}` };
+  };
+  // absences in the plan, grouped per person and following days -> "Krankmeldung / Ausfall" pre-filled
+  const absentGroups = useMemo(() => {
+    const per = {};
+    conflicts.filter((c) => ["Krank", "Urlaub", "Fortbildung", "Wunsch „Frei“"].includes(c.kind)).forEach((c) => {
+      per[c.staffId] = per[c.staffId] || {}; per[c.staffId][c.day] = c.kind;
+    });
+    const out = [];
+    Object.keys(per).forEach((id) => {
+      const days = Object.keys(per[id]).map(Number).sort((a, b) => a - b);
+      let g = null;
+      days.forEach((d) => {
+        if (g && d === g.to + 1) { g.to = d; return; }
+        g = { staffId: id, from: d, to: d, kind: per[id][d] }; out.push(g);
+      });
+    });
+    return out.sort((a, b) => a.from - b.from);
+  }, [conflicts]);
+  function openSick(g) { setSickInit(g || absentGroups[0] || null); setSickCoverOpen(true); }
+  function closeSick() { setSickCoverOpen(false); setSickInit(null); }
+  const conflictMap = useMemo(() => { const m = {}; conflicts.forEach((c) => { m[conflictKey(c.day, c.st, c.staffId)] = c.kind; }); return m; }, [conflicts]);
 
   // Staff × day matrix (one row per person, one column per day) — an alternate view of the same schedule.
   const [viewMode, setViewMode] = useState("byDay"); // "byDay" | "byStaff"
@@ -2200,6 +2252,26 @@ function LabShiftSchedulerInner() {
     }
   }
 
+  function applySickCover(option, sickId, from, to) {
+    pushUndo(`Krankmeldung: ${option.title}`);
+    setSchedule((prev) => {
+      if (!prev) return prev;
+      const days = prev.days.map((d) => {
+        const mine = option.changes.filter((c) => c.day === d.day);
+        if (!mine.length) return d;
+        const shifts = { ...d.shifts };
+        mine.forEach((c) => { const arr = [...(shifts[c.key] || [])]; arr[c.slot] = c.to || ""; shifts[c.key] = arr; });
+        return { ...d, shifts };
+      });
+      return { ...prev, days, ...computeStatsAndWarnings(days, staffList, buildLeaveMap(), shiftHours, dayOrderedKeys, restRequiringKeys, shiftLabels, closedSet, openCount, carryMap(), halfMap, tailFor(year, monthIdx)) };
+    });
+    const range = from === to ? String(from) : `${from}-${to}`;
+    setSickEntries((prev) => (prev.some((e) => e.staffId === sickId && e.days === range) ? prev : [...prev, { id: `ke${nextEntryIdRef.current++}`, staffId: sickId, days: range }]));
+    setSickCoverOpen(false); setSickInit(null);
+    setSickCoverMsg(`„${option.title}“ übernommen – die Änderungen sind gelb markiert. Erst „Veröffentlichen“ zeigt sie den Mitarbeitenden.`);
+    setTimeout(() => setSickCoverMsg(""), 12000);
+  }
+
   function pushUndo(label) {
     if (!schedule) return;
     undoRef.current.push({ schedule, label });
@@ -2374,6 +2446,8 @@ function LabShiftSchedulerInner() {
       quotaKeys: new Set(dayShiftDefs.filter((d) => d.frequency === "quota").map((d) => d.key)),
       wanted: multiOn ? Object.fromEntries(placeShifts.map((x) => [x.key, Math.max(1, x.count_weekday || 0)])) : perShiftCount, // places per shift that are wanted; more people (filled up) is extra, not "unbesetzt"
       matrix: staffDayMatrix,
+      covers: new Set(staffList.flatMap((s) => schedule.days.filter((d) => (coverInfo(s.id, d.day, staffDayMatrix[s.id]?.[d.day]) || {}).kind === "rep").map((d) => `${s.id}|${d.day}`))), // red ↺ = eingesprungen (no reason on the board)
+      swaps: new Set(staffList.flatMap((s) => schedule.days.filter((d) => (coverInfo(s.id, d.day, staffDayMatrix[s.id]?.[d.day]) || {}).kind === "swap").map((d) => `${s.id}|${d.day}`))), // violet ⇄ = getauscht
       nameOf: staffMap,
       absentByDay,
       hours: schedule.hours,
@@ -3115,6 +3189,27 @@ function LabShiftSchedulerInner() {
               </div>
             </div>
 
+            {conflicts.length > 0 && (
+              <div role="alert" className="rounded-2xl border-2 border-rose-300 bg-rose-50 p-4">
+                <div className="flex items-center gap-2 text-sm font-semibold text-rose-800"><AlertTriangle size={16} /> {conflicts.length} {conflicts.length === 1 ? "Konflikt" : "Konflikte"} im Plan: eingeteilt trotz Urlaub, Krankheit, Wunsch oder Befreiung</div>
+                <ul className="mt-2 max-h-40 space-y-1 overflow-y-auto text-xs text-rose-800">
+                  {conflicts.map((c, i) => (
+                    <li key={i}>• {WEEKDAY_DE[c.weekday]} {String(c.day).padStart(2, "0")}.{String(monthIdx + 1).padStart(2, "0")}. · <b>{staffMap[c.staffId] || "?"}</b> · {(shiftMeta[c.st] && shiftMeta[c.st].label) || c.st} – {c.kind}</li>
+                  ))}
+                </ul>
+                <div className="mt-2 text-xs text-rose-700">Im Plan unten rot markiert: dort eine andere Person wählen (oder „— leer —“){!multiOn && absentGroups.length > 0 ? " – oder hier Ersatz vorschlagen lassen:" : "."}</div>
+                {!multiOn && absentGroups.length > 0 && (
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {absentGroups.map((g) => (
+                      <button key={`${g.staffId}-${g.from}`} onClick={() => openSick(g)} className="inline-flex items-center gap-1 rounded-lg border border-rose-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-rose-800 hover:bg-rose-100 active:translate-y-px">
+                        <AlertTriangle size={13} /> Ersatz für {staffMap[g.staffId] || "?"} · {g.from === g.to ? `${g.from}.` : `${g.from}.–${g.to}.`} ({g.kind})
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* Warnings */}
             <div className={`rounded-2xl border p-4 ${schedule.warnings.length ? "bg-amber-50 border-amber-200" : "bg-emerald-50 border-emerald-200"}`}>
               <div className={`flex items-center gap-2 text-sm font-medium ${schedule.warnings.length ? "text-amber-800" : "text-emerald-800"}`}>
@@ -3188,9 +3283,20 @@ function LabShiftSchedulerInner() {
                     Alle Änderungen verwerfen
                   </button>
                   {undoMsg && <span role="status" className="text-xs text-slate-600 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5">{undoMsg}</span>}
+                  {!multiOn && (
+                    <button onClick={() => openSick()} className="inline-flex items-center gap-1.5 text-xs text-rose-800 border border-rose-200 bg-rose-50 rounded-lg px-2.5 py-1.5 hover:bg-rose-100 active:translate-y-px">
+                      <AlertTriangle size={14} /> Krankmeldung / Ausfall
+                    </button>
+                  )}
+                  {sickCoverMsg && <span role="status" className="w-full text-xs text-teal-800 bg-teal-50 border border-teal-200 rounded-lg px-2.5 py-1.5">{sickCoverMsg}</span>}
+                  {sickCoverOpen && (
+                    <SickCoverDialog schedule={schedule} staffList={staffList} shiftMeta={shiftMeta} totalDays={totalDays} offDays={buildLeaveMap()}
+                      orgCtx={orgCtx} year={year} monthIdx={monthIdx} onApply={applySickCover} onClose={closeSick}
+                      initial={sickInit} groups={absentGroups} onPick={setSickInit} nightKey={restRequiringKeys[0] || "N"} />
+                  )}
                 </div>
               </div>
-              {orgCtx && <PublishPanel schedule={schedule} staffList={staffList} year={year} monthIdx={monthIdx} shiftList={shiftListForDb} holidays={holidays} changeCount={changeCount} editMode={editMode} unsaved={unsaved} multi={multiOn} onSaved={(d) => setSavedDays(cloneDays(d))} />}
+              {orgCtx && <PublishPanel conflicts={conflicts.length} schedule={schedule} staffList={staffList} year={year} monthIdx={monthIdx} shiftList={shiftListForDb} holidays={holidays} changeCount={changeCount} editMode={editMode} unsaved={unsaved} multi={multiOn} onSaved={(d) => setSavedDays(cloneDays(d))} />}
               {(archiveState === "error" || saveState === "error") && (
                 <div className="mx-4 mt-3 rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs text-rose-800">
                   {archiveState === "error" && (
@@ -3235,6 +3341,12 @@ function LabShiftSchedulerInner() {
                         <td className="sticky left-0 bg-white px-2 py-1.5 whitespace-nowrap font-medium border-r border-slate-200">{s.name}</td>
                         {schedule.days.map((d) => {
                           const code = staffDayMatrix[s.id]?.[d.day];
+                          const rep = coverInfo(s.id, d.day, code);
+                          if (rep) return (
+                            <td key={d.day} className="px-1 py-1 text-center" title={rep.text}>
+                              <span className={`inline-block rounded px-1 font-bold text-white ${rep.kind === "swap" ? "bg-violet-600" : "bg-rose-600"}`}>{rep.kind === "swap" ? "⇄" : "↺"}{code}</span>
+                            </td>
+                          );
                           return (
                             <td key={d.day} className={`px-1.5 py-1.5 text-center ${d.isWeekend || d.isHoliday ? "bg-slate-50/70" : ""} ${code === "U" || code === "K" ? "text-rose-500" : "text-slate-700"}`}>
                               {code || ""}
@@ -3269,7 +3381,7 @@ function LabShiftSchedulerInner() {
                     {schedule.days.map((d, di) => (
                       <tr
                         key={d.day}
-                        className={`border-b border-slate-50 ${closedSet.has(d.day) ? "bg-slate-100" : d.isHoliday ? "bg-rose-50/60" : d.isWeekend ? "bg-slate-50/70" : ""}`}
+                        className={`border-b border-slate-50 ${sickInit && d.day >= sickInit.from && d.day <= sickInit.to ? "bg-rose-100 outline outline-2 outline-rose-400" : closedSet.has(d.day) ? "bg-slate-100" : d.isHoliday ? "bg-rose-50/60" : d.isWeekend ? "bg-slate-50/70" : ""}`}
                       >
                         <td className="px-2 py-1.5 whitespace-nowrap align-top font-semibold">{d.day}</td>
                         <td className="px-2 py-1.5 whitespace-nowrap align-top text-slate-500">
@@ -3287,6 +3399,8 @@ function LabShiftSchedulerInner() {
                           // marks versus the published version (only when a saved month was opened for editing)
                           const baseIds = baseline ? (baseline[`${d.day}|${st}`] || []) : null;
                           const isNewHere = !!(baseIds && val && !baseIds.includes(val));
+                          // stays after publishing (from the database): ↺ eingesprungen / ⇄ getauscht – also in "Nach Tag"
+                          const saved = val && !isNewHere ? coverInfo(val, d.day, st) : null;
                           const goneHere = baseIds && slotIndex === 0 ? baseIds.filter((id) => !(d.shifts[st] || []).includes(id)) : [];
                           const nameById = (id) => (staffList.find((x) => x.id === id) || {}).name || "?";
                           return (
@@ -3297,7 +3411,7 @@ function LabShiftSchedulerInner() {
                                 <select
                                   value={val || ""}
                                   onChange={(e) => updateSlot(di, st, slotIndex, e.target.value)}
-                                  className={`w-full text-[11px] rounded-md border px-1.5 py-1 ${val ? shiftMeta[st].chip : "bg-slate-50 border-slate-200 text-slate-400"} ${isNewHere ? "ring-2 ring-amber-400" : ""}`}
+                                  className={`w-full text-[11px] rounded-md border px-1.5 py-1 ${val ? shiftMeta[st].chip : "bg-slate-50 border-slate-200 text-slate-400"} ${isNewHere ? "ring-2 ring-amber-400" : saved ? (saved.kind === "swap" ? "ring-2 ring-violet-500" : "ring-2 ring-rose-500") : ""} ${val && conflictMap[conflictKey(d.day, st, val)] ? "!border-rose-500 ring-2 ring-rose-400" : ""}`}
                                 >
                                   <option value="">— leer —</option>
                                   {multiOn ? placeOptions(d, st, val) : staffList.map((s) => (
@@ -3306,8 +3420,10 @@ function LabShiftSchedulerInner() {
                                 </select>
                               )}
                               {multiOn && val && !inTeam(st, val, d.day) && <div className="mt-0.5 text-[10px] font-semibold text-rose-700">nicht im Team</div>}
+                              {val && conflictMap[conflictKey(d.day, st, val)] && <div className="mt-0.5 text-[10px] font-semibold text-rose-700">⚠ {conflictMap[conflictKey(d.day, st, val)]}</div>}
                               {isNewHere && <div className="mt-0.5 text-[10px] font-semibold text-amber-700">Geändert</div>}
-                              {goneHere.length > 0 && <div className="mt-0.5 text-[10px] text-amber-700">entfällt: {goneHere.map(nameById).join(", ")}</div>}
+                              {saved && <div className={`mt-0.5 text-[10px] font-semibold ${saved.kind === "swap" ? "text-violet-700" : "text-rose-700"}`}>{saved.kind === "swap" ? "⇄" : "↺"} {saved.text}</div>}
+                              {goneHere.length > 0 && <div className="mt-0.5 text-[10px] text-amber-700">entfällt: {goneHere.map((id) => { const why = reasonOff(id, d.day); return `${nameById(id)}${why ? ` (${why})` : ""}`; }).join(", ")}</div>}
                             </td>
                           );
                         })}

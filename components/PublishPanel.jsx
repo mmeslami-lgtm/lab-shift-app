@@ -49,7 +49,7 @@ const ghost = "rounded-xl px-4 py-2 text-sm text-slate-500 hover:bg-slate-50";
 // onSaved(days): called with the saved plan after „Zwischenspeichern“, „Einreichen“ or „Veröffentlichen“
 // multi (Dienstplaner allgemein, „Mehrere Standorte“): the shifts belong to places (shiftList[].locationId). Their
 // definitions are kept by the place cards, so they are not rewritten here; each saved shift carries its location_id.
-export default function PublishPanel({ schedule, staffList, year, monthIdx, shiftList, holidays, changeCount, editMode, unsaved, onSaved, multi }) {
+export default function PublishPanel({ conflicts = 0, schedule, staffList, year, monthIdx, shiftList, holidays, changeCount, editMode, unsaved, onSaved, multi }) {
   const org = useContext(OrgContext);
   const [phase, setPhase] = useState("idle"); // idle | working | done | error
   const [info, setInfo] = useState("");
@@ -157,7 +157,10 @@ export default function PublishPanel({ schedule, staffList, year, monthIdx, shif
   // The question "Einspringen or normal?" belongs to EDITING a saved month ("Plan bearbeiten"). A newly created plan
   // only gets a short confirmation; if it replaces a published month it is recorded as a normal plan change.
   const replacing = hasPublished && !editMode;
-  function startMain() { setReason(""); setDialog({ step: hasPublished && editMode ? "choose" : "confirm", action: mainAction }); }
+  function startMain() {
+    // conflicts in the plan (red box): planned despite Urlaub / krank / Wunsch „Frei“ / befreit / doppelt – ask once before showing it to everyone
+    if (conflicts > 0 && !window.confirm(`${conflicts} ${conflicts === 1 ? "Konflikt" : "Konflikte"} im Plan (rot markiert): eingeteilt trotz Urlaub, Krankheit, Wunsch oder Befreiung.\n\nOK = trotzdem fortfahren\nAbbrechen = zurück und zuerst ändern`)) return;
+    setReason(""); setDialog({ step: hasPublished && editMode ? "choose" : "confirm", action: mainAction }); }
   const status = row ? row.status : null;
   const chip = !status ? { t: "Noch nicht gespeichert", c: "bg-slate-100 text-slate-600" }
     : status === "pending" ? { t: "Wartet auf Freigabe durch die Leitung", c: "bg-amber-100 text-amber-800" }
