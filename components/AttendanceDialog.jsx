@@ -189,7 +189,7 @@ export default function AttendanceDialog({ onClose }) {
           <div className="mt-2 flex flex-wrap items-end gap-2">
             <label className="text-xs text-slate-600">Grund
               <select value={e.kind} onChange={(ev) => setErl({ ...e, kind: ev.target.value })} className={inp}>
-                {Object.keys(ABSENCE).map((k) => <option key={k} value={k}>{ABSENCE[k].label}{ABSENCE[k].credit ? "" : " (Stunden fehlen)"}</option>)}
+                {Object.keys(ABSENCE).map((k) => <option key={k} value={k}>{ABSENCE[k].label}{ABSENCE[k].credit ? "" : ABSENCE[k].neutral ? " (kein Soll – keine Minusstunden)" : " (Stunden fehlen)"}</option>)}
               </select>
             </label>
             <label className="text-xs text-slate-600">Notiz (optional)<input value={e.note} maxLength={500} onChange={(ev) => setErl({ ...e, note: ev.target.value })} className={`${inp} w-52`} /></label>
@@ -731,6 +731,7 @@ export default function AttendanceDialog({ onClose }) {
             </div>
 
             <h3 className="mt-4 text-xs font-semibold uppercase tracking-wide text-slate-500">Zeiten bearbeiten (auch frühere Tage)</h3>
+            <div className="mt-0.5 text-xs text-slate-600">Für alles, was nicht unter „Zu prüfen“ steht: falsche Zeiten korrigieren („Korrigieren“ erscheint bei jeder Stempelung des Tages), Abwesenheit ändern oder aufheben, ältere Tage.</div>
             <div className="mt-0.5 text-[11px] text-slate-500">Änderungen werden erst vorgemerkt. Erst „Speichern“ schreibt alle zusammen, mit einem Grund. „Abbrechen“ = nichts wird geändert.</div>
             <div className="mt-1 flex flex-wrap items-end gap-2">
               <select value={edit.staffId} onChange={(e) => loadDay(e.target.value, edit.date)} className="rounded-md border border-slate-300 px-2 py-1.5 text-sm" aria-label="Person">
@@ -761,7 +762,7 @@ export default function AttendanceDialog({ onClose }) {
                   <div className="mb-2 flex flex-wrap items-end gap-2 border-y border-slate-200 py-2">
                     <label className="text-xs text-slate-600">Grund
                       <select value={absForm.kind} onChange={(e) => setAbsForm({ ...absForm, kind: e.target.value })} className="mt-1 block rounded-md border border-slate-300 px-2 py-1.5 text-sm">
-                        {Object.keys(ABSENCE).map((k) => <option key={k} value={k}>{ABSENCE[k].label}{ABSENCE[k].credit ? "" : " (Stunden fehlen)"}</option>)}
+                        {Object.keys(ABSENCE).map((k) => <option key={k} value={k}>{ABSENCE[k].label}{ABSENCE[k].credit ? "" : ABSENCE[k].neutral ? " (kein Soll – keine Minusstunden)" : " (Stunden fehlen)"}</option>)}
                       </select>
                     </label>
                     <label className="text-xs text-slate-600">Notiz (optional)<input value={absForm.note} maxLength={500} onChange={(e) => setAbsForm({ ...absForm, note: e.target.value })} className="mt-1 block w-52 rounded-md border border-slate-300 px-2 py-1.5 text-sm" /></label>
