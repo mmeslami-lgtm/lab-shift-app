@@ -6,7 +6,7 @@ import { germanHolidays } from "../lib/timesheet";
 import { overtimeMode, payoutMinutesByMonth, planCarryHours } from "../lib/overtime";
 import OrgBar from "./OrgBar";
 import PublishPanel from "./PublishPanel";
-import { absentConflicts, conflictKey } from "../lib/absentConflicts";
+import { absentConflicts, conflictKey, offKindMap, loadCovers, coverIndex, draftPairs, shortNote } from "../lib/absentConflicts";
 import StandorteSettings from "./StandorteSettings";
 import PlannerShell from "./PlannerShell";
 import Fold from "./Fold";
@@ -1985,6 +1985,31 @@ function LabShiftSchedulerInner() {
   }, [leaveEntries, sickEntries, totalDays, staffMap]);
   // planned although Urlaub / krank that day (also when entered after the plan was made) – red box + red cells
   const conflicts = useMemo(() => absentConflicts(schedule, leaveEntries, sickEntries, totalDays, parseDayList, { wishEntries, staffList }), [schedule, leaveEntries, sickEntries, wishEntries, staffList, totalDays]);
+  // why someone is "entfällt" / whom a person replaced (Krankmeldung / Ausfall) – shown in the plan and the print
+  const offKind = useMemo(() => offKindMap(leaveEntries, sickEntries, totalDays, parseDayList, wishEntries), [leaveEntries, sickEntries, wishEntries, totalDays]);
+  const [coverRows, setCoverRows] = useState([]);
+  useEffect(() => {
+    let off = false;
+    if (!orgCtx || !orgCtx.supabase || !orgCtx.orgId) { setCoverRows([]); return undefined; }
+    loadCovers(orgCtx.supabase, orgCtx.orgId, year, monthIdx).then((rows) => { if (!off) setCoverRows(rows); }).catch(() => { if (!off) setCoverRows([]); });
+    return () => { off = true; };
+  }, [orgCtx, year, monthIdx, savedDays]);
+  const cover = useMemo(() => coverIndex([...coverRows, ...draftPairs(schedule, baseline)]), [coverRows, schedule, baseline]);
+  const reasonOff = (id, day) => (offKind[id] && offKind[id][day])
+    || (cover.swapGone[`${id}|${day}`] ? `Tausch mit ${staffMap[cover.swapGone[`${id}|${day}`]] || "?"}` : "")
+    || shortNote((cover.byReplaced[`${id}|${day}`] || {}).note);
+  // "Nach Mitarbeiter" + print: violet ⇄ = getauscht, red ↺ = eingesprungen (or a new draft change). { kind, text } | null
+  const coverInfo = (id, day, code) => {
+    if (!code || code === "U" || code === "K") return null;
+    const k = `${id}|${day}`;
+    const sw = cover.swapBy[k];
+    if (sw) return { kind: "swap", text: `Getauscht mit ${staffMap[sw.with] || "?"}${sw.draft ? " – noch nicht veröffentlicht" : ""}` };
+    const c = cover.byStaff[k];
+    if (!c) return null;
+    if (c.draft) return { kind: "rep", text: `Neu eingeteilt${c.replacedId ? ` für ${staffMap[c.replacedId] || "?"}` : ""} – noch nicht veröffentlicht` };
+    const why = c.replacedId ? reasonOff(c.replacedId, day) : shortNote(c.note);
+    return { kind: "rep", text: `Eingesprungen${c.replacedId ? ` für ${staffMap[c.replacedId] || "?"}` : ""}${why ? ` (${why})` : ""}` };
+  };
   const conflictMap = useMemo(() => { const m = {}; conflicts.forEach((c) => { m[conflictKey(c.day, c.st, c.staffId)] = c.kind; }); return m; }, [conflicts]);
 
   // Staff × day matrix (one row per person, one column per day) — an alternate view of the same schedule.
@@ -2378,6 +2403,8 @@ function LabShiftSchedulerInner() {
       quotaKeys: new Set(dayShiftDefs.filter((d) => d.frequency === "quota").map((d) => d.key)),
       wanted: multiOn ? Object.fromEntries(placeShifts.map((x) => [x.key, Math.max(1, x.count_weekday || 0)])) : perShiftCount, // places per shift that are wanted; more people (filled up) is extra, not "unbesetzt"
       matrix: staffDayMatrix,
+      covers: new Set(staffList.flatMap((s) => schedule.days.filter((d) => (coverInfo(s.id, d.day, staffDayMatrix[s.id]?.[d.day]) || {}).kind === "rep").map((d) => `${s.id}|${d.day}`))), // red ↺ = eingesprungen (no reason on the board)
+      swaps: new Set(staffList.flatMap((s) => schedule.days.filter((d) => (coverInfo(s.id, d.day, staffDayMatrix[s.id]?.[d.day]) || {}).kind === "swap").map((d) => `${s.id}|${d.day}`))), // violet ⇄ = getauscht
       nameOf: staffMap,
       absentByDay,
       hours: schedule.hours,
@@ -3251,6 +3278,12 @@ function LabShiftSchedulerInner() {
                         <td className="sticky left-0 bg-white px-2 py-1.5 whitespace-nowrap font-medium border-r border-slate-200">{s.name}</td>
                         {schedule.days.map((d) => {
                           const code = staffDayMatrix[s.id]?.[d.day];
+                          const rep = coverInfo(s.id, d.day, code);
+                          if (rep) return (
+                            <td key={d.day} className="px-1 py-1 text-center" title={rep.text}>
+                              <span className={`inline-block rounded px-1 font-bold text-white ${rep.kind === "swap" ? "bg-violet-600" : "bg-rose-600"}`}>{rep.kind === "swap" ? "⇄" : "↺"}{code}</span>
+                            </td>
+                          );
                           return (
                             <td key={d.day} className={`px-1.5 py-1.5 text-center ${d.isWeekend || d.isHoliday ? "bg-slate-50/70" : ""} ${code === "U" || code === "K" ? "text-rose-500" : "text-slate-700"}`}>
                               {code || ""}
@@ -3324,7 +3357,7 @@ function LabShiftSchedulerInner() {
                               {multiOn && val && !inTeam(st, val, d.day) && <div className="mt-0.5 text-[10px] font-semibold text-rose-700">nicht im Team</div>}
                               {val && conflictMap[conflictKey(d.day, st, val)] && <div className="mt-0.5 text-[10px] font-semibold text-rose-700">⚠ {conflictMap[conflictKey(d.day, st, val)]}</div>}
                               {isNewHere && <div className="mt-0.5 text-[10px] font-semibold text-amber-700">Geändert</div>}
-                              {goneHere.length > 0 && <div className="mt-0.5 text-[10px] text-amber-700">entfällt: {goneHere.map(nameById).join(", ")}</div>}
+                              {goneHere.length > 0 && <div className="mt-0.5 text-[10px] text-amber-700">entfällt: {goneHere.map((id) => { const why = reasonOff(id, d.day); return `${nameById(id)}${why ? ` (${why})` : ""}`; }).join(", ")}</div>}
                             </td>
                           );
                         })}
