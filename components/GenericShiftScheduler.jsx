@@ -6,6 +6,7 @@ import { germanHolidays } from "../lib/timesheet";
 import { overtimeMode, payoutMinutesByMonth, planCarryHours } from "../lib/overtime";
 import OrgBar from "./OrgBar";
 import PublishPanel from "./PublishPanel";
+import { absentConflicts, conflictKey } from "../lib/absentConflicts";
 import StandorteSettings from "./StandorteSettings";
 import PlannerShell from "./PlannerShell";
 import Fold from "./Fold";
@@ -1982,6 +1983,9 @@ function LabShiftSchedulerInner() {
     addEntries(sickEntries);
     return map;
   }, [leaveEntries, sickEntries, totalDays, staffMap]);
+  // planned although Urlaub / krank that day (also when entered after the plan was made) – red box + red cells
+  const conflicts = useMemo(() => absentConflicts(schedule, leaveEntries, sickEntries, totalDays, parseDayList, { wishEntries, staffList }), [schedule, leaveEntries, sickEntries, wishEntries, staffList, totalDays]);
+  const conflictMap = useMemo(() => { const m = {}; conflicts.forEach((c) => { m[conflictKey(c.day, c.st, c.staffId)] = c.kind; }); return m; }, [conflicts]);
 
   // Staff × day matrix (one row per person, one column per day) — an alternate view of the same schedule.
   const [viewMode, setViewMode] = useState("byDay"); // "byDay" | "byStaff"
@@ -3115,6 +3119,18 @@ function LabShiftSchedulerInner() {
               </div>
             </div>
 
+            {conflicts.length > 0 && (
+              <div role="alert" className="rounded-2xl border-2 border-rose-300 bg-rose-50 p-4">
+                <div className="flex items-center gap-2 text-sm font-semibold text-rose-800"><AlertTriangle size={16} /> {conflicts.length} {conflicts.length === 1 ? "Konflikt" : "Konflikte"} im Plan: eingeteilt trotz Urlaub, Krankheit, Wunsch oder Befreiung</div>
+                <ul className="mt-2 max-h-40 space-y-1 overflow-y-auto text-xs text-rose-800">
+                  {conflicts.map((c, i) => (
+                    <li key={i}>• {WEEKDAY_DE[c.weekday]} {String(c.day).padStart(2, "0")}.{String(monthIdx + 1).padStart(2, "0")}. · <b>{staffMap[c.staffId] || "?"}</b> · {(shiftMeta[c.st] && shiftMeta[c.st].label) || c.st} – {c.kind}</li>
+                  ))}
+                </ul>
+                <div className="mt-2 text-xs text-rose-700">Im Plan unten rot markiert: dort eine andere Person wählen (oder „— leer —“).</div>
+              </div>
+            )}
+
             {/* Warnings */}
             <div className={`rounded-2xl border p-4 ${schedule.warnings.length ? "bg-amber-50 border-amber-200" : "bg-emerald-50 border-emerald-200"}`}>
               <div className={`flex items-center gap-2 text-sm font-medium ${schedule.warnings.length ? "text-amber-800" : "text-emerald-800"}`}>
@@ -3190,7 +3206,7 @@ function LabShiftSchedulerInner() {
                   {undoMsg && <span role="status" className="text-xs text-slate-600 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5">{undoMsg}</span>}
                 </div>
               </div>
-              {orgCtx && <PublishPanel schedule={schedule} staffList={staffList} year={year} monthIdx={monthIdx} shiftList={shiftListForDb} holidays={holidays} changeCount={changeCount} editMode={editMode} unsaved={unsaved} multi={multiOn} onSaved={(d) => setSavedDays(cloneDays(d))} />}
+              {orgCtx && <PublishPanel conflicts={conflicts.length} schedule={schedule} staffList={staffList} year={year} monthIdx={monthIdx} shiftList={shiftListForDb} holidays={holidays} changeCount={changeCount} editMode={editMode} unsaved={unsaved} multi={multiOn} onSaved={(d) => setSavedDays(cloneDays(d))} />}
               {(archiveState === "error" || saveState === "error") && (
                 <div className="mx-4 mt-3 rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs text-rose-800">
                   {archiveState === "error" && (
@@ -3297,7 +3313,7 @@ function LabShiftSchedulerInner() {
                                 <select
                                   value={val || ""}
                                   onChange={(e) => updateSlot(di, st, slotIndex, e.target.value)}
-                                  className={`w-full text-[11px] rounded-md border px-1.5 py-1 ${val ? shiftMeta[st].chip : "bg-slate-50 border-slate-200 text-slate-400"} ${isNewHere ? "ring-2 ring-amber-400" : ""}`}
+                                  className={`w-full text-[11px] rounded-md border px-1.5 py-1 ${val ? shiftMeta[st].chip : "bg-slate-50 border-slate-200 text-slate-400"} ${isNewHere ? "ring-2 ring-amber-400" : ""} ${val && conflictMap[conflictKey(d.day, st, val)] ? "!border-rose-500 ring-2 ring-rose-400" : ""}`}
                                 >
                                   <option value="">— leer —</option>
                                   {multiOn ? placeOptions(d, st, val) : staffList.map((s) => (
@@ -3306,6 +3322,7 @@ function LabShiftSchedulerInner() {
                                 </select>
                               )}
                               {multiOn && val && !inTeam(st, val, d.day) && <div className="mt-0.5 text-[10px] font-semibold text-rose-700">nicht im Team</div>}
+                              {val && conflictMap[conflictKey(d.day, st, val)] && <div className="mt-0.5 text-[10px] font-semibold text-rose-700">⚠ {conflictMap[conflictKey(d.day, st, val)]}</div>}
                               {isNewHere && <div className="mt-0.5 text-[10px] font-semibold text-amber-700">Geändert</div>}
                               {goneHere.length > 0 && <div className="mt-0.5 text-[10px] text-amber-700">entfällt: {goneHere.map(nameById).join(", ")}</div>}
                             </td>
