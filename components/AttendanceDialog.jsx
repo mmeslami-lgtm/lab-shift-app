@@ -842,6 +842,7 @@ export default function AttendanceDialog({ onClose }) {
                   <button onClick={savePending} disabled={busy === "pend"} className="rounded-md bg-teal-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-teal-700 active:translate-y-px disabled:opacity-60">{busy === "pend" ? "Speichert …" : `Speichern (${pending.length})`}</button>
                   <button onClick={cancelPending} disabled={busy === "pend"} className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-700">Abbrechen</button>
                 </div>
+                {/^(Nicht gespeichert|Bitte einen Grund)/.test(msg) && <div role="alert" className="mt-2 rounded-lg border border-rose-300 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-800">{msg}</div>}
                 <div className="mt-1 text-[11px] text-amber-900">Gespeichert wird alles zusammen oder gar nichts. Bis dahin ändert sich nichts – auch nicht für die Mitarbeitenden.</div>
               </div>
             )}
