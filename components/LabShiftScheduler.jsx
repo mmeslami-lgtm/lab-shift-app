@@ -1693,7 +1693,7 @@ function LabShiftSchedulerInner() {
     loadCovers(orgCtx.supabase, orgCtx.orgId, year, monthIdx).then((rows) => { if (!off) setCoverRows(rows); }).catch(() => { if (!off) setCoverRows([]); });
     return () => { off = true; };
   }, [orgCtx, year, monthIdx, savedDays]);
-  const cover = useMemo(() => coverIndex([...coverRows, ...draftPairs(schedule, baseline)]), [coverRows, schedule, baseline]);
+  const cover = useMemo(() => coverIndex([...coverRows, ...draftPairs(schedule, baseline)], schedule), [coverRows, schedule, baseline]);
   const reasonOff = (id, day) => (offKind[id] && offKind[id][day])
     || (cover.swapGone[`${id}|${day}`] ? `Tausch mit ${staffMap[cover.swapGone[`${id}|${day}`]] || "?"}` : "")
     || shortNote((cover.byReplaced[`${id}|${day}`] || {}).note);
