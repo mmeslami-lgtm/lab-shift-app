@@ -3,13 +3,13 @@
 import React, { useEffect, useRef, useState } from "react";
 import { suggestCover } from "../lib/sickSuggest";
 
-// Popup "Krankmeldung / Ausfall" (Dienstplaner Labor): choose person and days, see up to 3
+// Popup "Krankmeldung / Ausfall" (Dienstplaner Labor + allgemein; allgemein: nightKey = first shift with rest after it): choose person and days, see up to 3
 // possibilities (best first), "Übernehmen" changes ONLY those cells. Nothing happens automatically.
 //   schedule, staffList, shiftMeta, totalDays, offDays, orgCtx, year, monthIdx
 //   onApply(option, staffId, from, to)   planner applies the changes
 // initial / groups (7 Nov 2026): absences found in the plan (red box) – the dialog starts with that person and days
 // filled in (all can be changed), and the other absences are one click away. onPick tells the plan which rows to highlight.
-export default function SickCoverDialog({ schedule, staffList, shiftMeta, totalDays, offDays, orgCtx, year, monthIdx, onApply, onClose, initial, groups, onPick }) {
+export default function SickCoverDialog({ schedule, staffList, shiftMeta, totalDays, offDays, orgCtx, year, monthIdx, onApply, onClose, initial, groups, onPick, nightKey }) {
   const today = new Date();
   const thisMonth = today.getFullYear() === year && today.getMonth() === monthIdx;
   const [staffId, setStaffId] = useState(initial ? initial.staffId : "");
@@ -54,7 +54,7 @@ export default function SickCoverDialog({ schedule, staffList, shiftMeta, totalD
     setBusy(true);
     setTimeout(() => {
       try {
-        const r = suggestCover({ days: schedule.days, staff: staffList, shiftMeta, sickId: staffId, fromDay: a, toDay: b, offDays, hours: schedule.hours, targetOf: schedule.targetOf, einspring });
+        const r = suggestCover({ days: schedule.days, staff: staffList, shiftMeta, sickId: staffId, fromDay: a, toDay: b, offDays, hours: schedule.hours, targetOf: schedule.targetOf, einspring, nightKey: nightKey || "N" });
         setResult({ ...r, from: a, to: b });
       } catch (e) { setResult({ error: "Fehler bei der Berechnung: " + e.message }); }
       setBusy(false);

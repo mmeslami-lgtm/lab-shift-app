@@ -2933,6 +2933,8 @@ function LabShiftSchedulerInner() {
                           // marks versus the published version (only when a saved month was opened for editing)
                           const baseIds = baseline ? (baseline[`${d.day}|${st}`] || []) : null;
                           const isNewHere = !!(baseIds && val && !baseIds.includes(val));
+                          // stays after publishing (from the database): ↺ eingesprungen / ⇄ getauscht – also in "Nach Tag"
+                          const saved = val && !isNewHere ? coverInfo(val, d.day, st) : null;
                           const goneHere = baseIds && slotIndex === 0 ? baseIds.filter((id) => !(d.shifts[st] || []).includes(id)) : [];
                           const nameById = (id) => (staffList.find((x) => x.id === id) || {}).name || "?";
                           return (
@@ -2943,7 +2945,7 @@ function LabShiftSchedulerInner() {
                                 <select
                                   value={val || ""}
                                   onChange={(e) => updateSlot(di, st, slotIndex, e.target.value)}
-                                  className={`w-full text-[11px] rounded-md border px-1.5 py-1 ${val ? shiftMeta[st].chip : "bg-slate-50 border-slate-200 text-slate-400"} ${isNewHere ? "ring-2 ring-amber-400" : ""} ${val && conflictMap[conflictKey(d.day, st, val)] ? "!border-rose-500 ring-2 ring-rose-400" : ""}`}
+                                  className={`w-full text-[11px] rounded-md border px-1.5 py-1 ${val ? shiftMeta[st].chip : "bg-slate-50 border-slate-200 text-slate-400"} ${isNewHere ? "ring-2 ring-amber-400" : saved ? (saved.kind === "swap" ? "ring-2 ring-violet-500" : "ring-2 ring-rose-500") : ""} ${val && conflictMap[conflictKey(d.day, st, val)] ? "!border-rose-500 ring-2 ring-rose-400" : ""}`}
                                 >
                                   <option value="">{slotIndex >= (perShiftCount[st] || 1) ? "— (zusätzlich) —" : st === "F" && slotIndex >= 1 ? "— 1 Person (Mangel) —" : "— leer —"}</option>
                                   {staffList.map((s) => (
@@ -2953,6 +2955,7 @@ function LabShiftSchedulerInner() {
                               )}
                               {val && conflictMap[conflictKey(d.day, st, val)] && <div className="mt-0.5 text-[10px] font-semibold text-rose-700">⚠ {conflictMap[conflictKey(d.day, st, val)]}</div>}
                               {isNewHere && <div className="mt-0.5 text-[10px] font-semibold text-amber-700">Geändert</div>}
+                              {saved && <div className={`mt-0.5 text-[10px] font-semibold ${saved.kind === "swap" ? "text-violet-700" : "text-rose-700"}`}>{saved.kind === "swap" ? "⇄" : "↺"} {saved.text}</div>}
                               {goneHere.length > 0 && <div className="mt-0.5 text-[10px] text-amber-700">entfällt: {goneHere.map((id) => { const why = reasonOff(id, d.day); return `${nameById(id)}${why ? ` (${why})` : ""}`; }).join(", ")}</div>}
                             </td>
                           );
