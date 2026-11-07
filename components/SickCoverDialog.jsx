@@ -7,12 +7,16 @@ import { suggestCover } from "../lib/sickSuggest";
 // possibilities (best first), "Übernehmen" changes ONLY those cells. Nothing happens automatically.
 //   schedule, staffList, shiftMeta, totalDays, offDays, orgCtx, year, monthIdx
 //   onApply(option, staffId, from, to)   planner applies the changes
-export default function SickCoverDialog({ schedule, staffList, shiftMeta, totalDays, offDays, orgCtx, year, monthIdx, onApply, onClose }) {
+// initial / groups (7 Nov 2026): absences found in the plan (red box) – the dialog starts with that person and days
+// filled in (all can be changed), and the other absences are one click away. onPick tells the plan which rows to highlight.
+export default function SickCoverDialog({ schedule, staffList, shiftMeta, totalDays, offDays, orgCtx, year, monthIdx, onApply, onClose, initial, groups, onPick }) {
   const today = new Date();
   const thisMonth = today.getFullYear() === year && today.getMonth() === monthIdx;
-  const [staffId, setStaffId] = useState("");
-  const [from, setFrom] = useState(thisMonth ? today.getDate() : 1);
-  const [to, setTo] = useState(thisMonth ? today.getDate() : 1);
+  const [staffId, setStaffId] = useState(initial ? initial.staffId : "");
+  const [from, setFrom] = useState(initial ? initial.from : thisMonth ? today.getDate() : 1);
+  const [to, setTo] = useState(initial ? initial.to : thisMonth ? today.getDate() : 1);
+  const pick = (g) => { setStaffId(g.staffId); setFrom(g.from); setTo(g.to); setResult(null); if (onPick) onPick(g); };
+  const tell = (id, a, b) => { if (onPick) onPick(id ? { staffId: id, from: Number(a) || 1, to: Math.max(Number(a) || 1, Number(b) || 1) } : null); };
   const [result, setResult] = useState(null);
   const [busy, setBusy] = useState(false);
   const [einspring, setEinspring] = useState({});
@@ -71,18 +75,34 @@ export default function SickCoverDialog({ schedule, staffList, shiftMeta, totalD
           <button onClick={onClose} className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs text-slate-600 hover:bg-slate-50 active:translate-y-px">Schließen</button>
         </div>
 
+        {groups && groups.length > 0 && (
+          <div className="mt-3">
+            <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Ausfälle im Plan</div>
+            <div className="mt-1 flex flex-wrap gap-1.5">
+              {groups.map((g) => {
+                const on = g.staffId === staffId && Number(from) === g.from && Number(to) === g.to;
+                return (
+                  <button key={`${g.staffId}-${g.from}`} onClick={() => pick(g)} aria-pressed={on} className={`rounded-lg border px-2.5 py-1 text-xs font-semibold ${on ? "border-rose-500 bg-rose-600 text-white" : "border-rose-200 bg-rose-50 text-rose-800 hover:bg-rose-100"}`}>
+                    {(staffList.find((s) => s.id === g.staffId) || {}).name || "?"} · {g.from === g.to ? `${g.from}.` : `${g.from}.–${g.to}.`} ({g.kind})
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         <div className="mt-3 flex flex-wrap items-end gap-2">
           <label className="text-xs text-slate-600">Person
-            <select value={staffId} onChange={(e) => { setStaffId(e.target.value); setResult(null); }} className="mt-1 block rounded-lg border border-slate-300 px-2 py-1.5 text-sm">
+            <select value={staffId} onChange={(e) => { setStaffId(e.target.value); setResult(null); tell(e.target.value, from, to); }} className="mt-1 block rounded-lg border border-slate-300 px-2 py-1.5 text-sm">
               <option value="">– wählen –</option>
               {staffList.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
             </select>
           </label>
           <label className="text-xs text-slate-600">von Tag
-            <input type="number" min={1} max={totalDays} value={from} onChange={(e) => { setFrom(e.target.value); if (Number(e.target.value) > Number(to)) setTo(e.target.value); setResult(null); }} className="mt-1 block w-20 rounded-lg border border-slate-300 px-2 py-1.5 text-sm" />
+            <input type="number" min={1} max={totalDays} value={from} onChange={(e) => { setFrom(e.target.value); if (Number(e.target.value) > Number(to)) setTo(e.target.value); setResult(null); tell(staffId, e.target.value, Math.max(Number(e.target.value), Number(to))); }} className="mt-1 block w-20 rounded-lg border border-slate-300 px-2 py-1.5 text-sm" />
           </label>
           <label className="text-xs text-slate-600">bis Tag
-            <input type="number" min={1} max={totalDays} value={to} onChange={(e) => { setTo(e.target.value); setResult(null); }} className="mt-1 block w-20 rounded-lg border border-slate-300 px-2 py-1.5 text-sm" />
+            <input type="number" min={1} max={totalDays} value={to} onChange={(e) => { setTo(e.target.value); setResult(null); tell(staffId, from, e.target.value); }} className="mt-1 block w-20 rounded-lg border border-slate-300 px-2 py-1.5 text-sm" />
           </label>
           <button onClick={show} disabled={busy} className="rounded-lg bg-teal-600 px-3 py-2 text-sm font-semibold text-white hover:bg-teal-700 active:translate-y-px disabled:opacity-60">{busy ? "Moment …" : "Möglichkeiten anzeigen"}</button>
         </div>

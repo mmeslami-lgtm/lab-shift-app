@@ -1253,6 +1253,7 @@ function LabShiftSchedulerInner() {
   const [sickDraft, setSickDraft] = useState({ staffId: "", days: "" });
   const [sickCoverOpen, setSickCoverOpen] = useState(false); // popup "Krankmeldung / Ausfall"
   const [sickCoverMsg, setSickCoverMsg] = useState("");
+  const [sickInit, setSickInit] = useState(null); // { staffId, from, to } – pre-filled from the red box, rows highlighted
   const [wishEntries, setWishEntries] = useState([]); // {id, staffId, days, shiftType}
   const [wishDraft, setWishDraft] = useState({ staffId: "", days: "", shiftType: "F" });
   const [schedule, setSchedule] = useState(null); // {days, hours, satCount, sunCount, target, warnings}
@@ -1708,6 +1709,25 @@ function LabShiftSchedulerInner() {
     const why = c.replacedId ? reasonOff(c.replacedId, day) : shortNote(c.note);
     return { kind: "rep", text: `Eingesprungen${c.replacedId ? ` für ${staffMap[c.replacedId] || "?"}` : ""}${why ? ` (${why})` : ""}` };
   };
+  // absences in the plan, grouped per person and following days -> "Krankmeldung / Ausfall" pre-filled
+  const absentGroups = useMemo(() => {
+    const per = {};
+    conflicts.filter((c) => ["Krank", "Urlaub", "Fortbildung", "Wunsch „Frei“"].includes(c.kind)).forEach((c) => {
+      per[c.staffId] = per[c.staffId] || {}; per[c.staffId][c.day] = c.kind;
+    });
+    const out = [];
+    Object.keys(per).forEach((id) => {
+      const days = Object.keys(per[id]).map(Number).sort((a, b) => a - b);
+      let g = null;
+      days.forEach((d) => {
+        if (g && d === g.to + 1) { g.to = d; return; }
+        g = { staffId: id, from: d, to: d, kind: per[id][d] }; out.push(g);
+      });
+    });
+    return out.sort((a, b) => a.from - b.from);
+  }, [conflicts]);
+  function openSick(g) { setSickInit(g || absentGroups[0] || null); setSickCoverOpen(true); }
+  function closeSick() { setSickCoverOpen(false); setSickInit(null); }
   const conflictMap = useMemo(() => { const m = {}; conflicts.forEach((c) => { m[conflictKey(c.day, c.st, c.staffId)] = c.kind; }); return m; }, [conflicts]);
 
   // Staff × day matrix (one row per person, one column per day) — an alternate view of the same schedule.
@@ -1930,7 +1950,7 @@ function LabShiftSchedulerInner() {
     });
     const range = from === to ? String(from) : `${from}-${to}`;
     setSickEntries((prev) => (prev.some((e) => e.staffId === sickId && e.days === range) ? prev : [...prev, { id: `ke${nextEntryIdRef.current++}`, staffId: sickId, days: range }]));
-    setSickCoverOpen(false);
+    setSickCoverOpen(false); setSickInit(null);
     setSickCoverMsg(`„${option.title}“ übernommen – die Änderungen sind gelb markiert. Erst „Veröffentlichen“ zeigt sie den Mitarbeitenden.`);
     setTimeout(() => setSickCoverMsg(""), 12000);
   }
@@ -2730,8 +2750,16 @@ function LabShiftSchedulerInner() {
                     <li key={i}>• {WEEKDAY_DE[c.weekday]} {String(c.day).padStart(2, "0")}.{String(monthIdx + 1).padStart(2, "0")}. · <b>{staffMap[c.staffId] || "?"}</b> · {(shiftMeta[c.st] && shiftMeta[c.st].label) || c.st} – {c.kind}</li>
                   ))}
                 </ul>
-                <div className="mt-2 text-xs text-rose-700">Im Plan unten rot markiert: dort eine andere Person wählen (oder „— leer —“).</div>
-                  <button onClick={() => setSickCoverOpen(true)} className="mt-2 inline-flex items-center gap-1.5 rounded-lg border border-rose-300 bg-white px-3 py-1.5 text-xs font-semibold text-rose-800 hover:bg-rose-100"><AlertTriangle size={14} /> Ersatz finden („Krankmeldung / Ausfall“)</button>
+                <div className="mt-2 text-xs text-rose-700">Im Plan unten rot markiert: dort eine andere Person wählen (oder „— leer —“) – oder hier Ersatz vorschlagen lassen:</div>
+                {absentGroups.length > 0 && (
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {absentGroups.map((g) => (
+                      <button key={`${g.staffId}-${g.from}`} onClick={() => openSick(g)} className="inline-flex items-center gap-1 rounded-lg border border-rose-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-rose-800 hover:bg-rose-100 active:translate-y-px">
+                        <AlertTriangle size={13} /> Ersatz für {staffMap[g.staffId] || "?"} · {g.from === g.to ? `${g.from}.` : `${g.from}.–${g.to}.`} ({g.kind})
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
 
@@ -2808,13 +2836,14 @@ function LabShiftSchedulerInner() {
                     Alle Änderungen verwerfen
                   </button>
                   {undoMsg && <span role="status" className="text-xs text-slate-600 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5">{undoMsg}</span>}
-                  <button onClick={() => setSickCoverOpen(true)} className="inline-flex items-center gap-1.5 text-xs text-rose-800 border border-rose-200 bg-rose-50 rounded-lg px-2.5 py-1.5 hover:bg-rose-100 active:translate-y-px">
+                  <button onClick={() => openSick()} className="inline-flex items-center gap-1.5 text-xs text-rose-800 border border-rose-200 bg-rose-50 rounded-lg px-2.5 py-1.5 hover:bg-rose-100 active:translate-y-px">
                     <AlertTriangle size={14} /> Krankmeldung / Ausfall
                   </button>
                   {sickCoverMsg && <span role="status" className="w-full text-xs text-teal-800 bg-teal-50 border border-teal-200 rounded-lg px-2.5 py-1.5">{sickCoverMsg}</span>}
                   {sickCoverOpen && (
                     <SickCoverDialog schedule={schedule} staffList={staffList} shiftMeta={shiftMeta} totalDays={totalDays} offDays={buildLeaveMap()}
-                      orgCtx={orgCtx} year={year} monthIdx={monthIdx} onApply={applySickCover} onClose={() => setSickCoverOpen(false)} />
+                      orgCtx={orgCtx} year={year} monthIdx={monthIdx} onApply={applySickCover} onClose={closeSick}
+                      initial={sickInit} groups={absentGroups} onPick={setSickInit} />
                   )}
                 </div>
               </div>
@@ -2890,7 +2919,7 @@ function LabShiftSchedulerInner() {
                     {schedule.days.map((d, di) => (
                       <tr
                         key={d.day}
-                        className={`border-b border-slate-50 ${d.isHoliday ? "bg-rose-50/60" : d.isWeekend ? "bg-slate-50/70" : ""}`}
+                        className={`border-b border-slate-50 ${sickInit && d.day >= sickInit.from && d.day <= sickInit.to ? "bg-rose-100 outline outline-2 outline-rose-400" : d.isHoliday ? "bg-rose-50/60" : d.isWeekend ? "bg-slate-50/70" : ""}`}
                       >
                         <td className="px-2 py-1.5 whitespace-nowrap align-top font-semibold">{d.day}</td>
                         <td className="px-2 py-1.5 whitespace-nowrap align-top text-slate-500">
