@@ -153,11 +153,14 @@ export default function EmployeeTimes({ org }) {
     const tin = cform.in ? toIso(sel, cform.in) : null;
     const tout = cform.out ? toIso(sel, cform.out, tin || (s0 && s0.check_in ? new Date(s0.check_in) : null)) : null;
     if (!tin && !tout) return setCmsg({ text: "Bitte Kommen und/oder Gehen angeben (z. B. 16:30).", bad: true });
-    if (!cform.sessionId && (!tin || !tout)) return setCmsg({ text: "Für einen ganz vergessenen Tag bitte Kommen und Gehen angeben.", bad: true });
+    // 39 (7 Nov 2026): today, still at work -> "Kommen" alone is fine; "Gehen" is stamped normally later
+    const onlyKommenToday = !cform.sessionId && tin && !tout && sel === todayIso;
+    if (onlyKommenToday && tin > new Date()) return setCmsg({ text: "„Kommen“ liegt in der Zukunft – bitte prüfen.", bad: true });
+    if (!cform.sessionId && !onlyKommenToday && (!tin || !tout)) return setCmsg({ text: "Für einen ganz vergessenen Tag bitte Kommen und Gehen angeben.", bad: true });
     if (cform.reason.trim().length < 3) return setCmsg({ text: "Bitte kurz den Grund angeben.", bad: true });
     const { error } = await sb.from("attendance_correction_requests").insert({ org_id: org.orgId, staff_id: org.staffId, session_id: cform.sessionId || null, work_date: sel, check_in: tin ? tin.toISOString() : null, check_out: tout ? tout.toISOString() : null, reason: cform.reason.trim().slice(0, 500), status: "open" });
     if (error) return setCmsg({ text: /check/i.test(error.message) ? "Gehen muss nach Kommen liegen." : error.message, bad: true });
-    setCform(null); setCmsg({ text: "Korrektur beantragt ✓ Die Leitung entscheidet.", bad: false }); load();
+    setCform(null); setCmsg({ text: onlyKommenToday ? "„Kommen“ beantragt ✓ Die Leitung entscheidet. Beim Gehen ganz normal stempeln." : "Korrektur beantragt ✓ Die Leitung entscheidet.", bad: false }); load();
   }
 
   if (sel) {
@@ -168,7 +171,9 @@ export default function EmployeeTimes({ org }) {
     return (
       <div>
         <button onClick={() => setSel(null)} style={{ border: 0, background: "none", color: PRIMARY, fontSize: 16, fontWeight: 600, padding: "4px 0 10px", cursor: "pointer" }}>‹ Zurück</button>
-        <div style={{ fontSize: 22, fontWeight: 750, marginBottom: 12 }}>{WD_LONG[date.getDay()]}, {pad(date.getDate())}.{pad(date.getMonth() + 1)}.{date.getFullYear()}</div>
+        <div style={{ fontSize: 22, fontWeight: 750, marginBottom: 12 }}>{WD_LONG[date.getDay()]}, {pad(date.getDate())}.{pad(date.getMonth() + 1)}.{date.getFullYear()}
+          {d.shifts.length > 0 && <span style={{ display: "block", fontSize: 16, fontWeight: 600, color: PRIMARY, marginTop: 2 }}>{d.shifts.map((x) => `${x.shift_label || x.shift_key}${x.planned_start && x.planned_end ? ` · ${clock(x.planned_start)}–${clock(x.planned_end)}` : ""}`).join(" + ")}</span>}
+        </div>
         {d.absence && <div style={{ ...card, background: "#EEF3FB", fontSize: 15 }}><b>{ABSENCE[d.absence.kind].label}</b> <span style={{ color: MUTED, fontSize: 13 }}>{d.absence.source === "antrag" ? "(genehmigter Antrag)" : "(eingetragen von der Leitung)"}</span>{d.absence.note ? <div style={{ color: MUTED, fontSize: 13, marginTop: 2 }}>{d.absence.note}</div> : null}</div>}
         {d.sessions.length === 0 && !d.absence && <div style={{ ...card, color: MUTED, fontSize: 14 }}>An diesem Tag gibt es keine Stempelung.</div>}
         {d.sessions.map((s) => (
@@ -208,7 +213,7 @@ export default function EmployeeTimes({ org }) {
               {dayReqs.map((q) => (
                 <div key={q.id} style={{ fontSize: 14, padding: "6px 0", borderBottom: `1px solid ${LINE}` }}>
                   <span style={{ fontSize: 12, fontWeight: 650, color: STAT[q.status][1], background: STAT[q.status][2], borderRadius: 8, padding: "2px 7px", marginRight: 6 }}>{STAT[q.status][0]}</span>
-                  {q.check_in ? `Kommen ${clock(q.check_in)} ` : ""}{q.check_out ? `Gehen ${clock(q.check_out)}` : ""} · „{q.reason}“
+                  {q.check_in ? `Kommen ${clock(q.check_in)} ` : ""}{q.check_out ? `Gehen ${clock(q.check_out)}` : !q.session_id ? "(Gehen später normal stempeln)" : ""} · „{q.reason}“
                   {q.decision_note && <div style={{ color: MUTED, marginTop: 2 }}>Antwort der Leitung: {q.decision_note}</div>}
                 </div>
               ))}
@@ -228,6 +233,7 @@ export default function EmployeeTimes({ org }) {
                   <label style={{ display: "block", fontSize: 13, color: MUTED, marginTop: 8 }}>Grund
                     <input value={cform.reason} maxLength={500} placeholder="z. B. Ausstempeln vergessen" onChange={(e) => setCform({ ...cform, reason: e.target.value })} style={{ display: "block", width: "100%", boxSizing: "border-box", marginTop: 4, border: `1px solid ${LINE}`, borderRadius: 12, padding: "9px 10px", fontSize: 16 }} />
                   </label>
+                  {sel === todayIso && !cform.sessionId && <div style={{ fontSize: 13, color: MUTED, marginTop: 6 }}>Noch bei der Arbeit? Nur „Kommen“ eintragen – „Gehen“ später ganz normal stempeln.</div>}
                   {monthClosed && <div style={{ fontSize: 13, color: "#7A4E00", marginTop: 6 }}>Dieser Monat ist schon abgeschlossen – die Leitung entscheidet trotzdem.</div>}
                   <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
                     <button onClick={sendCorrection} style={{ flex: 1, border: 0, borderRadius: 14, background: PRIMARY, color: "#fff", fontSize: 15, fontWeight: 650, padding: "11px 0", cursor: "pointer" }}>An die Leitung senden</button>
