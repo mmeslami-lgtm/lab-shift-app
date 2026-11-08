@@ -1337,8 +1337,11 @@ function LabShiftSchedulerInner() {
   // One combined action: archive the month AND carry forward everyone's shortfall (hours,
   // weekend days, night shifts) automatically — so next month's generation picks it up on its
   // own, without a separate step that's easy to forget.
+  // a month can only be closed when it is over (from the 1st of the next month; also enforced in the database, script 38)
+  function isMonthOver() { return new Date() >= new Date(year, monthIdx + 1, 1); } // a function: year/monthIdx are declared further down
   async function finalizeMonth() {
     if (!schedule) return;
+    if (!isMonthOver()) return;
     setArchiveState("saving");
     setArchiveErrorMsg("");
     setSaveErrorMsg("");
@@ -1484,6 +1487,52 @@ function LabShiftSchedulerInner() {
   sollCtx.contract = !!(orgCtx && (orgCtx.features || []).includes("soll_vertrag")); sollCtx.year = year; sollCtx.monthIdx = monthIdx;
   // With a company login the saldo comes from the database (staff_month_balance, script 12), like in the
   // general planner: sum of all months BEFORE the month on screen – the same on every device and browser.
+  // ---- Vorläufiger Übertrag (8 Nov 2026) ----
+  // The next month is usually planned in the middle of the current one, but a month can only be closed when it is over
+  // (script 38). So, if the month before the one on screen is not closed yet, its carry is estimated from its PUBLISHED
+  // plan (planned hours vs. contract, Sa/So/Nacht) – same formulas as "Monat abschließen". When that month is closed
+  // later, the real values replace this automatically.
+  const [provisionalPrev, setProvisionalPrev] = useState(null); // month key (year*12+month) or null
+  async function provisionalPrevRows(prevKey) {
+    const py = Math.floor(prevKey / 12), pm = prevKey % 12;
+    const pad = (n) => String(n).padStart(2, "0");
+    const total = new Date(py, pm + 1, 0).getDate();
+    const first = `${py}-${pad(pm + 1)}-01`, last = `${py}-${pad(pm + 1)}-${pad(total)}`;
+    const sb = orgCtx.supabase, org = orgCtx.orgId;
+    const [sh, rq, ab] = await Promise.all([
+      fetchAll(() => sb.from("scheduled_shifts").select("staff_id, shift_date, shift_key").eq("org_id", org).eq("status", "published").gte("shift_date", first).lte("shift_date", last)),
+      sb.from("requests").select("staff_id, date_from, date_to").eq("org_id", org).eq("status", "approved").lte("date_from", last).gte("date_to", first),
+      sb.from("attendance_absences").select("staff_id, work_date, kind, voided_at").eq("org_id", org).gte("work_date", first).lte("work_date", last),
+    ]);
+    if (!sh || !sh.length) return [];
+    const people = staffList.filter((x) => /^[0-9a-f-]{36}$/i.test(String(x.id)));
+    const leaveMap = {};
+    people.forEach((x) => { leaveMap[x.id] = new Set(); });
+    ((rq && rq.data) || []).forEach((r) => {
+      if (!leaveMap[r.staff_id]) return;
+      const a = r.date_from < first ? 1 : Number(r.date_from.slice(8, 10)), b = r.date_to > last ? total : Number(r.date_to.slice(8, 10));
+      for (let d = a; d <= b; d++) leaveMap[r.staff_id].add(d);
+    });
+    ((ab && ab.data) || []).forEach((x) => { if (!x.voided_at && x.kind !== "unentschuldigt" && leaveMap[x.staff_id]) leaveMap[x.staff_id].add(Number(String(x.work_date).slice(8, 10))); });
+    const days = [];
+    for (let d = 1; d <= total; d++) days.push({ day: d, weekday: new Date(py, pm, d).getDay(), shifts: {} });
+    sh.forEach((x) => { const d = days[Number(String(x.shift_date).slice(8, 10)) - 1]; if (d) (d.shifts[x.shift_key] || (d.shifts[x.shift_key] = [])).push(x.staff_id); });
+    const saved = { ...sollCtx }; sollCtx.year = py; sollCtx.monthIdx = pm;
+    let st;
+    try { st = computeStatsAndWarnings(days, people, leaveMap, shiftHours, dayOrderedKeys); } finally { Object.assign(sollCtx, saved); }
+    const nightOf = {}; people.forEach((x) => { nightOf[x.id] = days.filter((d) => (d.shifts.N || []).includes(x.id)).length; });
+    const elig = people.filter((x) => !x.nightExempt);
+    const avgN = elig.length ? elig.reduce((t, x) => t + nightOf[x.id], 0) / elig.length : 0;
+    const openSat = days.filter((d) => d.weekday === 6).length, openSun = days.filter((d) => d.weekday === 0).length;
+    return people.map((x) => ({
+      staff_id: x.id, year: py, month: pm + 1,
+      contract_hours: Math.round((st.targetOf[x.id] || 0) * 100) / 100,
+      planned_hours: Math.round((st.hours[x.id] || 0) * 100) / 100,
+      sat_short: x.weekendExempt || openSat < 2 ? 0 : Math.max(0, 2 - (st.satCount[x.id] || 0)),
+      sun_short: x.weekendExempt || openSun < 2 ? 0 : Math.max(0, 2 - (st.sunCount[x.id] || 0)),
+      night_short: x.nightExempt ? 0 : Math.round(Math.max(0, avgN - nightOf[x.id]) * 100) / 100,
+    }));
+  }
   const staffIdKey = staffList.map((s) => s.id + ":" + s.name).join("|");
   useEffect(() => {
     if (!orgCtx) return undefined;
@@ -1501,6 +1550,15 @@ function LabShiftSchedulerInner() {
         if (mode === "gemischt") payouts = await fetchAll(() => orgCtx.supabase.from("overtime_payouts").select("staff_id, year, month, hours, voided_at").eq("org_id", orgCtx.orgId));
       } catch (_) { mode = "konto"; payouts = []; }
       if (cancelled) return;
+      // previous month not closed yet -> provisional carry from its published plan (see provisionalPrevRows)
+      const prevKey = year * 12 + monthIdx - 1;
+      let prov = [];
+      if (!rows.some((x) => x.year * 12 + (x.month - 1) === prevKey)) {
+        try { prov = await provisionalPrevRows(prevKey); } catch (_) { prov = []; }
+        if (cancelled) return;
+      }
+      setProvisionalPrev(prov.length ? prevKey : null);
+      rows = rows.concat(prov);
       const nowKey = year * 12 + monthIdx;
       const byId = {};
       const rowsOf = {};
@@ -2680,7 +2738,7 @@ function LabShiftSchedulerInner() {
                   .filter(([, v]) => Math.abs(v.hours || 0) > 0.05 || (v.satDeficit || 0) > 0 || (v.sunDeficit || 0) > 0 || (v.nightDeficit || 0) > 0)
                   .map(([name, v]) => {
                     const parts = [];
-                    if (Math.abs(v.hours || 0) > 0.05) parts.push(`${v.hours > 0 ? "+" : ""}${v.hours.toFixed(1)} Std.`);
+                    if (Math.abs(v.hours || 0) > 0.05) parts.push(v.hours < 0 ? `+${(-v.hours).toFixed(1)} Überstunden (Ziel kleiner)` : `−${v.hours.toFixed(1)} Minusstunden (Ziel größer)`); // same words as allgemein
                     if ((v.satDeficit || 0) > 0) parts.push(`${v.satDeficit.toFixed(1)} Sa offen`);
                     if ((v.sunDeficit || 0) > 0) parts.push(`${v.sunDeficit.toFixed(1)} So offen`);
                     if ((v.nightDeficit || 0) > 0) parts.push(`${v.nightDeficit.toFixed(1)} Nächte offen`);
@@ -2704,6 +2762,11 @@ function LabShiftSchedulerInner() {
             >
               <RefreshCw size={16} className={genBusy ? "animate-spin" : ""} /> {genBusy ? "Moment …" : schedule ? "Neu generieren" : "Dienstplan erstellen"}
             </button>
+            {provisionalPrev != null && (
+              <span role="note" className="text-xs text-amber-900 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5" title="Wird automatisch ersetzt, sobald der Vormonat abgeschlossen ist">
+                ⓘ {new Date(Math.floor(provisionalPrev / 12), provisionalPrev % 12, 1).toLocaleDateString("de-DE", { month: "long", year: "numeric" })} noch nicht abgeschlossen – vorläufiger Übertrag aus dem veröffentlichten Plan
+              </span>
+            )}
             {genInfo && !genBusy && (
               <span role="status" className="text-xs text-teal-800 bg-teal-50 border border-teal-200 rounded-lg px-2.5 py-1.5">
                 {genInfo.first ? "Plan erstellt" : "Neu erstellt"} um {String(genInfo.at.getHours()).padStart(2, "0")}:{String(genInfo.at.getMinutes()).padStart(2, "0")}:{String(genInfo.at.getSeconds()).padStart(2, "0")} Uhr{genInfo.variants ? ` · beste von ${genInfo.variants} Varianten` : ""}
@@ -2814,12 +2877,12 @@ function LabShiftSchedulerInner() {
                 <div className="flex items-center gap-2 flex-wrap">
                   <button
                     onClick={finalizeMonth}
-                    disabled={archiveState === "saving"}
-                    className="inline-flex items-center gap-1.5 text-xs text-sky-700 hover:text-sky-800 border border-sky-200 bg-sky-50 rounded-lg px-2.5 py-1.5 hover:bg-sky-100 disabled:opacity-60"
-                    title="Archiviert den Monat und überträgt automatisch Stunden-, Wochenend- und Nachtdienst-Saldo für den nächsten Monat"
+                    disabled={archiveState === "saving" || !isMonthOver()}
+                    className="inline-flex items-center gap-1.5 text-xs text-sky-700 hover:text-sky-800 border border-sky-200 bg-sky-50 rounded-lg px-2.5 py-1.5 hover:bg-sky-100 disabled:opacity-60 disabled:cursor-not-allowed"
+                    title={isMonthOver() ? "Archiviert den Monat und überträgt automatisch Stunden-, Wochenend- und Nachtdienst-Saldo für den nächsten Monat" : `Erst möglich, wenn der Monat vorbei ist (ab 01.${String(((monthIdx + 1) % 12) + 1).padStart(2, "0")}.)`}
                   >
                     {archiveState === "saved" ? <Check size={14} /> : <ClipboardList size={14} />}
-                    {archiveState === "saving" ? "Wird gespeichert..." : archiveState === "saved" ? "Gespeichert & Saldo übertragen" : archiveState === "error" ? "Fehler, bitte erneut versuchen" : "Monat abschließen & archivieren"}
+                    {archiveState === "saving" ? "Wird gespeichert..." : archiveState === "saved" ? "Gespeichert & Saldo übertragen" : archiveState === "error" ? "Fehler, bitte erneut versuchen" : isMonthOver() ? "Monat abschließen & archivieren" : `Monat abschließen – ab 01.${String(((monthIdx + 1) % 12) + 1).padStart(2, "0")}.`}
                   </button>
                   <button onClick={downloadExcel} title="Schön formatierte Excel-Datei mit Plan, Mitarbeiter-Übersicht und Zusammenfassung" className="inline-flex items-center gap-1.5 text-xs text-emerald-800 hover:text-emerald-900 border border-emerald-200 bg-emerald-50 rounded-lg px-2.5 py-1.5 hover:bg-emerald-100">
                     {excelState === "done" ? <Check size={14} /> : <Copy size={14} />}
@@ -2979,7 +3042,7 @@ function LabShiftSchedulerInner() {
                   <thead>
                     <tr className="text-slate-500 border-b border-slate-100">
                       <th className="px-2 py-2 text-left font-medium">Name</th>
-                      <th className="px-2 py-2 text-left font-medium">Saldo Vormonat</th>
+                      <th className="px-2 py-2 text-left font-medium" title="Wie im Zeitkonto der Mitarbeitenden: − = Minusstunden (bekommt jetzt mehr Schichten), + = Überstunden (bekommt jetzt weniger)">Saldo Vormonat<div className="text-[10px] font-normal text-slate-400">− Minus · + Über</div></th>
                       <th className="px-2 py-2 text-left font-medium">Geleistete Std.</th>
                       <th className="px-2 py-2 text-left font-medium">Ziel</th>
                       <th className="px-2 py-2 text-left font-medium">Differenz</th>
@@ -3001,8 +3064,9 @@ function LabShiftSchedulerInner() {
                       return (
                         <tr key={s.id} className="border-b border-slate-50">
                           <td className="px-2 py-2 font-medium">{s.name}</td>
-                          <td className={`px-2 py-2 font-mono ${Math.abs(carriedHours) > 0.05 ? (carriedHours > 0 ? "text-emerald-700" : "text-rose-700") : "text-slate-300"}`}>
-                            {Math.abs(carriedHours) > 0.05 ? `${carriedHours > 0 ? "+" : ""}${carriedHours.toFixed(1)}` : "—"}
+                          {/* internal carry: > 0 = worked less (catch up). Shown like the Zeitkonto: − = Minusstunden, + = Überstunden (8 Nov 2026) */}
+                          <td className={`px-2 py-2 font-mono ${Math.abs(carriedHours) > 0.05 ? (carriedHours < 0 ? "text-amber-700" : "text-sky-700") : "text-slate-300"}`} title={Math.abs(carriedHours) > 0.05 ? (carriedHours < 0 ? "Überstunden aus Vormonaten – bekommt jetzt weniger Schichten" : "Minusstunden aus Vormonaten – bekommt jetzt mehr Schichten") : ""}>
+                            {Math.abs(carriedHours) > 0.05 ? `${carriedHours < 0 ? "+" : "−"}${Math.abs(carriedHours).toFixed(1)}` : "—"}
                           </td>
                           <td className={`px-2 py-2 font-mono ${bigDev ? "text-amber-700 font-semibold" : ""}`}>{h.toFixed(1)}</td>
                           <td className="px-2 py-2 font-mono text-slate-400">{t.toFixed(1)}</td>

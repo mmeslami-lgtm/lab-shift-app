@@ -531,7 +531,7 @@ export default function AttendanceDialog({ onClose }) {
                   {reqs.map((q) => (
                     <li key={q.id} className="rounded-lg bg-white p-2">
                       <div className="font-medium">{names[q.staff_id] || "?"} · {q.work_date.split("-").reverse().join(".")}</div>
-                      <div className="text-xs text-slate-700">{q.check_in ? `Kommen ${clock(q.check_in)} ` : ""}{q.check_out ? `Gehen ${clock(q.check_out)}` : ""}{q.session_id ? "" : " (ganz vergessen)"} · „{q.reason}“</div>
+                      <div className="text-xs text-slate-700">{q.check_in ? `Kommen ${clock(q.check_in)} ` : ""}{q.check_out ? `Gehen ${clock(q.check_out)}` : ""}{q.session_id ? "" : q.check_out ? " (ganz vergessen)" : " (Kommen vergessen – noch da; „Gehen“ stempelt die Person selbst)"} · „{q.reason}“</div>
                       <div className="mt-1.5 flex flex-wrap gap-2">
                         <button onClick={() => decideReq(q, true)} disabled={!!busy} className="rounded-md bg-emerald-600 px-3 py-1 text-xs font-semibold text-white hover:bg-emerald-700 active:translate-y-px">Übernehmen</button>
                         <button onClick={() => setDenyReq({ id: q.id, note: "" })} disabled={!!busy} className="rounded-md border border-rose-200 px-3 py-1 text-xs text-rose-700 hover:bg-rose-50 active:translate-y-px">Ablehnen</button>
