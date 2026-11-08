@@ -3524,7 +3524,7 @@ function LabShiftSchedulerInner() {
                   <thead>
                     <tr className="text-slate-500 border-b border-slate-100">
                       <th className="px-2 py-2 text-left font-medium">Name</th>
-                      <th className="px-2 py-2 text-left font-medium" title="+ = Überstunden aus Vormonaten (werden jetzt ausgeglichen), − = Minusstunden">Saldo Vormonat</th>
+                      <th className="px-2 py-2 text-left font-medium" title="Wie im Zeitkonto der Mitarbeitenden: − = Minusstunden (bekommt jetzt mehr Schichten), + = Überstunden (bekommt jetzt weniger)">Saldo Vormonat<div className="text-[10px] font-normal text-slate-400">− Minus · + Über</div></th>
                       <th className="px-2 py-2 text-left font-medium">Geleistete Std.</th>
                       <th className="px-2 py-2 text-left font-medium" title="Vertragsstunden dieses Monats (Wochenstunden ÷ Öffnungstage pro Woche × offene Tage, ohne Urlaub) ± Saldo aus Vormonaten">Ziel</th>
                       <th className="px-2 py-2 text-left font-medium">Differenz</th>

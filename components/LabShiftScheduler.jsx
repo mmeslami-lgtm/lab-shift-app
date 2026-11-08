@@ -2738,7 +2738,7 @@ function LabShiftSchedulerInner() {
                   .filter(([, v]) => Math.abs(v.hours || 0) > 0.05 || (v.satDeficit || 0) > 0 || (v.sunDeficit || 0) > 0 || (v.nightDeficit || 0) > 0)
                   .map(([name, v]) => {
                     const parts = [];
-                    if (Math.abs(v.hours || 0) > 0.05) parts.push(`${v.hours > 0 ? "+" : ""}${v.hours.toFixed(1)} Std.`);
+                    if (Math.abs(v.hours || 0) > 0.05) parts.push(v.hours < 0 ? `+${(-v.hours).toFixed(1)} Überstunden (Ziel kleiner)` : `−${v.hours.toFixed(1)} Minusstunden (Ziel größer)`); // same words as allgemein
                     if ((v.satDeficit || 0) > 0) parts.push(`${v.satDeficit.toFixed(1)} Sa offen`);
                     if ((v.sunDeficit || 0) > 0) parts.push(`${v.sunDeficit.toFixed(1)} So offen`);
                     if ((v.nightDeficit || 0) > 0) parts.push(`${v.nightDeficit.toFixed(1)} Nächte offen`);
@@ -3042,7 +3042,7 @@ function LabShiftSchedulerInner() {
                   <thead>
                     <tr className="text-slate-500 border-b border-slate-100">
                       <th className="px-2 py-2 text-left font-medium">Name</th>
-                      <th className="px-2 py-2 text-left font-medium">Saldo Vormonat</th>
+                      <th className="px-2 py-2 text-left font-medium" title="Wie im Zeitkonto der Mitarbeitenden: − = Minusstunden (bekommt jetzt mehr Schichten), + = Überstunden (bekommt jetzt weniger)">Saldo Vormonat<div className="text-[10px] font-normal text-slate-400">− Minus · + Über</div></th>
                       <th className="px-2 py-2 text-left font-medium">Geleistete Std.</th>
                       <th className="px-2 py-2 text-left font-medium">Ziel</th>
                       <th className="px-2 py-2 text-left font-medium">Differenz</th>
@@ -3064,8 +3064,9 @@ function LabShiftSchedulerInner() {
                       return (
                         <tr key={s.id} className="border-b border-slate-50">
                           <td className="px-2 py-2 font-medium">{s.name}</td>
-                          <td className={`px-2 py-2 font-mono ${Math.abs(carriedHours) > 0.05 ? (carriedHours > 0 ? "text-emerald-700" : "text-rose-700") : "text-slate-300"}`}>
-                            {Math.abs(carriedHours) > 0.05 ? `${carriedHours > 0 ? "+" : ""}${carriedHours.toFixed(1)}` : "—"}
+                          {/* internal carry: > 0 = worked less (catch up). Shown like the Zeitkonto: − = Minusstunden, + = Überstunden (8 Nov 2026) */}
+                          <td className={`px-2 py-2 font-mono ${Math.abs(carriedHours) > 0.05 ? (carriedHours < 0 ? "text-amber-700" : "text-sky-700") : "text-slate-300"}`} title={Math.abs(carriedHours) > 0.05 ? (carriedHours < 0 ? "Überstunden aus Vormonaten – bekommt jetzt weniger Schichten" : "Minusstunden aus Vormonaten – bekommt jetzt mehr Schichten") : ""}>
+                            {Math.abs(carriedHours) > 0.05 ? `${carriedHours < 0 ? "+" : "−"}${Math.abs(carriedHours).toFixed(1)}` : "—"}
                           </td>
                           <td className={`px-2 py-2 font-mono ${bigDev ? "text-amber-700 font-semibold" : ""}`}>{h.toFixed(1)}</td>
                           <td className="px-2 py-2 font-mono text-slate-400">{t.toFixed(1)}</td>
