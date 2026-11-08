@@ -1816,8 +1816,11 @@ function LabShiftSchedulerInner() {
         if (matrix[e.staffId] && !matrix[e.staffId][day]) matrix[e.staffId][day] = "K";
       });
     });
+    wishEntries.filter((e) => e.shiftType === "Fortbildung").forEach((e) => { // shown in the plan and the print as "FB"
+      parseDayList(e.days, totalDays).forEach((day) => { if (matrix[e.staffId] && !matrix[e.staffId][day]) matrix[e.staffId][day] = "FB"; });
+    });
     return matrix;
-  }, [schedule, staffList, leaveEntries, sickEntries, totalDays, dayOrderedKeys]);
+  }, [schedule, staffList, leaveEntries, sickEntries, wishEntries, totalDays, dayOrderedKeys]);
 
   function addStaff() {
     const id = `s${nextIdRef.current++}`;
@@ -1844,28 +1847,62 @@ function LabShiftSchedulerInner() {
     setHolidays((prev) => (prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day]));
   }
 
+  // ---- Abwesenheiten aus dem Dienstplan in der Datenbank (8 Nov 2026) ----
+  // Urlaub / Krank / Fortbildung entered here are stored per day in attendance_absences (set_absence, the same as in
+  // "Anwesenheit"). So they come back when the month is opened again (OrgBar takes them over), the employee sees them
+  // and the Zeitkonto counts them. Removing an entry here cancels them there (void_absence, kept as history).
+  const ymNow = `${year}-${String(monthIdx + 1).padStart(2, "0")}`;
+  const absIdsOf = (e) => (e.absIds && e.absIds.length ? e.absIds : e.dbId && /^abs(\d+)@/.test(e.dbId) ? [Number(/^abs(\d+)@/.exec(e.dbId)[1])] : []);
+  async function persistAbsence(entry, kind, setList) {
+    if (!orgCtx || !/^[0-9a-f-]{36}$/i.test(String(entry.staffId))) return;
+    const pad = (n) => String(n).padStart(2, "0");
+    try {
+      const ids = [];
+      for (const d of parseDayList(entry.days, totalDays)) {
+        const { data, error } = await orgCtx.supabase.rpc("set_absence", { p_org: orgCtx.orgId, p_staff: entry.staffId, p_date: `${year}-${pad(monthIdx + 1)}-${pad(d)}`, p_kind: kind, p_note: "Dienstplan" });
+        if (error) throw error;
+        ids.push(data);
+      }
+      setList((prev) => prev.map((e) => (e.id === entry.id ? { ...e, absIds: ids, ym: ymNow } : e)));
+    } catch (err) {
+      window.alert(`Nicht in der Datenbank gespeichert (${(err && err.message) || err}). Der Eintrag gilt nur in diesem Browser.`);
+    }
+  }
+  async function cancelAbsence(entry) {
+    if (!orgCtx) return;
+    for (const id of absIdsOf(entry)) await orgCtx.supabase.rpc("void_absence", { p_id: id, p_reason: "im Dienstplan entfernt" });
+  }
   function addLeaveEntry() {
     if (!leaveDraft.staffId || !leaveDraft.days.trim()) return;
-    setLeaveEntries((prev) => [...prev, { id: `le${nextEntryIdRef.current++}`, staffId: leaveDraft.staffId, days: leaveDraft.days.trim() }]);
+    const entry = { id: `le${nextEntryIdRef.current++}`, staffId: leaveDraft.staffId, days: leaveDraft.days.trim() };
+    setLeaveEntries((prev) => [...prev, entry]);
+    persistAbsence(entry, "urlaub", setLeaveEntries);
     setLeaveDraft({ staffId: "", days: "" });
   }
   function removeLeaveEntry(id) {
+    const e = leaveEntries.find((x) => x.id === id); if (e) cancelAbsence(e);
     setLeaveEntries((prev) => prev.filter((e) => e.id !== id));
   }
   function addSickEntry() {
     if (!sickDraft.staffId || !sickDraft.days.trim()) return;
-    setSickEntries((prev) => [...prev, { id: `se${nextEntryIdRef.current++}`, staffId: sickDraft.staffId, days: sickDraft.days.trim() }]);
+    const entry = { id: `se${nextEntryIdRef.current++}`, staffId: sickDraft.staffId, days: sickDraft.days.trim() };
+    setSickEntries((prev) => [...prev, entry]);
+    persistAbsence(entry, "krank", setSickEntries);
     setSickDraft({ staffId: "", days: "" });
   }
   function removeSickEntry(id) {
+    const e = sickEntries.find((x) => x.id === id); if (e) cancelAbsence(e);
     setSickEntries((prev) => prev.filter((e) => e.id !== id));
   }
   function addWishEntry() {
     if (!wishDraft.staffId || !wishDraft.days.trim()) return;
-    setWishEntries((prev) => [...prev, { id: `we${nextEntryIdRef.current++}`, staffId: wishDraft.staffId, days: wishDraft.days.trim(), shiftType: wishDraft.shiftType }]);
+    const entry = { id: `we${nextEntryIdRef.current++}`, staffId: wishDraft.staffId, days: wishDraft.days.trim(), shiftType: wishDraft.shiftType };
+    setWishEntries((prev) => [...prev, entry]);
+    if (entry.shiftType === "Fortbildung") persistAbsence(entry, "fortbildung", setWishEntries);
     setWishDraft({ staffId: "", days: "", shiftType: "F" });
   }
   function removeWishEntry(id) {
+    const e = wishEntries.find((x) => x.id === id); if (e && e.shiftType === "Fortbildung") cancelAbsence(e);
     setWishEntries((prev) => prev.filter((e) => e.id !== id));
   }
   // Approved wishes from the employee app ("Wünsche" in the bar above) -> wish list of this plan.
@@ -1886,21 +1923,24 @@ function LabShiftSchedulerInner() {
     if (opts && opts.sync && opts.ym) {
       const keep = new Set(list.map((r) => r.dbId));
       const drop = (e) => e.ym === opts.ym && e.dbId && !keep.has(e.dbId);
-      removed = [...leaveEntries, ...sickEntries].filter(drop).length;
-      if (removed) { setLeaveEntries((prev) => prev.filter((e) => !drop(e))); setSickEntries((prev) => prev.filter((e) => !drop(e))); }
+      removed = [...leaveEntries, ...sickEntries, ...wishEntries].filter(drop).length;
+      if (removed) { setLeaveEntries((prev) => prev.filter((e) => !drop(e))); setSickEntries((prev) => prev.filter((e) => !drop(e))); setWishEntries((prev) => prev.filter((e) => !drop(e))); }
     }
-    const have = new Set([...leaveEntries, ...sickEntries].map((e) => e.dbId).filter(Boolean));
+    const have = new Set([...leaveEntries, ...sickEntries, ...wishEntries].map((e) => e.dbId).filter(Boolean));
+    [...leaveEntries, ...sickEntries, ...wishEntries].forEach((e) => (e.absIds || []).forEach((id) => have.add(`abs${id}@${e.ym || ymNow}`))); // entered here and saved
     const staffIds = new Set(staffList.map((x) => x.id));
-    const leave = [], sick = []; let already = 0, noPerson = 0;
+    const leave = [], sick = [], training = []; let already = 0, noPerson = 0;
     list.forEach((r) => {
       if (have.has(r.dbId)) { already++; return; }
       if (!staffIds.has(r.staffId)) { noPerson++; return; }
       const e = { id: `ra${nextEntryIdRef.current++}`, staffId: r.staffId, days: r.days, dbId: r.dbId, ym: r.ym };
-      (r.kind === "sick" ? sick : leave).push(e);
+      if (r.kind === "training") training.push({ ...e, shiftType: "Fortbildung" }); // Fortbildung counts as work, like the wish
+      else (r.kind === "sick" ? sick : leave).push(e);
     });
     if (leave.length) setLeaveEntries((prev) => [...prev, ...leave]);
     if (sick.length) setSickEntries((prev) => [...prev, ...sick]);
-    return { added: leave.length + sick.length, already, noPerson, removed };
+    if (training.length) setWishEntries((prev) => [...prev, ...training]);
+    return { added: leave.length + sick.length + training.length, already, noPerson, removed };
   }
 
   function importWishes(list) {
@@ -2015,7 +2055,11 @@ function LabShiftSchedulerInner() {
     });
     const range = from === to ? String(from) : `${from}-${to}`;
     // only a NEW Krankmeldung adds "Krank"; an absence from the red box (Urlaub, Krank, …) is already entered
-    if (!kind) setSickEntries((prev) => (prev.some((e) => e.staffId === sickId && e.days === range) ? prev : [...prev, { id: `ke${nextEntryIdRef.current++}`, staffId: sickId, days: range }]));
+    if (!kind && !sickEntries.some((e) => e.staffId === sickId && e.days === range)) {
+      const entry = { id: `ke${nextEntryIdRef.current++}`, staffId: sickId, days: range };
+      setSickEntries((prev) => [...prev, entry]);
+      persistAbsence(entry, "krank", setSickEntries);
+    }
     setSickCoverOpen(false); setSickInit(null);
     setSickCoverMsg(`„${option.title}“ übernommen – die Änderungen sind gelb markiert. Erst „Veröffentlichen“ zeigt sie den Mitarbeitenden.`);
     setTimeout(() => setSickCoverMsg(""), 12000);
@@ -2211,7 +2255,11 @@ function LabShiftSchedulerInner() {
     setPrintState("busy");
     try {
       const status = !orgCtx ? "" : changeCount === 0 ? "published" : "draft";
-      const ok = openPrintView(exportInput(), { year, monthIdx, orgName: orgCtx ? orgCtx.orgName : "", status });
+      const input = exportInput();
+      // Krank on the board = health data visible to everybody: only when the Leitung says so for this print
+      const hasSick = Object.values(input.matrix || {}).some((m) => Object.values(m || {}).includes("K"));
+      input.showSick = hasSick && window.confirm("Krankheitstage im Ausdruck als „K – Krank“ zeigen?\n\nDer Aushang ist für alle sichtbar (Gesundheitsdaten, DSGVO).\n\nOK = „K – Krank“ zeigen · Abbrechen = nur „A – abwesend“");
+      const ok = openPrintView(input, { year, monthIdx, orgName: orgCtx ? orgCtx.orgName : "", status });
       setPrintState(ok ? "done" : "blocked");
     } catch (err) {
       console.error(err);

@@ -92,7 +92,7 @@ export default function OrgBar({ onLoadStaff, staffList, toDb, onIdsChanged, yea
         });
         (ab.data || []).forEach((x) => {
           if (x.voided_at || x.kind === "unentschuldigt") return;
-          list.push({ dbId: `abs${x.id}@${ym}`, ym, staffId: x.staff_id, days: String(Number(String(x.work_date).slice(8, 10))), kind: ["krank", "krank_ohne", "kur"].includes(x.kind) ? "sick" : "leave" });
+          list.push({ dbId: `abs${x.id}@${ym}`, ym, staffId: x.staff_id, days: String(Number(String(x.work_date).slice(8, 10))), kind: ["krank", "krank_ohne", "kur"].includes(x.kind) ? "sick" : x.kind === "fortbildung" ? "training" : "leave" });
         });
         const res = onImportRequests(list, { sync: true, ym });
         const parts = [];
