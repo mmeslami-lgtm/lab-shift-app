@@ -1369,8 +1369,11 @@ function LabShiftSchedulerInner() {
   // One combined action: archive the month AND carry forward everyone's shortfall (hours,
   // weekend days, night shifts) automatically — so next month's generation picks it up on its
   // own, without a separate step that's easy to forget.
+  // a month can only be closed when it is over (from the 1st of the next month; also enforced in the database, script 38)
+  const monthOver = new Date() >= new Date(year, monthIdx + 1, 1);
   async function finalizeMonth() {
     if (!schedule) return;
+    if (!monthOver) return;
     setArchiveState("saving");
     setArchiveErrorMsg("");
     setSaveErrorMsg("");
@@ -3261,12 +3264,12 @@ function LabShiftSchedulerInner() {
                 <div className="flex items-center gap-2 flex-wrap">
                   <button
                     onClick={finalizeMonth}
-                    disabled={archiveState === "saving"}
-                    className="inline-flex items-center gap-1.5 text-xs text-sky-700 hover:text-sky-800 border border-sky-200 bg-sky-50 rounded-lg px-2.5 py-1.5 hover:bg-sky-100 disabled:opacity-60"
-                    title="Archiviert den Monat und überträgt automatisch Stunden-, Wochenend- und Nachtdienst-Saldo für den nächsten Monat"
+                    disabled={archiveState === "saving" || !monthOver}
+                    className="inline-flex items-center gap-1.5 text-xs text-sky-700 hover:text-sky-800 border border-sky-200 bg-sky-50 rounded-lg px-2.5 py-1.5 hover:bg-sky-100 disabled:opacity-60 disabled:cursor-not-allowed"
+                    title={monthOver ? "Archiviert den Monat und überträgt automatisch Stunden-, Wochenend- und Nachtdienst-Saldo für den nächsten Monat" : `Erst möglich, wenn der Monat vorbei ist (ab 01.${String(((monthIdx + 1) % 12) + 1).padStart(2, "0")}.)`}
                   >
                     {archiveState === "saved" ? <Check size={14} /> : <ClipboardList size={14} />}
-                    {archiveState === "saving" ? "Wird gespeichert..." : archiveState === "saved" ? "Gespeichert & Saldo übertragen" : archiveState === "error" ? "Fehler, bitte erneut versuchen" : "Monat abschließen & archivieren"}
+                    {archiveState === "saving" ? "Wird gespeichert..." : archiveState === "saved" ? "Gespeichert & Saldo übertragen" : archiveState === "error" ? "Fehler, bitte erneut versuchen" : monthOver ? "Monat abschließen & archivieren" : `Monat abschließen – ab 01.${String(((monthIdx + 1) % 12) + 1).padStart(2, "0")}.`}
                   </button>
                   <button onClick={downloadExcel} title="Schön formatierte Excel-Datei mit Plan, Mitarbeiter-Übersicht und Zusammenfassung" className="inline-flex items-center gap-1.5 text-xs text-emerald-800 hover:text-emerald-900 border border-emerald-200 bg-emerald-50 rounded-lg px-2.5 py-1.5 hover:bg-emerald-100">
                     {excelState === "done" ? <Check size={14} /> : <Copy size={14} />}

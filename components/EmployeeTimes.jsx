@@ -309,9 +309,12 @@ export default function EmployeeTimes({ org }) {
           const kommenFehlt = noStamp && (iso < todayIso || (iso === todayIso && Date.now() > firstStart + 30 * 60000));
           const forgot = openS && Date.now() - new Date(openS.check_in).getTime() > 12 * 3600000;
           const absTxt = d && d.absence ? `${ABSENCE[d.absence.kind].label}${!ABSENCE[d.absence.kind].credit && d.planned ? ` (−${hm(d.planned)} h)` : ""}` : null;
-          const sub = !d ? "frei" : absTxt && !d.sessions.length ? absTxt : forgot ? "Gehen fehlt – bitte Korrektur beantragen" : kommenFehlt ? (iso === todayIso ? "Kommen fehlt" : "Kommen fehlt – bitte Korrektur beantragen") : d.open ? `läuft seit ${clock(openS.check_in)}`
+          const shiftName = d && d.shifts.length ? d.shifts.map((x) => x.shift_label || x.shift_key).join(" + ") : ""; // e.g. "Frühdienst" (7 Nov 2026)
+          const sub0 = !d ? "frei" : absTxt && !d.sessions.length ? absTxt : forgot ? "Gehen fehlt – bitte Korrektur beantragen" : kommenFehlt ? (iso === todayIso ? "Kommen fehlt" : "Kommen fehlt – bitte Korrektur beantragen") : d.open ? `läuft seit ${clock(openS.check_in)}`
             : d.sessions.length ? `gearbeitet ${hm(d.worked)} h${d.missing ? " · Kommen fehlt" : ""}`
             : d.shifts.length ? (iso < todayIso ? "geplant, kein Stempel" : `${sh.shift_label || sh.shift_key} geplant`) : sollMode === "vertrag" && d.planned > 0 && iso <= todayIso ? `frei · Soll ${hm(d.planned)} (Zeitausgleich)` : "frei";
+          // name of the planned shift in front (Früh / Mittel / Spät / Nacht …), unless it is already in the text
+          const sub = shiftName && !sub0.includes(shiftName) ? `${shiftName} · ${sub0}` : sub0;
           return (
             <button key={iso} onClick={() => setSel(iso)} style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", textAlign: "left", background: "none", border: 0, borderBottom: `1px solid ${PAPER}`, padding: "10px 0", cursor: "pointer", color: INK }}>
               <span style={{ width: 4, alignSelf: "stretch", borderRadius: 4, background: sh ? BAR[sh.shift_key] || "#C9D3E3" : "transparent" }} />
