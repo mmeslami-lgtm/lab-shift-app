@@ -87,7 +87,7 @@ export default function WishesDialog({ year, monthIdx, onImport, onClose, onChan
     if (r.already) parts.push(`${r.already} waren schon drin`);
     if (r.noPerson) parts.push(`${r.noPerson} Person(en) fehlen im Plan – zuerst „Personen aus Datenbank laden“`);
     if (r.noShift) parts.push(`${r.noShift} mit einer Schicht, die es in diesem Planer nicht gibt`);
-    setMsg(parts.join(" · ") + ". Erst „Neu generieren“ berücksichtigt sie.");
+    setMsg(parts.join(" · ") + ". Erst „Generieren“ / „Neu generieren“ berücksichtigt sie.");
   }
 
   const Row = ({ w, children }) => (
@@ -141,7 +141,7 @@ export default function WishesDialog({ year, monthIdx, onImport, onClose, onChan
               <button onClick={importApproved} disabled={approvedHere.length === 0} className="mt-2 rounded-lg bg-teal-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-teal-800 active:translate-y-px disabled:opacity-50">
                 Genehmigte Wünsche in den Plan übernehmen
               </button>
-              <div className="mt-1 text-[11px] text-teal-900/70">Sie erscheinen unten in der Wunschliste und gelten beim nächsten „Dienstplan erstellen“ / „Neu generieren“.</div>
+              <div className="mt-1 text-[11px] text-teal-900/70">Sie erscheinen unten in der Wunschliste und gelten beim nächsten „Generieren“ / „Neu generieren“.</div>
             </div>
 
             <button onClick={() => setShowDone((v) => !v)} aria-expanded={showDone} className="mt-4 text-xs text-slate-500 underline">

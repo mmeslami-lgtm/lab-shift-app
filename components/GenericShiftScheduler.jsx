@@ -2083,7 +2083,7 @@ function LabShiftSchedulerInner() {
     if (sw) return { kind: "swap", text: `Getauscht mit ${staffMap[sw.with] || "?"}${sw.draft ? " – noch nicht veröffentlicht" : ""}` };
     const c = cover.byStaff[k];
     if (!c) return null;
-    if (c.draft) return { kind: "rep", text: `Neu eingeteilt${c.replacedId ? ` für ${staffMap[c.replacedId] || "?"}` : ""} – noch nicht veröffentlicht` };
+    if (c.draft) return { kind: "draft", text: `Neu eingeteilt${c.replacedId ? ` für ${staffMap[c.replacedId] || "?"}` : ""} – noch nicht veröffentlicht` };
     const why = c.replacedId ? reasonOff(c.replacedId, day) : shortNote(c.note);
     return { kind: "rep", text: `Eingesprungen${c.replacedId ? ` für ${staffMap[c.replacedId] || "?"}` : ""}${why ? ` (${why})` : ""}` };
   };
@@ -2097,13 +2097,20 @@ function LabShiftSchedulerInner() {
     Object.keys(per).forEach((id) => {
       const days = Object.keys(per[id]).map(Number).sort((a, b) => a - b);
       let g = null;
+      // one button per absence: days in between where the person has NO shift do not split it (8 Nov 2026);
+      // a day in between where the person really works does (else "Krankmeldung" would replace that shift too)
+      const works = (day) => { const dd = schedule && schedule.days[day - 1]; return !!dd && Object.values(dd.shifts || {}).some((ids) => (ids || []).includes(id)); };
       days.forEach((d) => {
-        if (g && d === g.to + 1) { g.to = d; return; }
+        if (g && per[id][d] === g.kind) {
+          let free = true;
+          for (let x = g.to + 1; x < d; x++) if (works(x)) { free = false; break; }
+          if (free) { g.to = d; return; }
+        }
         g = { staffId: id, from: d, to: d, kind: per[id][d] }; out.push(g);
       });
     });
     return out.sort((a, b) => a.from - b.from);
-  }, [conflicts]);
+  }, [conflicts, schedule]);
   function openSick(g) { setSickInit(g || absentGroups[0] || null); setSickCoverOpen(true); }
   function closeSick() { setSickCoverOpen(false); setSickInit(null); }
   const conflictMap = useMemo(() => { const m = {}; conflicts.forEach((c) => { m[conflictKey(c.day, c.st, c.staffId)] = c.kind; }); return m; }, [conflicts]);
@@ -2129,8 +2136,11 @@ function LabShiftSchedulerInner() {
         if (matrix[e.staffId] && !matrix[e.staffId][day]) matrix[e.staffId][day] = "K";
       });
     });
+    wishEntries.filter((e) => e.shiftType === "Fortbildung").forEach((e) => { // shown in the plan and the print as "FB"
+      parseDayList(e.days, totalDays).forEach((day) => { if (matrix[e.staffId] && !matrix[e.staffId][day]) matrix[e.staffId][day] = "FB"; });
+    });
     return matrix;
-  }, [schedule, staffList, leaveEntries, sickEntries, totalDays, dayOrderedKeys, shiftCodes]);
+  }, [schedule, staffList, leaveEntries, sickEntries, wishEntries, totalDays, dayOrderedKeys, shiftCodes]);
 
   function addStaff() {
     const id = `s${nextIdRef.current++}`;
@@ -2157,30 +2167,64 @@ function LabShiftSchedulerInner() {
     setHolidays((prev) => (prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day]));
   }
 
+  // ---- Abwesenheiten aus dem Dienstplan in der Datenbank (8 Nov 2026) ----
+  // Urlaub / Krank / Fortbildung entered here are stored per day in attendance_absences (set_absence, the same as in
+  // "Anwesenheit"). So they come back when the month is opened again (OrgBar takes them over), the employee sees them
+  // and the Zeitkonto counts them. Removing an entry here cancels them there (void_absence, kept as history).
+  const ymNow = `${year}-${String(monthIdx + 1).padStart(2, "0")}`;
+  const absIdsOf = (e) => (e.absIds && e.absIds.length ? e.absIds : e.dbId && /^abs(\d+)@/.test(e.dbId) ? [Number(/^abs(\d+)@/.exec(e.dbId)[1])] : []);
+  async function persistAbsence(entry, kind, setList) {
+    if (!orgCtx || !/^[0-9a-f-]{36}$/i.test(String(entry.staffId))) return;
+    const pad = (n) => String(n).padStart(2, "0");
+    try {
+      const ids = [];
+      for (const d of parseDayList(entry.days, totalDays)) {
+        const { data, error } = await orgCtx.supabase.rpc("set_absence", { p_org: orgCtx.orgId, p_staff: entry.staffId, p_date: `${year}-${pad(monthIdx + 1)}-${pad(d)}`, p_kind: kind, p_note: "Dienstplan" });
+        if (error) throw error;
+        ids.push(data);
+      }
+      setList((prev) => prev.map((e) => (e.id === entry.id ? { ...e, absIds: ids, ym: ymNow } : e)));
+    } catch (err) {
+      window.alert(`Nicht in der Datenbank gespeichert (${(err && err.message) || err}). Der Eintrag gilt nur in diesem Browser.`);
+    }
+  }
+  async function cancelAbsence(entry) {
+    if (!orgCtx) return;
+    for (const id of absIdsOf(entry)) await orgCtx.supabase.rpc("void_absence", { p_id: id, p_reason: "im Dienstplan entfernt" });
+  }
   function addLeaveEntry() {
     if (!leaveDraft.staffId || !leaveDraft.days.trim()) return;
-    setLeaveEntries((prev) => [...prev, { id: `le${nextEntryIdRef.current++}`, staffId: leaveDraft.staffId, days: leaveDraft.days.trim() }]);
+    const entry = { id: `le${nextEntryIdRef.current++}`, staffId: leaveDraft.staffId, days: leaveDraft.days.trim() };
+    setLeaveEntries((prev) => [...prev, entry]);
+    persistAbsence(entry, "urlaub", setLeaveEntries);
     setLeaveDraft({ staffId: "", days: "" });
   }
   function removeLeaveEntry(id) {
+    const e = leaveEntries.find((x) => x.id === id); if (e) cancelAbsence(e);
     setLeaveEntries((prev) => prev.filter((e) => e.id !== id));
   }
   function addSickEntry() {
     if (!sickDraft.staffId || !sickDraft.days.trim()) return;
-    setSickEntries((prev) => [...prev, { id: `se${nextEntryIdRef.current++}`, staffId: sickDraft.staffId, days: sickDraft.days.trim() }]);
+    const entry = { id: `se${nextEntryIdRef.current++}`, staffId: sickDraft.staffId, days: sickDraft.days.trim() };
+    setSickEntries((prev) => [...prev, entry]);
+    persistAbsence(entry, "krank", setSickEntries);
     setSickDraft({ staffId: "", days: "" });
   }
   function removeSickEntry(id) {
+    const e = sickEntries.find((x) => x.id === id); if (e) cancelAbsence(e);
     setSickEntries((prev) => prev.filter((e) => e.id !== id));
   }
   // the wish shift shown in the list (a shift that is not on the plan any more, e.g. after switching to places, falls back to the first)
   const wishShift = wishDraft.shiftType === "Frei" || shiftMeta[wishDraft.shiftType] ? wishDraft.shiftType : (dayOrderedKeys[0] || "Frei");
   function addWishEntry() {
     if (!wishDraft.staffId || !wishDraft.days.trim()) return;
-    setWishEntries((prev) => [...prev, { id: `we${nextEntryIdRef.current++}`, staffId: wishDraft.staffId, days: wishDraft.days.trim(), shiftType: wishShift }]);
+    const entry = { id: `we${nextEntryIdRef.current++}`, staffId: wishDraft.staffId, days: wishDraft.days.trim(), shiftType: wishShift };
+    setWishEntries((prev) => [...prev, entry]);
+    if (entry.shiftType === "Fortbildung") persistAbsence(entry, "fortbildung", setWishEntries);
     setWishDraft({ staffId: "", days: "", shiftType: "F" });
   }
   function removeWishEntry(id) {
+    const e = wishEntries.find((x) => x.id === id); if (e && e.shiftType === "Fortbildung") cancelAbsence(e);
     setWishEntries((prev) => prev.filter((e) => e.id !== id));
   }
   // Approved wishes from the employee app ("Wünsche" in the bar above) -> wish list of this plan.
@@ -2201,21 +2245,24 @@ function LabShiftSchedulerInner() {
     if (opts && opts.sync && opts.ym) {
       const keep = new Set(list.map((r) => r.dbId));
       const drop = (e) => e.ym === opts.ym && e.dbId && !keep.has(e.dbId);
-      removed = [...leaveEntries, ...sickEntries].filter(drop).length;
-      if (removed) { setLeaveEntries((prev) => prev.filter((e) => !drop(e))); setSickEntries((prev) => prev.filter((e) => !drop(e))); }
+      removed = [...leaveEntries, ...sickEntries, ...wishEntries].filter(drop).length;
+      if (removed) { setLeaveEntries((prev) => prev.filter((e) => !drop(e))); setSickEntries((prev) => prev.filter((e) => !drop(e))); setWishEntries((prev) => prev.filter((e) => !drop(e))); }
     }
-    const have = new Set([...leaveEntries, ...sickEntries].map((e) => e.dbId).filter(Boolean));
+    const have = new Set([...leaveEntries, ...sickEntries, ...wishEntries].map((e) => e.dbId).filter(Boolean));
+    [...leaveEntries, ...sickEntries, ...wishEntries].forEach((e) => (e.absIds || []).forEach((id) => have.add(`abs${id}@${e.ym || ymNow}`))); // entered here and saved
     const staffIds = new Set(staffList.map((x) => x.id));
-    const leave = [], sick = []; let already = 0, noPerson = 0;
+    const leave = [], sick = [], training = []; let already = 0, noPerson = 0;
     list.forEach((r) => {
       if (have.has(r.dbId)) { already++; return; }
       if (!staffIds.has(r.staffId)) { noPerson++; return; }
       const e = { id: `ra${nextEntryIdRef.current++}`, staffId: r.staffId, days: r.days, dbId: r.dbId, ym: r.ym };
-      (r.kind === "sick" ? sick : leave).push(e);
+      if (r.kind === "training") training.push({ ...e, shiftType: "Fortbildung" }); // Fortbildung counts as work, like the wish
+      else (r.kind === "sick" ? sick : leave).push(e);
     });
     if (leave.length) setLeaveEntries((prev) => [...prev, ...leave]);
     if (sick.length) setSickEntries((prev) => [...prev, ...sick]);
-    return { added: leave.length + sick.length, already, noPerson, removed };
+    if (training.length) setWishEntries((prev) => [...prev, ...training]);
+    return { added: leave.length + sick.length + training.length, already, noPerson, removed };
   }
 
   function importWishes(list) {
@@ -2325,7 +2372,7 @@ function LabShiftSchedulerInner() {
     }
   }
 
-  function applySickCover(option, sickId, from, to) {
+  function applySickCover(option, sickId, from, to, kind) {
     pushUndo(`Krankmeldung: ${option.title}`);
     setSchedule((prev) => {
       if (!prev) return prev;
@@ -2339,7 +2386,12 @@ function LabShiftSchedulerInner() {
       return { ...prev, days, ...computeStatsAndWarnings(days, staffList, buildLeaveMap(), shiftHours, dayOrderedKeys, restRequiringKeys, shiftLabels, closedSet, openCount, carryMap(), halfMap, tailFor(year, monthIdx)) };
     });
     const range = from === to ? String(from) : `${from}-${to}`;
-    setSickEntries((prev) => (prev.some((e) => e.staffId === sickId && e.days === range) ? prev : [...prev, { id: `ke${nextEntryIdRef.current++}`, staffId: sickId, days: range }]));
+    // only a NEW Krankmeldung adds "Krank"; an absence from the red box (Urlaub, Krank, …) is already entered
+    if (!kind && !sickEntries.some((e) => e.staffId === sickId && e.days === range)) {
+      const entry = { id: `ke${nextEntryIdRef.current++}`, staffId: sickId, days: range };
+      setSickEntries((prev) => [...prev, entry]);
+      persistAbsence(entry, "krank", setSickEntries);
+    }
     setSickCoverOpen(false); setSickInit(null);
     setSickCoverMsg(`„${option.title}“ übernommen – die Änderungen sind gelb markiert. Erst „Veröffentlichen“ zeigt sie den Mitarbeitenden.`);
     setTimeout(() => setSickCoverMsg(""), 12000);
@@ -2553,7 +2605,11 @@ function LabShiftSchedulerInner() {
     setPrintState("busy");
     try {
       const status = !orgCtx ? "" : changeCount === 0 ? "published" : "draft";
-      const ok = openPrintView(exportInput(), { year, monthIdx, orgName: orgCtx ? orgCtx.orgName : "", status });
+      const input = exportInput();
+      // Krank on the board = health data visible to everybody: only when the Leitung says so for this print
+      const hasSick = Object.values(input.matrix || {}).some((m) => Object.values(m || {}).includes("K"));
+      input.showSick = hasSick && window.confirm("Krankheitstage im Ausdruck als „K – Krank“ zeigen?\n\nDer Aushang ist für alle sichtbar (Gesundheitsdaten, DSGVO).\n\nOK = „K – Krank“ zeigen · Abbrechen = nur „A – abwesend“");
+      const ok = openPrintView(input, { year, monthIdx, orgName: orgCtx ? orgCtx.orgName : "", status });
       setPrintState(ok ? "done" : "blocked");
     } catch (err) {
       console.error(err);
@@ -3216,13 +3272,25 @@ function LabShiftSchedulerInner() {
           ) : (
           <div className="flex flex-wrap items-center gap-3">
             <button
-              onClick={() => { if (genBusy) return; setGenBusy(true); setGenInfo(null); setTimeout(() => { try { runGenerate(); } finally { setGenBusy(false); } }, 40); }}
+              onClick={() => { if (genBusy) return;
+                // 8 Nov 2026 (user): a plan already there -> always warn; a published one -> say it is published
+                if (baseline && !window.confirm("⚠ Ihr Plan ist schon veröffentlicht.\n\nBei „Neu generieren“ wird der GESAMTE Plan neu erstellt – fast alle Schichten ändern sich, auch für die Mitarbeitenden (nach dem nächsten Veröffentlichen).\n\nNur Urlaub/Krank nachtragen? Dann besser „Urlaub/Krank einarbeiten“ – es ändern sich nur die betroffenen Tage.\n\nOK = trotzdem alles neu · Abbrechen = zurück")) return;
+                if (!baseline && schedule && !window.confirm("⚠ Der gesamte Plan wird neu erstellt – alle Schichten können sich ändern, auch Ihre Änderungen von Hand.\n\nOK = neu erstellen · Abbrechen = zurück")) return;
+                setGenBusy(true); setGenInfo(null); setTimeout(() => { try { runGenerate(); } finally { setGenBusy(false); } }, 40); }}
               disabled={staffList.length === 0 || genBusy}
               aria-busy={genBusy}
-              className="inline-flex items-center gap-2 bg-teal-600 hover:bg-teal-700 disabled:bg-slate-300 text-white font-medium text-sm px-4 py-2.5 rounded-xl transition-colors active:translate-y-px"
+              title={schedule ? "Erstellt den GESAMTEN Plan neu – fast alle Schichten ändern sich" : "Erstellt den Plan für diesen Monat"}
+              className={`inline-flex items-center gap-2 ${schedule ? "bg-amber-500 hover:bg-amber-600" : "bg-teal-600 hover:bg-teal-700"} disabled:bg-slate-300 text-white font-medium text-sm px-4 py-2.5 rounded-xl transition-colors active:translate-y-px`}
             >
-              <RefreshCw size={16} className={genBusy ? "animate-spin" : ""} /> {genBusy ? "Moment …" : schedule ? "Neu generieren" : "Dienstplan erstellen"}
+              <RefreshCw size={16} className={genBusy ? "animate-spin" : ""} /> {genBusy ? "Moment …" : schedule ? "Neu generieren" : "Generieren"} {/* user 8 Nov 2026: "Generieren" for the first plan; "Neu generieren" (amber, with warning) when a plan is there */}
             </button>
+            {schedule && baseline && <span className="text-xs font-semibold text-amber-800">⚠ Plan veröffentlicht – „Neu generieren“ ändert den ganzen Plan</span>}
+            {/* 8 Nov 2026: Urlaub/Krank entered after the plan -> only the affected days, not the whole month */}
+            {schedule && !multiOn && absentGroups.length > 0 && (
+              <button onClick={() => openSick(absentGroups[0])} className="inline-flex items-center gap-2 bg-rose-600 hover:bg-rose-700 text-white font-medium text-sm px-4 py-2.5 rounded-xl active:translate-y-px" title="Ersatz nur für die Tage mit Urlaub / Krank – der übrige Plan bleibt">
+                <AlertTriangle size={16} /> Urlaub/Krank einarbeiten ({absentGroups.length})
+              </button>
+            )}
             {provisionalPrev != null && (
               <span role="note" className="text-xs text-amber-900 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5" title="Wird automatisch ersetzt, sobald der Vormonat abgeschlossen ist">
                 ⓘ {new Date(Math.floor(provisionalPrev / 12), provisionalPrev % 12, 1).toLocaleDateString("de-DE", { month: "long", year: "numeric" })} noch nicht abgeschlossen – vorläufiger Übertrag aus dem veröffentlichten Plan
@@ -3422,7 +3490,7 @@ function LabShiftSchedulerInner() {
                           const rep = coverInfo(s.id, d.day, code);
                           if (rep) return (
                             <td key={d.day} className="px-1 py-1 text-center" title={rep.text}>
-                              <span className={`inline-block rounded px-1 font-bold text-white ${rep.kind === "swap" ? "bg-violet-600" : "bg-rose-600"}`}>{rep.kind === "swap" ? "⇄" : "↺"}{code}</span>
+                              <span className={`inline-block rounded px-1 font-bold ${rep.kind === "swap" ? "bg-violet-600 text-white" : rep.kind === "draft" ? "bg-amber-200 text-amber-900 ring-1 ring-amber-400" : "bg-rose-600 text-white"}`}>{rep.kind === "swap" ? "⇄" : rep.kind === "draft" ? "" : "↺"}{code}</span>
                             </td>
                           );
                           return (

@@ -61,7 +61,7 @@ export default function RequestsDialog({ year, monthIdx, onImport, onChanged, on
     });
     if (!onImport) return;
     const res = onImport(list);
-    setMsg(list.length === 0 ? "In diesem Monat gibt es keine genehmigten Anträge." : `${res.added} übernommen${res.already ? `, ${res.already} waren schon im Plan` : ""}${res.noPerson ? `, ${res.noPerson} Person(en) nicht im Plan` : ""}. Wirkt beim nächsten „Neu generieren“.`);
+    setMsg(list.length === 0 ? "In diesem Monat gibt es keine genehmigten Anträge." : `${res.added} übernommen${res.already ? `, ${res.already} waren schon im Plan` : ""}${res.noPerson ? `, ${res.noPerson} Person(en) nicht im Plan` : ""}. Wirkt beim nächsten „Generieren“ – im veröffentlichten Monat besser „Urlaub/Krank einarbeiten“.`);
   }
 
   const shown = (rows || []).filter((r) => filter === "all" || r.status === filter);
