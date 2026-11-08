@@ -1487,6 +1487,52 @@ function LabShiftSchedulerInner() {
   sollCtx.contract = !!(orgCtx && (orgCtx.features || []).includes("soll_vertrag")); sollCtx.year = year; sollCtx.monthIdx = monthIdx;
   // With a company login the saldo comes from the database (staff_month_balance, script 12), like in the
   // general planner: sum of all months BEFORE the month on screen – the same on every device and browser.
+  // ---- Vorläufiger Übertrag (8 Nov 2026) ----
+  // The next month is usually planned in the middle of the current one, but a month can only be closed when it is over
+  // (script 38). So, if the month before the one on screen is not closed yet, its carry is estimated from its PUBLISHED
+  // plan (planned hours vs. contract, Sa/So/Nacht) – same formulas as "Monat abschließen". When that month is closed
+  // later, the real values replace this automatically.
+  const [provisionalPrev, setProvisionalPrev] = useState(null); // month key (year*12+month) or null
+  async function provisionalPrevRows(prevKey) {
+    const py = Math.floor(prevKey / 12), pm = prevKey % 12;
+    const pad = (n) => String(n).padStart(2, "0");
+    const total = new Date(py, pm + 1, 0).getDate();
+    const first = `${py}-${pad(pm + 1)}-01`, last = `${py}-${pad(pm + 1)}-${pad(total)}`;
+    const sb = orgCtx.supabase, org = orgCtx.orgId;
+    const [sh, rq, ab] = await Promise.all([
+      fetchAll(() => sb.from("scheduled_shifts").select("staff_id, shift_date, shift_key").eq("org_id", org).eq("status", "published").gte("shift_date", first).lte("shift_date", last)),
+      sb.from("requests").select("staff_id, date_from, date_to").eq("org_id", org).eq("status", "approved").lte("date_from", last).gte("date_to", first),
+      sb.from("attendance_absences").select("staff_id, work_date, kind, voided_at").eq("org_id", org).gte("work_date", first).lte("work_date", last),
+    ]);
+    if (!sh || !sh.length) return [];
+    const people = staffList.filter((x) => /^[0-9a-f-]{36}$/i.test(String(x.id)));
+    const leaveMap = {};
+    people.forEach((x) => { leaveMap[x.id] = new Set(); });
+    ((rq && rq.data) || []).forEach((r) => {
+      if (!leaveMap[r.staff_id]) return;
+      const a = r.date_from < first ? 1 : Number(r.date_from.slice(8, 10)), b = r.date_to > last ? total : Number(r.date_to.slice(8, 10));
+      for (let d = a; d <= b; d++) leaveMap[r.staff_id].add(d);
+    });
+    ((ab && ab.data) || []).forEach((x) => { if (!x.voided_at && x.kind !== "unentschuldigt" && leaveMap[x.staff_id]) leaveMap[x.staff_id].add(Number(String(x.work_date).slice(8, 10))); });
+    const days = [];
+    for (let d = 1; d <= total; d++) days.push({ day: d, weekday: new Date(py, pm, d).getDay(), shifts: {} });
+    sh.forEach((x) => { const d = days[Number(String(x.shift_date).slice(8, 10)) - 1]; if (d) (d.shifts[x.shift_key] || (d.shifts[x.shift_key] = [])).push(x.staff_id); });
+    const saved = { ...sollCtx }; sollCtx.year = py; sollCtx.monthIdx = pm;
+    let st;
+    try { st = computeStatsAndWarnings(days, people, leaveMap, shiftHours, dayOrderedKeys); } finally { Object.assign(sollCtx, saved); }
+    const nightOf = {}; people.forEach((x) => { nightOf[x.id] = days.filter((d) => (d.shifts.N || []).includes(x.id)).length; });
+    const elig = people.filter((x) => !x.nightExempt);
+    const avgN = elig.length ? elig.reduce((t, x) => t + nightOf[x.id], 0) / elig.length : 0;
+    const openSat = days.filter((d) => d.weekday === 6).length, openSun = days.filter((d) => d.weekday === 0).length;
+    return people.map((x) => ({
+      staff_id: x.id, year: py, month: pm + 1,
+      contract_hours: Math.round((st.targetOf[x.id] || 0) * 100) / 100,
+      planned_hours: Math.round((st.hours[x.id] || 0) * 100) / 100,
+      sat_short: x.weekendExempt || openSat < 2 ? 0 : Math.max(0, 2 - (st.satCount[x.id] || 0)),
+      sun_short: x.weekendExempt || openSun < 2 ? 0 : Math.max(0, 2 - (st.sunCount[x.id] || 0)),
+      night_short: x.nightExempt ? 0 : Math.round(Math.max(0, avgN - nightOf[x.id]) * 100) / 100,
+    }));
+  }
   const staffIdKey = staffList.map((s) => s.id + ":" + s.name).join("|");
   useEffect(() => {
     if (!orgCtx) return undefined;
@@ -1504,6 +1550,15 @@ function LabShiftSchedulerInner() {
         if (mode === "gemischt") payouts = await fetchAll(() => orgCtx.supabase.from("overtime_payouts").select("staff_id, year, month, hours, voided_at").eq("org_id", orgCtx.orgId));
       } catch (_) { mode = "konto"; payouts = []; }
       if (cancelled) return;
+      // previous month not closed yet -> provisional carry from its published plan (see provisionalPrevRows)
+      const prevKey = year * 12 + monthIdx - 1;
+      let prov = [];
+      if (!rows.some((x) => x.year * 12 + (x.month - 1) === prevKey)) {
+        try { prov = await provisionalPrevRows(prevKey); } catch (_) { prov = []; }
+        if (cancelled) return;
+      }
+      setProvisionalPrev(prov.length ? prevKey : null);
+      rows = rows.concat(prov);
       const nowKey = year * 12 + monthIdx;
       const byId = {};
       const rowsOf = {};
@@ -2707,6 +2762,11 @@ function LabShiftSchedulerInner() {
             >
               <RefreshCw size={16} className={genBusy ? "animate-spin" : ""} /> {genBusy ? "Moment …" : schedule ? "Neu generieren" : "Dienstplan erstellen"}
             </button>
+            {provisionalPrev != null && (
+              <span role="note" className="text-xs text-amber-900 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5" title="Wird automatisch ersetzt, sobald der Vormonat abgeschlossen ist">
+                ⓘ {new Date(Math.floor(provisionalPrev / 12), provisionalPrev % 12, 1).toLocaleDateString("de-DE", { month: "long", year: "numeric" })} noch nicht abgeschlossen – vorläufiger Übertrag aus dem veröffentlichten Plan
+              </span>
+            )}
             {genInfo && !genBusy && (
               <span role="status" className="text-xs text-teal-800 bg-teal-50 border border-teal-200 rounded-lg px-2.5 py-1.5">
                 {genInfo.first ? "Plan erstellt" : "Neu erstellt"} um {String(genInfo.at.getHours()).padStart(2, "0")}:{String(genInfo.at.getMinutes()).padStart(2, "0")}:{String(genInfo.at.getSeconds()).padStart(2, "0")} Uhr{genInfo.variants ? ` · beste von ${genInfo.variants} Varianten` : ""}
