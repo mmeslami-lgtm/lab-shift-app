@@ -41,7 +41,7 @@ const COURSES = {
     lessons: [
       L("l-personen", "Mitarbeitende anlegen", "Im Dienstplaner unter „Personen“: Name, Wochenstunden und Vollzeit, Teilzeit oder Minijob. Häkchen für „befreit von Nachtdienst“ oder „Wochenende“. Fehlende Personalnummern vergibt ein Knopf automatisch.",
         { img: "personen", box: [54, 6, 99, 92], keys: "personen mitarbeiter anlegen wochenstunden teilzeit minijob personalnummer" }),
-      L("l-plan", "Dienstplan erstellen und veröffentlichen", "Monat wählen, „Personen aus Datenbank laden“ – genehmigter Urlaub ist schon eingetragen – dann „Dienstplan erstellen“. Dienstigo prüft 60 Varianten und zeigt die beste. Mit „Veröffentlichen“ sehen alle ihren Plan in der App.",
+      L("l-plan", "Dienstplan erstellen und veröffentlichen", "Monat wählen, „Personen aus Datenbank laden“ – genehmigter Urlaub ist schon eingetragen – dann „Generieren“. Dienstigo prüft 60 Varianten und zeigt die beste. Mit „Veröffentlichen“ sehen alle ihren Plan in der App.",
         { img: "plan", box: [14, 7, 92, 100], keys: "dienstplan erstellen generieren veröffentlichen monat",
           q: ["Was müssen Sie für genehmigten Urlaub im neuen Monat tun?", ["Nichts – er wird automatisch übernommen", "Jeden Tag von Hand eintragen", "Den Plan zweimal erstellen"], 0] }),
       L("l-stunden", "Stunden fair verteilt", "Die Zusammenfassung zeigt pro Person Ziel und Differenz. So sehen Sie sofort, wer zu viele oder zu wenige Stunden hat. Ändern geht per Klick in die Zelle.",

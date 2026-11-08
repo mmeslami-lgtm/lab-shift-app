@@ -2812,14 +2812,24 @@ function LabShiftSchedulerInner() {
           <div className="flex flex-wrap items-center gap-3">
             <button
               onClick={() => { if (genBusy) return;
-                if (baseline && !window.confirm("Dieser Monat ist schon veröffentlicht.\n\n„Neu generieren“ plant den GANZEN Monat neu – fast alle Schichten können sich ändern.\n\nFür Urlaub, Krankheit oder einen Ausfall besser „Krankmeldung / Ausfall“ (oben) benutzen: dann ändern sich nur die betroffenen Tage.\n\nOK = trotzdem alles neu planen · Abbrechen = zurück")) return;
+                // 8 Nov 2026 (user): a plan already there -> always warn; a published one -> say it is published
+                if (baseline && !window.confirm("⚠ Ihr Plan ist schon veröffentlicht.\n\nBei „Neu generieren“ wird der GESAMTE Plan neu erstellt – fast alle Schichten ändern sich, auch für die Mitarbeitenden (nach dem nächsten Veröffentlichen).\n\nNur Urlaub/Krank nachtragen? Dann besser „Urlaub/Krank einarbeiten“ – es ändern sich nur die betroffenen Tage.\n\nOK = trotzdem alles neu · Abbrechen = zurück")) return;
+                if (!baseline && schedule && !window.confirm("⚠ Der gesamte Plan wird neu erstellt – alle Schichten können sich ändern, auch Ihre Änderungen von Hand.\n\nOK = neu erstellen · Abbrechen = zurück")) return;
                 setGenBusy(true); setGenInfo(null); setTimeout(() => { try { runGenerate(); } finally { setGenBusy(false); } }, 40); }}
               disabled={staffList.length === 0 || genBusy}
               aria-busy={genBusy}
-              className="inline-flex items-center gap-2 bg-teal-600 hover:bg-teal-700 disabled:bg-slate-300 text-white font-medium text-sm px-4 py-2.5 rounded-xl transition-colors active:translate-y-px"
+              title={schedule ? "Erstellt den GESAMTEN Plan neu – fast alle Schichten ändern sich" : "Erstellt den Plan für diesen Monat"}
+              className={`inline-flex items-center gap-2 ${schedule ? "bg-amber-500 hover:bg-amber-600" : "bg-teal-600 hover:bg-teal-700"} disabled:bg-slate-300 text-white font-medium text-sm px-4 py-2.5 rounded-xl transition-colors active:translate-y-px`}
             >
-              <RefreshCw size={16} className={genBusy ? "animate-spin" : ""} /> {genBusy ? "Moment …" : schedule ? "Neu generieren" : "Dienstplan erstellen"}
+              <RefreshCw size={16} className={genBusy ? "animate-spin" : ""} /> {genBusy ? "Moment …" : schedule ? "Neu generieren" : "Generieren"} {/* user 8 Nov 2026: "Generieren" for the first plan; "Neu generieren" (amber, with warning) when a plan is there */}
             </button>
+            {schedule && baseline && <span className="text-xs font-semibold text-amber-800">⚠ Plan veröffentlicht – „Neu generieren“ ändert den ganzen Plan</span>}
+            {/* 8 Nov 2026: Urlaub/Krank entered after the plan -> only the affected days, not the whole month */}
+            {schedule && absentGroups.length > 0 && (
+              <button onClick={() => openSick(absentGroups[0])} className="inline-flex items-center gap-2 bg-rose-600 hover:bg-rose-700 text-white font-medium text-sm px-4 py-2.5 rounded-xl active:translate-y-px" title="Ersatz nur für die Tage mit Urlaub / Krank – der übrige Plan bleibt">
+                <AlertTriangle size={16} /> Urlaub/Krank einarbeiten ({absentGroups.length})
+              </button>
+            )}
             {provisionalPrev != null && (
               <span role="note" className="text-xs text-amber-900 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5" title="Wird automatisch ersetzt, sobald der Vormonat abgeschlossen ist">
                 ⓘ {new Date(Math.floor(provisionalPrev / 12), provisionalPrev % 12, 1).toLocaleDateString("de-DE", { month: "long", year: "numeric" })} noch nicht abgeschlossen – vorläufiger Übertrag aus dem veröffentlichten Plan
