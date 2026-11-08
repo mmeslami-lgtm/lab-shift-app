@@ -3225,7 +3225,7 @@ function LabShiftSchedulerInner() {
                       active
                         ? "bg-rose-500 border-rose-500 text-white"
                         : isWeekend
-                        ? "bg-slate-100 border-slate-200 text-slate-500 hover:bg-slate-200"
+                        ? "bg-slate-700 border-slate-700 text-white font-bold hover:bg-slate-800" // weekend clearly visible (user 8 Nov 2026)
                         : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
                     }`}
                     title={WEEKDAY_DE[wd]}
@@ -3239,8 +3239,8 @@ function LabShiftSchedulerInner() {
 
           {/* Carried-over balances from previous months */}
           {balancesLoaded && Object.values(balances).some((v) => Math.abs(v.hours || 0) > 0.05 || (v.satDeficit || 0) > 0 || (v.sunDeficit || 0) > 0 || (v.nightDeficit || 0) > 0) && (
-            <div className="bg-violet-50 border border-violet-200 rounded-xl p-3 text-xs">
-              <div className="font-medium text-violet-800 mb-1.5">Saldo aus Vormonaten (wird für diesen Monat berücksichtigt)</div>
+            // collapsible (user 8 Nov 2026): closed by default, the number of people in the title
+            <Fold title="Saldo aus Vormonaten" hint={`${Object.values(balances).filter((v) => Math.abs(v.hours || 0) > 0.05 || (v.satDeficit || 0) > 0 || (v.sunDeficit || 0) > 0 || (v.nightDeficit || 0) > 0).length} Personen · wird berücksichtigt`}><div className="text-xs">
               <div className="flex flex-wrap gap-1.5">
                 {Object.entries(balances)
                   .filter(([, v]) => Math.abs(v.hours || 0) > 0.05 || (v.satDeficit || 0) > 0 || (v.sunDeficit || 0) > 0 || (v.nightDeficit || 0) > 0)
@@ -3251,14 +3251,14 @@ function LabShiftSchedulerInner() {
                     if ((v.sunDeficit || 0) > 0) parts.push(`${v.sunDeficit.toFixed(1)} So offen`);
                     if ((v.nightDeficit || 0) > 0) parts.push(`${v.nightDeficit.toFixed(1)} Nächte offen`);
                     return (
-                      <span key={name} className={`rounded-full px-2.5 py-1 border ${(v.hours || 0) >= 0 ? "bg-white border-emerald-200 text-emerald-700" : "bg-white border-rose-200 text-rose-700"}`}>
+                      <span key={name} className={`rounded-full px-2.5 py-1 border ${(v.hours || 0) > 0.05 ? "bg-white border-amber-300 text-amber-800" : (v.hours || 0) < -0.05 ? "bg-white border-sky-300 text-sky-800" : "bg-white border-slate-200 text-slate-700"}`}>
                         {name}: {parts.join(", ")}
                       </span>
                     );
                   })}
               </div>
               {!orgCtx && <button onClick={resetBalances} className="mt-2 text-violet-500 hover:text-rose-600 underline">Alle Salden löschen</button>}
-            </div>
+            </div></Fold>
           )}
 
           {multiOn ? (
