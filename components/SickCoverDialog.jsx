@@ -6,7 +6,7 @@ import { suggestCover } from "../lib/sickSuggest";
 // Popup "Krankmeldung / Ausfall" (Dienstplaner Labor + allgemein; allgemein: nightKey = first shift with rest after it): choose person and days, see up to 3
 // possibilities (best first), "Übernehmen" changes ONLY those cells. Nothing happens automatically.
 //   schedule, staffList, shiftMeta, totalDays, offDays, orgCtx, year, monthIdx
-//   onApply(option, staffId, from, to)   planner applies the changes
+//   onApply(option, staffId, from, to, kind)   planner applies the changes (kind: absence already entered, or null)
 // initial / groups (7 Nov 2026): absences found in the plan (red box) – the dialog starts with that person and days
 // filled in (all can be changed), and the other absences are one click away. onPick tells the plan which rows to highlight.
 export default function SickCoverDialog({ schedule, staffList, shiftMeta, totalDays, offDays, orgCtx, year, monthIdx, onApply, onClose, initial, groups, onPick, nightKey }) {
@@ -15,6 +15,9 @@ export default function SickCoverDialog({ schedule, staffList, shiftMeta, totalD
   const [staffId, setStaffId] = useState(initial ? initial.staffId : "");
   const [from, setFrom] = useState(initial ? initial.from : thisMonth ? today.getDate() : 1);
   const [to, setTo] = useState(initial ? initial.to : thisMonth ? today.getDate() : 1);
+  // the absence is already entered (Urlaub / Fortbildung / …) when the dialog was opened from the red box:
+  // then the planner must not add a "Krank" entry on top (8 Nov 2026). null = a new Krankmeldung.
+  const absenceKind = () => { const g = (groups || []).find((x) => x.staffId === staffId && x.from === Number(from) && x.to === Number(to)); return g ? g.kind : null; };
   const pick = (g) => { setStaffId(g.staffId); setFrom(g.from); setTo(g.to); setResult(null); if (onPick) onPick(g); };
   const tell = (id, a, b) => { if (onPick) onPick(id ? { staffId: id, from: Number(a) || 1, to: Math.max(Number(a) || 1, Number(b) || 1) } : null); };
   const [result, setResult] = useState(null);
@@ -117,7 +120,7 @@ export default function SickCoverDialog({ schedule, staffList, shiftMeta, totalD
             {result.options.length === 0 && (
               <div className="mt-2 rounded-lg bg-amber-50 p-2.5 text-xs text-amber-900">
                 Keine Möglichkeit ohne Regelbruch gefunden. Du kannst {name} nur austragen (Schichten bleiben leer) und manuell besetzen.
-                <div className="mt-2"><button onClick={() => onApply({ changes: result.affected.map((c) => ({ ...c, to: "" })), title: "nur ausgetragen" }, staffId, result.from, result.to)} className="rounded-lg border border-amber-300 bg-white px-2.5 py-1.5 text-xs text-amber-900 hover:bg-amber-100 active:translate-y-px">Nur austragen</button></div>
+                <div className="mt-2"><button onClick={() => onApply({ changes: result.affected.map((c) => ({ ...c, to: "" })), title: "nur ausgetragen" }, staffId, result.from, result.to, absenceKind())} className="rounded-lg border border-amber-300 bg-white px-2.5 py-1.5 text-xs text-amber-900 hover:bg-amber-100 active:translate-y-px">Nur austragen</button></div>
               </div>
             )}
             <ol className="mt-2 space-y-2">
@@ -128,7 +131,7 @@ export default function SickCoverDialog({ schedule, staffList, shiftMeta, totalD
                       <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{rankWord[i]}</div>
                       <div className="font-semibold">{o.title}</div>
                     </div>
-                    <button onClick={() => onApply(o, staffId, result.from, result.to)} className="rounded-lg bg-teal-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-teal-700 active:translate-y-px">Übernehmen</button>
+                    <button onClick={() => onApply(o, staffId, result.from, result.to, absenceKind())} className="rounded-lg bg-teal-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-teal-700 active:translate-y-px">Übernehmen</button>
                   </div>
                   <ul className="mt-1.5 list-disc pl-5 text-xs text-slate-700">{o.lines.map((l, j) => <li key={j}>{l}</li>)}</ul>
                   {o.info.length > 0 && <div className="mt-1.5 text-[11px] text-slate-500">{o.info.join(" · ")}</div>}

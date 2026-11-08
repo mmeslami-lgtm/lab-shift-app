@@ -2083,7 +2083,7 @@ function LabShiftSchedulerInner() {
     if (sw) return { kind: "swap", text: `Getauscht mit ${staffMap[sw.with] || "?"}${sw.draft ? " – noch nicht veröffentlicht" : ""}` };
     const c = cover.byStaff[k];
     if (!c) return null;
-    if (c.draft) return { kind: "rep", text: `Neu eingeteilt${c.replacedId ? ` für ${staffMap[c.replacedId] || "?"}` : ""} – noch nicht veröffentlicht` };
+    if (c.draft) return { kind: "draft", text: `Neu eingeteilt${c.replacedId ? ` für ${staffMap[c.replacedId] || "?"}` : ""} – noch nicht veröffentlicht` };
     const why = c.replacedId ? reasonOff(c.replacedId, day) : shortNote(c.note);
     return { kind: "rep", text: `Eingesprungen${c.replacedId ? ` für ${staffMap[c.replacedId] || "?"}` : ""}${why ? ` (${why})` : ""}` };
   };
@@ -2097,13 +2097,20 @@ function LabShiftSchedulerInner() {
     Object.keys(per).forEach((id) => {
       const days = Object.keys(per[id]).map(Number).sort((a, b) => a - b);
       let g = null;
+      // one button per absence: days in between where the person has NO shift do not split it (8 Nov 2026);
+      // a day in between where the person really works does (else "Krankmeldung" would replace that shift too)
+      const works = (day) => { const dd = schedule && schedule.days[day - 1]; return !!dd && Object.values(dd.shifts || {}).some((ids) => (ids || []).includes(id)); };
       days.forEach((d) => {
-        if (g && d === g.to + 1) { g.to = d; return; }
+        if (g && per[id][d] === g.kind) {
+          let free = true;
+          for (let x = g.to + 1; x < d; x++) if (works(x)) { free = false; break; }
+          if (free) { g.to = d; return; }
+        }
         g = { staffId: id, from: d, to: d, kind: per[id][d] }; out.push(g);
       });
     });
     return out.sort((a, b) => a.from - b.from);
-  }, [conflicts]);
+  }, [conflicts, schedule]);
   function openSick(g) { setSickInit(g || absentGroups[0] || null); setSickCoverOpen(true); }
   function closeSick() { setSickCoverOpen(false); setSickInit(null); }
   const conflictMap = useMemo(() => { const m = {}; conflicts.forEach((c) => { m[conflictKey(c.day, c.st, c.staffId)] = c.kind; }); return m; }, [conflicts]);
@@ -2325,7 +2332,7 @@ function LabShiftSchedulerInner() {
     }
   }
 
-  function applySickCover(option, sickId, from, to) {
+  function applySickCover(option, sickId, from, to, kind) {
     pushUndo(`Krankmeldung: ${option.title}`);
     setSchedule((prev) => {
       if (!prev) return prev;
@@ -2339,7 +2346,8 @@ function LabShiftSchedulerInner() {
       return { ...prev, days, ...computeStatsAndWarnings(days, staffList, buildLeaveMap(), shiftHours, dayOrderedKeys, restRequiringKeys, shiftLabels, closedSet, openCount, carryMap(), halfMap, tailFor(year, monthIdx)) };
     });
     const range = from === to ? String(from) : `${from}-${to}`;
-    setSickEntries((prev) => (prev.some((e) => e.staffId === sickId && e.days === range) ? prev : [...prev, { id: `ke${nextEntryIdRef.current++}`, staffId: sickId, days: range }]));
+    // only a NEW Krankmeldung adds "Krank"; an absence from the red box (Urlaub, Krank, …) is already entered
+    if (!kind) setSickEntries((prev) => (prev.some((e) => e.staffId === sickId && e.days === range) ? prev : [...prev, { id: `ke${nextEntryIdRef.current++}`, staffId: sickId, days: range }]));
     setSickCoverOpen(false); setSickInit(null);
     setSickCoverMsg(`„${option.title}“ übernommen – die Änderungen sind gelb markiert. Erst „Veröffentlichen“ zeigt sie den Mitarbeitenden.`);
     setTimeout(() => setSickCoverMsg(""), 12000);
@@ -3216,7 +3224,9 @@ function LabShiftSchedulerInner() {
           ) : (
           <div className="flex flex-wrap items-center gap-3">
             <button
-              onClick={() => { if (genBusy) return; setGenBusy(true); setGenInfo(null); setTimeout(() => { try { runGenerate(); } finally { setGenBusy(false); } }, 40); }}
+              onClick={() => { if (genBusy) return;
+                if (baseline && !window.confirm("Dieser Monat ist schon veröffentlicht.\n\n„Neu generieren“ plant den GANZEN Monat neu – fast alle Schichten können sich ändern.\n\nFür Urlaub, Krankheit oder einen Ausfall besser „Krankmeldung / Ausfall“ (oben) benutzen: dann ändern sich nur die betroffenen Tage.\n\nOK = trotzdem alles neu planen · Abbrechen = zurück")) return;
+                setGenBusy(true); setGenInfo(null); setTimeout(() => { try { runGenerate(); } finally { setGenBusy(false); } }, 40); }}
               disabled={staffList.length === 0 || genBusy}
               aria-busy={genBusy}
               className="inline-flex items-center gap-2 bg-teal-600 hover:bg-teal-700 disabled:bg-slate-300 text-white font-medium text-sm px-4 py-2.5 rounded-xl transition-colors active:translate-y-px"
@@ -3422,7 +3432,7 @@ function LabShiftSchedulerInner() {
                           const rep = coverInfo(s.id, d.day, code);
                           if (rep) return (
                             <td key={d.day} className="px-1 py-1 text-center" title={rep.text}>
-                              <span className={`inline-block rounded px-1 font-bold text-white ${rep.kind === "swap" ? "bg-violet-600" : "bg-rose-600"}`}>{rep.kind === "swap" ? "⇄" : "↺"}{code}</span>
+                              <span className={`inline-block rounded px-1 font-bold ${rep.kind === "swap" ? "bg-violet-600 text-white" : rep.kind === "draft" ? "bg-amber-200 text-amber-900 ring-1 ring-amber-400" : "bg-rose-600 text-white"}`}>{rep.kind === "swap" ? "⇄" : rep.kind === "draft" ? "" : "↺"}{code}</span>
                             </td>
                           );
                           return (
