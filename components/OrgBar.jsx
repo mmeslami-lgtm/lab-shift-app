@@ -42,6 +42,12 @@ export default function OrgBar({ onLoadStaff, staffList, toDb, onIdsChanged, yea
   const [loadBump, setLoadBump] = useState(0);
   const autoYmRef = React.useRef("");
   const [autoMsg, setAutoMsg] = useState(""); // "n genehmigte Abwesenheiten automatisch übernommen"
+  // a plain "taken over" notice disappears after a few seconds; "stornierte entfernt – bitte prüfen" stays (needs action)
+  useEffect(() => {
+    if (!autoMsg || /storniert/.test(autoMsg)) return undefined;
+    const tm = setTimeout(() => setAutoMsg(""), 6000);
+    return () => clearTimeout(tm);
+  }, [autoMsg]);
   // plans sent by the Schichtplaner, waiting for Leitung/Inhaber (checked every minute and when the window gets focus)
   const isLeader = org && (org.role === "owner" || org.role === "supervisor");
   const [pendingMonths, setPendingMonths] = useState([]);
@@ -273,8 +279,7 @@ export default function OrgBar({ onLoadStaff, staffList, toDb, onIdsChanged, yea
       const unsaved = (staffList || []).filter((s) => !UUID.test(String(s.id)) && !SAMPLE_NAME.test(String(s.name).trim()));
       if (unsaved.length) { setMsg(`Diese Personenliste stammt aus dem Browser (${unsaved.length} Person(en) nicht gespeichert). Für den Stand der Datenbank: „Personen aus Datenbank laden“.`); return; }
       if (onLoadStaff(data) === false) return;
-      setLoadBump((n) => n + 1);
-      setMsg(`${data.length} Personen automatisch aus der Datenbank geladen.`);
+      setLoadBump((n) => n + 1); // silent: no message (user 8 Nov 2026: the sidebar was too full)
     })();
   }, [org]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -369,7 +374,9 @@ export default function OrgBar({ onLoadStaff, staffList, toDb, onIdsChanged, yea
         {item({ icon: Upload, label: busy === "save" ? "Speichert …" : "Personen in Datenbank speichern", onClick: save, disabled: !!busy })}
         {isLeader && hasTime && item({ icon: Clock, label: "Anwesenheit", onClick: () => setAttOpen(true), badge: openCorr + toReview || null, tone: "warn" })}
         {isLeader && hasApp && item({ icon: KeyRound, label: "Zugänge", onClick: () => setZugOpen(true) })}
-        <p className="dg-note">Neue oder geänderte Personen sind erst nach „Personen in Datenbank speichern“ in der Datenbank. Nur Personen aus der Datenbank können Pläne veröffentlicht bekommen.</p>
+        {(staffList || []).some((s) => !UUID.test(String(s.id)) && !SAMPLE_NAME.test(String(s.name).trim())) && (
+          <p className="dg-note">Neue Personen erst mit „Personen in Datenbank speichern“ sichern – nur sie bekommen den Plan.</p>
+        )}
       </div>
       {hasTime && org.staffId && (
         <div className="dg-group">
