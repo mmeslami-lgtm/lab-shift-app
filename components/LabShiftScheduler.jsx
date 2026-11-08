@@ -2773,7 +2773,7 @@ function LabShiftSchedulerInner() {
                       active
                         ? "bg-rose-500 border-rose-500 text-white"
                         : isWeekend
-                        ? "bg-slate-700 border-slate-700 text-white font-bold hover:bg-slate-800" // weekend clearly visible (user 8 Nov 2026)
+                        ? "bg-slate-300 border-slate-400 text-slate-800 font-semibold hover:bg-slate-400" // weekend: visible, but not too dark (user 8 Nov 2026)
                         : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
                     }`}
                     title={WEEKDAY_DE[wd]}
