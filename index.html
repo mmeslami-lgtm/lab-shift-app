@@ -1,0 +1,2613 @@
+<!doctype html>
+<html lang="de" dir="ltr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Belegarchiv – Testversion</title>
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Belege">
+<meta name="theme-color" content="#1E3A8A">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@400;600;800&family=Vazirmatn:wght@400;600;800&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#F6EEDC; --surface:#FFFCF6; --ink:#111111; --muted:#5A5246; --line:#E3D7BD;
+  --gold-hover:#DDA600; --gold-edge:#B88A00;
+  --sign:#F2B705; --sign-ink:#1B2430; --ok:#1F7A4D; --ok-bg:#E2F3EA; --bad:#B42318; --bad-bg:#FDE7E5;
+  --wait:#7A5B00; --wait-bg:#FFF3C9; --focus:#2563EB; --primary:#F2B705; --primary-ink:#111111;
+  color-scheme: light; box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#12171D; --surface:#1B232C; --ink:#E7ECEF; --muted:#9AA6B2; --line:#2C3743;
+    --sign:#F2B705; --sign-ink:#12171D; --ok:#5BD49A; --ok-bg:#163326; --bad:#FF8A80; --bad-bg:#3A1B1A;
+    --wait:#F5CF5B; --wait-bg:#352B0C; --focus:#7AA7FF; --primary:#F2B705; --primary-ink:#111111; --gold-hover:#FFC926; --gold-edge:#F2B705; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#12171D; --surface:#1B232C; --ink:#E7ECEF; --muted:#9AA6B2; --line:#2C3743;
+  --sign:#F2B705; --sign-ink:#12171D; --ok:#5BD49A; --ok-bg:#163326; --bad:#FF8A80; --bad-bg:#3A1B1A;
+  --wait:#F5CF5B; --wait-bg:#352B0C; --focus:#7AA7FF; --primary:#F2B705; --primary-ink:#111111; --gold-hover:#FFC926; --gold-edge:#F2B705; color-scheme: dark;
+}
+*,*::before,*::after{box-sizing:inherit}
+html,body{margin:0}
+body{background:var(--bg);color:var(--ink);font-family:"Source Sans 3","Segoe UI",Roboto,Helvetica,Arial,sans-serif;font-size:16px;line-height:1.6}
+html[lang="fa"] body, html[lang="ar"] body{font-family:"Vazirmatn",Tahoma,"Segoe UI",sans-serif;line-height:1.75}
+main{max-width:640px;margin:0 auto;padding:20px 16px 48px}
+header{display:flex;align-items:center;gap:12px;margin:8px 0 20px;flex-wrap:wrap}
+.roof{background:var(--sign);color:var(--sign-ink);font-weight:800;font-size:13px;letter-spacing:.04em;
+  padding:6px 14px 4px;border-radius:10px 10px 3px 3px;box-shadow:inset 0 -3px 0 rgba(0,0,0,.15)}
+h1{font-size:22px;margin:0;font-weight:800;flex:1;min-width:200px}
+h2{font-size:17px;margin:0 0 10px;font-weight:800}
+.lang{display:flex;gap:4px;border:1px solid var(--line);border-radius:10px;padding:3px;background:var(--surface)}
+.lang button{background:transparent;color:var(--muted);padding:5px 10px;font-size:13px;border-radius:7px;border:0}
+.lang button[aria-pressed="true"]{background:var(--primary);color:var(--primary-ink)}
+section{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:18px;margin-bottom:16px}
+p.hint{color:var(--muted);margin:0 0 12px;font-size:14px}
+label{display:block;font-size:14px;font-weight:600;margin:10px 0 4px}
+input,select{width:100%;font:inherit;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+input[type=file]{padding:8px}
+button{font:inherit;font-weight:700;border:1px solid var(--gold-edge);border-radius:10px;padding:11px 18px;cursor:pointer;background:var(--primary);color:var(--primary-ink)}
+button:not(:disabled):hover{background:var(--gold-hover)}
+button.secondary{background:transparent;color:var(--ink);border:1.5px solid var(--gold-edge)}
+button.secondary:not(:disabled):hover{background:var(--wait-bg)}
+.lang button:not([aria-pressed="true"]):hover, .viewnav .tab:not(.active):hover, .kindseg button:not([aria-pressed="true"]):hover{background:var(--wait-bg)}
+button:disabled{opacity:.5;cursor:not-allowed}
+:focus-visible{outline:3px solid var(--focus);outline-offset:2px}
+.row{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px}
+.msg{margin-top:12px;padding:10px 12px;border-radius:10px;font-size:14px;display:none}
+.msg.show{display:block}
+.msg.ok{background:var(--ok-bg);color:var(--ok)}
+.msg.bad{background:var(--bad-bg);color:var(--bad)}
+.msg.info{background:var(--wait-bg);color:var(--wait)}
+ol.steps{margin:12px 0 0;padding-inline-start:22px;font-size:14px}
+ol.steps li{color:var(--muted)}
+ol.steps li.done{color:var(--ok)}
+ol.steps li.fail{color:var(--bad);font-weight:700}
+ol.steps li.run{color:var(--ink);font-weight:700}
+.who{display:flex;justify-content:space-between;align-items:center;gap:10px;font-size:14px;color:var(--muted)}
+.titlebox{flex:1;min-width:200px;display:grid;gap:2px}.titlebox h1{flex:none;min-width:0}
+.welcome{font-size:15px;color:var(--ink);font-weight:600}
+.welcome button{margin-inline-start:8px}
+.hdrright{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+button.small{padding:6px 12px;font-size:14px;border-radius:8px;min-height:36px}
+button.logout{background:#B42318;border-color:#B42318;color:#fff;font-weight:700}
+button.logout:not(:disabled):hover{background:#912018}
+.langsel{min-height:36px;padding:6px 10px;border-radius:8px;font:inherit;font-size:14px;border:1.5px solid var(--gold-edge);background:var(--surface);color:var(--ink)}
+.toolbar button{background:#6B4423;border-color:#6B4423;color:#fff;font-weight:700}
+.toolbar button:not(:disabled):hover{background:#54351B}
+.invcode.ltr{text-align:center!important}
+/* 2026-11-05: aufgeräumtes Layout */
+header.topbar{display:flex;align-items:center;gap:10px;flex-wrap:nowrap;margin-bottom:14px}
+header.topbar .roof{flex:none}
+header.topbar .titlebox{flex:1;min-width:0}
+header.topbar h1{font-size:19px;line-height:1.25;margin:0;white-space:normal}
+header.topbar .hdrright{flex:none;display:flex;gap:6px;align-items:center;flex-wrap:nowrap}
+header.topbar .langsel{min-height:36px;padding:4px 6px;font-weight:700;width:auto}
+header.topbar button.logout{min-height:36px;padding:6px 10px;font-size:13px}
+.hero{display:grid;gap:14px;padding:18px}
+.hero .welcome{display:grid;gap:2px}
+.hero .welcome .hi{font-size:14px;font-weight:600;color:var(--muted)}
+.hero .welcome .nm{font-size:22px;font-weight:800;color:var(--ink);line-height:1.2}
+.hero .welcome .co{font-size:14px;color:var(--muted)}
+.hero .actions{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;width:100%}
+.hero .act{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;min-height:52px;padding:6px 4px;
+  background:#6B4423;border:1px solid #6B4423;color:#fff;border-radius:12px;font-size:12px;font-weight:700;line-height:1.15;text-align:center}
+.hero .act:not(:disabled):hover{background:#54351B}
+.hero .act .ic{font-size:17px;line-height:1}
+#bizInfo{display:none!important}
+#mainView{display:flex;flex-direction:column}
+#mainView > #subBanner{order:1} #mainView > #uploadBox{order:2} #mainView > #listBox{order:3}
+#mainView > #twBox{order:4} #mainView > #profBox{order:5} #mainView > #delBox{order:6}
+#mainView > #profBox:has(#profForm:not(.hidden)){order:0}
+.subbanner{flex-wrap:nowrap}.subbanner span{flex:1;min-width:0}.subbanner button{flex:none}
+@media (max-width:380px){ header.topbar h1{font-size:17px} .hero .act{font-size:12px} }
+.welcome .hi{font-size:16px;font-weight:700}.welcome .nm{font-size:15px;font-weight:600}
+.toolbar{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+section:has(> .toolbar){padding:8px 10px;background:transparent;border:0;margin-bottom:8px}
+.subbanner{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;border-radius:12px;padding:12px 14px;margin-bottom:16px;font-weight:600;font-size:15px}
+.subbanner.info{background:var(--wait-bg);color:var(--wait);border:1px solid var(--gold-edge)}
+.subbanner.warn{background:#FFE8CC;color:#7A3E00;border:1px solid #D98A2B}
+.subbanner.ro{background:#FDE7E7;color:#8A1C1C;border:1px solid #D45555}
+button:disabled{opacity:.45;cursor:not-allowed}
+.linkbtn{background:none;border:0;color:var(--ink);text-decoration:underline;padding:8px 0;font-weight:600;font-size:14px;min-height:0}
+.linkbtn:not(:disabled):hover{background:none;color:var(--muted)}
+a.linkbtn{display:block;margin-top:2px}
+.invbox{display:grid;gap:10px}.invbox .lbl{font-size:13px;color:var(--muted)}
+.invcode{font-size:30px;font-weight:800;letter-spacing:4px;background:var(--wait-bg);border:1.5px dashed var(--gold-edge);border-radius:10px;padding:10px;text-align:center}
+.invlink{font-size:13px;word-break:break-all;color:var(--muted)}
+.captcha{margin:12px 0 4px;min-height:65px}
+.doc{border-top:1px solid var(--line);padding:12px 0;display:grid;gap:6px}
+.doc:first-child{border-top:0}
+.doc .name{font-weight:700;word-break:break-all}
+.doc .meta{font-size:13px;color:var(--muted)}
+.doc .actions{display:flex;gap:8px;flex-wrap:wrap}
+.doc .actions button{padding:6px 12px;font-size:13px}
+.chip{justify-self:start;font-size:12px;font-weight:800;padding:2px 10px;border-radius:999px}
+.chip.verified{background:var(--ok-bg);color:var(--ok)}
+.chip.unverified{background:var(--wait-bg);color:var(--wait)}
+.chip.MISMATCH{background:var(--bad-bg);color:var(--bad)}
+.chips{display:flex;gap:6px;flex-wrap:wrap}
+.chip.entwurf{background:transparent;color:var(--muted);border:1px solid var(--line)}
+.chip.erfasst{background:var(--ink);color:var(--surface)}
+.chip.pkg{background:transparent;color:var(--ink);border:1px solid var(--ink)}
+.chip.storno{background:transparent;color:var(--bad);border:1px solid var(--bad)}
+details.done{margin-top:14px;border:1px solid var(--line);border-radius:12px;background:var(--surface)}
+details.done > summary{cursor:pointer;padding:14px 16px;font-weight:700;list-style:none;display:flex;justify-content:space-between;align-items:center;min-height:24px}
+details.done > summary::-webkit-details-marker{display:none}
+details.done > summary::after{content:"▾";color:var(--muted)}
+details.done[open] > summary::after{content:"▴"}
+details.done .donelist{display:grid;gap:10px;padding:0 10px 12px}
+details.done .doc{opacity:.85}
+.doc .warn{font-size:13px;color:var(--wait);background:var(--wait-bg);padding:6px 10px;border-radius:8px}
+.doc .actions button.danger{color:var(--bad);border-color:var(--bad)}
+.doc button.record{background:var(--primary);color:var(--primary-ink);font-size:17px;padding:14px 32px;border-radius:12px;justify-self:start;margin-top:4px}
+.chip.ai{background:var(--wait-bg);color:var(--wait)}
+.chip.confirmed{background:var(--ok-bg);color:var(--ok)}
+.review{border:1px solid var(--line);border-radius:12px;padding:14px;display:grid;gap:10px;background:var(--bg)}
+.review .rhead{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.review .hint{margin:0}
+.fld label{margin:0 0 4px}
+.fld.unsure input,.fld.unsure select{border-color:var(--wait);background:var(--wait-bg)}
+.fld.unsure > label:not(.chk)::after{content:" ?";color:var(--wait)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.kindseg{display:grid;grid-template-columns:repeat(3,1fr);gap:0;border:1.5px solid var(--line);border-radius:10px;overflow:hidden}
+.kindseg button{border:0;border-radius:0;background:transparent;color:var(--ink);padding:10px 6px;font-weight:700;min-height:44px}
+.kindseg button + button{border-inline-start:1.5px solid var(--line)}
+.kindseg button[aria-pressed="true"]{background:var(--primary);color:var(--primary-ink)}
+.kbox{border-radius:10px;padding:10px 12px;background:var(--wait-bg);color:var(--wait);display:grid;gap:8px;font-size:14px}
+.kbox .tip{font-size:13px;opacity:.9}
+.vline{display:grid;grid-template-columns:76px 1fr 1fr 74px 36px;gap:6px;align-items:center;margin-bottom:6px}
+.vline.vhead{font-size:12px;color:var(--muted);margin-bottom:2px}
+.vline input,.vline select{padding:8px}
+.vline .net{font-size:13px;color:var(--muted)}
+.lwarn{font-size:12px;color:var(--wait);margin:-2px 0 6px}
+.lwarn:empty{display:none}
+.total{font-weight:700;margin-top:6px}
+button.small{padding:6px 10px;font-size:13px}
+button.ai{background:var(--primary);color:var(--primary-ink)}
+.summary{display:grid;gap:4px;border-inline-start:3px solid var(--ok);padding-inline-start:10px}
+.summary .sline{font-weight:700}
+.summary .chip{justify-self:start}
+@media (max-width:480px){.grid2{grid-template-columns:1fr}.vline{grid-template-columns:64px 1fr 1fr 34px}.vline .net{display:none}.vline.vhead span:nth-child(4){display:none}}
+.twcard{border:1px solid var(--line);border-radius:12px;padding:12px;display:grid;gap:8px;background:var(--bg)}
+.tscroll{overflow-x:auto;max-width:100%}
+.twtable{border-collapse:collapse;font-size:13px;min-width:300px;width:100%}
+.twtable th,.twtable td{padding:5px 8px;border-bottom:1px solid var(--line);text-align:start;white-space:nowrap}
+.twtable .num{text-align:end;font-variant-numeric:tabular-nums}
+.fnd{font-size:13px;padding:7px 10px;border-radius:8px}
+.fnd summary{cursor:pointer}
+.fnd.warn{background:var(--wait-bg);color:var(--wait)}
+.fnd.error{background:var(--bad-bg);color:var(--bad)}
+.fnd.info{border:1px solid var(--line);color:var(--muted)}
+.fnd.ok{background:var(--ok-bg);color:var(--ok)}
+.fnd .ex{font-size:12px;margin-top:4px;word-break:break-word;opacity:.9}
+.chip.tw-ok{background:var(--ok-bg);color:var(--ok)}
+.chip.tw-warnings{background:var(--wait-bg);color:var(--wait)}
+.chip.tw-failed{background:var(--bad-bg);color:var(--bad)}
+.chk{display:flex;gap:8px;align-items:center;font-weight:500;margin:2px 0}
+.chk input{width:auto;margin:0}
+button.camera{width:100%;background:var(--primary);color:var(--primary-ink);font-size:18px;padding:16px;border-radius:12px;margin:6px 0 2px}
+.chk.mini{font-size:13px;margin-top:4px;color:var(--wait)}
+.fld.unsure.ok input,.fld.unsure.ok select{border-color:var(--ok);background:var(--ok-bg)}
+.fld.unsure.ok > label:not(.chk)::after{content:" ✓";color:var(--ok)}
+.fld.unsure.ok .chk.mini{color:var(--ok)}
+.warn-text{color:var(--wait);margin:0}
+.viewer{position:fixed;inset:0;z-index:50;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;
+  padding:max(16px, env(safe-area-inset-top, 0px)) 12px max(16px, env(safe-area-inset-bottom, 0px))}
+.vbox{background:var(--surface);color:var(--ink);border-radius:14px;width:min(900px,100%);max-height:100%;overflow:auto;padding:14px;display:grid;gap:10px}
+.vbox img{max-width:100%;height:auto;border-radius:8px;display:block}
+.vclose{justify-self:end;position:sticky;top:0;padding:6px 12px}
+.btnlink{display:inline-block;justify-self:start;padding:10px 14px;border-radius:10px;background:var(--primary);color:var(--primary-ink);text-decoration:none;font-weight:600}
+.viewnav{display:flex;gap:6px;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:5px;position:sticky;top:env(safe-area-inset-top, 0px);z-index:5}
+.viewnav .tab{flex:1;background:transparent;color:var(--ink);border:0;padding:10px;border-radius:9px;font-weight:600}
+.viewnav .tab.active{background:var(--primary);color:var(--primary-ink)}
+.dhead{display:flex;gap:12px;align-items:flex-start}
+.dinfo{display:grid;gap:4px;min-width:0;flex:1}
+.dinfo .name{overflow-wrap:anywhere}
+button.thumb{flex:0 0 auto;width:72px;height:72px;padding:0;border-radius:10px;overflow:hidden;border:1px solid var(--line);background:var(--bg);display:flex;align-items:center;justify-content:center}
+button.thumb img{width:100%;height:100%;object-fit:cover;display:block}
+.ticon{font-size:30px}
+button.rimg{padding:0;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--bg);max-height:340px;display:flex;justify-content:center}
+button.rimg img{max-width:100%;max-height:340px;object-fit:contain;display:block}
+.hint.center{text-align:center;margin:-4px 0 0;font-size:12px}
+.hash{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11px;color:var(--muted);word-break:break-all}
+.ltr{direction:ltr;text-align:start}
+html[dir="rtl"] .ltr{text-align:right}
+.hidden{display:none}
+@media (prefers-reduced-motion: reduce){*{transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+<main>
+  <header class="topbar">
+    <span class="roof">TAXI</span>
+    <div class="titlebox"><h1 data-i18n="title"></h1></div>
+    <div class="hdrright">
+      <select id="langSel" class="langsel" aria-label="Sprache / Language">
+        <option value="de">DE</option>
+        <option value="en">EN</option>
+        <option value="fa">FA</option>
+        <option value="ar">AR</option>
+      </select>
+      <button id="btnLogout" class="secondary small logout hidden" data-i18n="b_logout"></button>
+    </div>
+  </header>
+
+  <section id="authBox">
+    <h2 data-i18n="h_login"></h2>
+    <p class="hint" data-i18n="login_hint"></p>
+    <div id="signupFields" class="hidden">
+      <div class="grid2">
+        <div><label for="suFirst" data-i18n="l_first"></label><input id="suFirst" autocomplete="given-name" maxlength="60"></div>
+        <div><label for="suLast" data-i18n="l_last"></label><input id="suLast" autocomplete="family-name" maxlength="60"></div>
+      </div>
+      <label for="suCompany" data-i18n="l_company"></label><input id="suCompany" autocomplete="organization" maxlength="200">
+      <label for="suRef" data-i18n="l_ref"></label><input id="suRef" class="ltr" maxlength="12" autocapitalize="characters" placeholder="ABC123">
+    </div>
+    <label for="email" data-i18n="l_email"></label>
+    <input id="email" type="email" autocomplete="email" class="ltr">
+    <label for="password" data-i18n="l_password"></label>
+    <input id="password" type="password" autocomplete="current-password" class="ltr">
+    <div id="otpBox" class="hidden">
+      <p class="hint" id="otpHint"></p>
+      <label for="otpCode" data-i18n="l_otp"></label>
+      <input id="otpCode" class="ltr" inputmode="numeric" autocomplete="one-time-code" maxlength="8" placeholder="123456">
+      <div class="row"><button id="btnOtp" type="button" data-i18n="b_otp"></button><button id="btnOtpResend" type="button" class="secondary small" data-i18n="b_otp_resend"></button></div>
+    </div>
+    <div id="signupPw2" class="hidden"><label for="password2" data-i18n="l_password2"></label><input id="password2" type="password" autocomplete="new-password" class="ltr"></div>
+    <div id="resetBox" class="hidden">
+      <p class="hint" id="rsHint"></p>
+      <div id="rsCodeRow"><label for="rsCode" data-i18n="l_otp"></label><input id="rsCode" class="ltr" inputmode="numeric" autocomplete="one-time-code" maxlength="8" placeholder="123456"></div>
+      <label for="rsPw1" data-i18n="l_newpw"></label><input id="rsPw1" type="password" autocomplete="new-password" class="ltr">
+      <label for="rsPw2" data-i18n="l_password2"></label><input id="rsPw2" type="password" autocomplete="new-password" class="ltr">
+      <div class="row"><button id="btnRsSave" type="button" data-i18n="b_rs_save"></button></div>
+    </div>
+    <div class="row">
+      <button id="btnLogin" data-i18n="b_login"></button>
+      <button id="btnSignup" class="secondary" data-i18n="b_signup"></button>
+      <button id="btnBackLogin" class="secondary hidden" data-i18n="b_back_login"></button>
+      <button id="btnRsSend" class="hidden" data-i18n="b_rs_send"></button>
+    </div>
+    <button id="btnForgot" type="button" class="linkbtn" data-i18n="b_forgot"></button>
+    <a id="lnkRequest" class="linkbtn" href="./start.html#anfrage" data-i18n="b_request"></a>
+    <div id="captchaBox" class="captcha hidden"></div>
+    <div id="authMsg" class="msg"></div>
+  </section>
+
+  <div id="app" class="hidden">
+    <section class="hero">
+      <div id="welcome" class="welcome hidden"></div>
+      <div class="actions"><span id="whoami" hidden></span>
+        <button id="btnInvite" type="button" class="act"><span class="ic">🎁</span><span data-i18n="b_invite_s"></span></button>
+        <button id="btnHelp" type="button" class="act"><span class="ic">ℹ️</span><span data-i18n="b_help_s"></span></button>
+        <button id="btnBuero" type="button" class="act"><span class="ic">📊</span><span data-i18n="b_buero_s"></span></button>
+      </div>
+    </section>
+
+    <section id="bizCreate" class="hidden">
+      <h2 data-i18n="h_biz_create"></h2>
+      <p class="hint" data-i18n="biz_hint"></p>
+      <label for="bizName" data-i18n="l_biz_name"></label>
+      <input id="bizName" data-i18n-ph="ph_biz_name">
+      <label for="bizStart" data-i18n="l_biz_start"></label>
+      <input id="bizStart" type="date" class="ltr">
+      <label for="bizStnr" data-i18n="l_stnr"></label>
+      <input id="bizStnr" class="ltr" placeholder="12/345/67890">
+      <div class="row"><button id="btnBiz" data-i18n="b_biz"></button></div>
+      <div id="bizMsg" class="msg"></div>
+    </section>
+
+    <section id="bizInfo" class="hidden">
+      <h2 data-i18n="h_biz"></h2>
+      <div id="bizLine"></div>
+    </section>
+
+    <nav id="viewNav" class="viewnav hidden" aria-label="Ansicht">
+      <button id="navMain" type="button" class="tab active" data-i18n="nav_docs"></button>
+      <button id="navProto" type="button" class="tab" data-i18n="nav_proto"></button>
+    </nav>
+
+    <div id="mainView">
+    <section id="profBox" class="hidden">
+      <h2 data-i18n="pf_h"></h2>
+      <div id="profView"></div>
+      <div id="profForm" class="hidden review">
+        <div class="grid2">
+          <div class="fld"><label for="pfFrom" data-i18n="pf_from"></label><input id="pfFrom" type="date" class="ltr"></div>
+          <div class="fld"><label for="pfVehicle" data-i18n="pf_vehicle"></label><select id="pfVehicle"></select></div>
+        </div>
+        <div class="fld"><label for="pfKlein" data-i18n="pf_klein"></label><select id="pfKlein"></select>
+          <p class="hint" data-i18n="pf_klein_hint"></p></div>
+        <div class="fld" id="pfPeriodRow"><label for="pfPeriod" data-i18n="pf_period"></label><select id="pfPeriod"></select></div>
+        <label class="chk" id="pfDfvRow"><input type="checkbox" id="pfDfv"><span data-i18n="pf_dfv"></span></label>
+        <label class="chk"><input type="checkbox" id="pfStb" checked><span data-i18n="pf_stb"></span></label>
+        <p class="hint" data-i18n="pf_hint"></p>
+        <div class="actions"><button id="pfSave" type="button" data-i18n="pf_save"></button><button id="pfCancel" type="button" class="secondary" data-i18n="b_cancel"></button></div>
+        <div id="pfMsg" class="msg"></div>
+      </div>
+    </section>
+
+    <div id="subBanner" class="subbanner hidden" role="status"></div>
+    <section id="uploadBox" class="hidden">
+      <h2 data-i18n="h_upload"></h2>
+      <p class="hint" data-i18n="upload_hint"></p>
+      <button id="btnCamera" type="button" class="camera" data-i18n="b_camera"></button>
+      <input id="camera" type="file" accept="image/*" capture="environment" class="hidden">
+      <p class="hint" data-i18n="or_file"></p>
+      <label for="file" data-i18n="l_file"></label>
+      <input id="file" type="file" accept=".jpg,.jpeg,.png,.heic,.webp,.pdf,.xml,.csv,.zip">
+      <label for="source" data-i18n="l_source"></label>
+      <select id="source">
+        <option value="scan" data-i18n="src_scan"></option>
+        <option value="e_invoice_xml" data-i18n="src_einv"></option>
+        <option value="taxameter_export" data-i18n="src_taxa"></option>
+        <option value="bank_export" data-i18n="src_bank"></option>
+        <option value="platform_export" data-i18n="src_plat"></option>
+        <option value="other" data-i18n="src_other"></option>
+      </select>
+      <label for="docDate" data-i18n="l_docdate"></label>
+      <input id="docDate" type="date" class="ltr">
+      <div class="row"><button id="btnUpload" data-i18n="b_upload"></button></div>
+      <ol class="steps" id="steps"></ol>
+      <div id="upMsg" class="msg"></div>
+    </section>
+
+    <section id="listBox" class="hidden">
+      <h2 data-i18n="h_docs"></h2>
+      <div id="docs"></div>
+    </section>
+
+    <section id="twBox" class="hidden">
+      <h2 data-i18n="tw_h_month"></h2>
+      <p class="hint" data-i18n="tw_month_hint"></p>
+      <div id="twMonths" class="tscroll"></div>
+    </section>
+
+    </div>
+
+    <div id="protoView" class="hidden">
+    <section id="protoBox">
+      <h2 data-i18n="proto_h"></h2>
+      <p class="hint" data-i18n="proto_hint"></p>
+      <div class="actions"><button id="btnVerifyAll" type="button" data-i18n="b_verify_all"></button></div>
+      <div id="protoMsg" class="msg"></div>
+      <div id="protoList"></div>
+    </section>
+
+    <section id="delBox" class="hidden">
+      <h2 data-i18n="h_dels"></h2>
+      <p class="hint" data-i18n="dels_hint"></p>
+      <div id="dels"></div>
+    </section>
+    </div>
+  </div>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<script>
+/* ===================== Translations ===================== */
+const I18N = {
+de: {
+  title:"Belegarchiv – Testversion", h_login:"Anmelden",
+  login_hint:"Mit E‑Mail und Passwort anmelden. Noch kein Konto? Dann „Konto erstellen“ wählen.",
+  l_email:"E‑Mail", l_password:"Passwort (mindestens 8 Zeichen)", b_login:"Anmelden", b_signup:"Konto erstellen", b_logout:"Abmelden", b_buero:"Dashboard",
+  h_biz_create:"Unternehmen anlegen", biz_hint:"Vor dem ersten Beleg einmalig die Unternehmensdaten erfassen. Diese Angaben können nicht gelöscht werden.",
+  l_biz_name:"Name des Unternehmens", ph_biz_name:"z. B. Taxi Rahimi", l_biz_start:"Beginn der Tätigkeit", l_stnr:"Steuernummer (optional)",
+  b_biz:"Unternehmen anlegen", h_biz:"Unternehmen", h_upload:"Beleg hochladen",
+  upload_hint:"Foto einer Quittung, Rechnung als PDF, XML‑ oder CSV‑Datei. Maximal 20 MB. Neue Belege sind zunächst Entwürfe und können gelöscht werden. Nach „Erfassen“ sind sie gesperrt.",
+  l_file:"Datei", l_source:"Belegart", src_scan:"Foto oder Scan einer Quittung", src_einv:"E‑Rechnung (XML)", src_taxa:"Taxameter‑Export",
+  src_bank:"Kontoauszug", src_plat:"Abrechnung Uber/Bolt/FreeNow", src_other:"Sonstiges", l_docdate:"Belegdatum (optional)",
+  b_upload:"Hochladen", h_docs:"Belege", docs_empty:"Noch keine Belege. Laden Sie die erste Quittung hoch.", done_h:"📦 Übergeben / erledigt", done_pkg:"Paket", done_storno:"Storniert", all_done:"Alles erledigt – keine offenen Belege.",
+  steps:["Prüfsumme (SHA‑256) berechnen","Auf Duplikat prüfen","Datei ins Archiv hochladen","Beleg in der Datenbank erfassen","Prüfsumme durch den Server verifizieren"],
+  status:{verified:"Geprüft",unverified:"Ungeprüft",MISMATCH:"Abweichung!"},
+  src:{scan:"Foto/Scan",e_invoice_xml:"E‑Rechnung",taxameter_export:"Taxameter",bank_export:"Bank",platform_export:"Plattform",other:"Sonstiges"},
+  signed_in:"Angemeldet als: ", start:"Beginn der Tätigkeit: ", uploaded:"Hochgeladen: ", docdate:"Belegdatum: ",
+  view:"Datei ansehen", reverify:"Erneut prüfen", locale:"de-DE",
+  m_signup_ok:"Konto erstellt. Bitte die Bestätigungs‑E‑Mail öffnen, den Link antippen und danach hier „Anmelden“ wählen.",
+  m_need_creds:"Bitte E‑Mail und ein Passwort mit mindestens 8 Zeichen eingeben.",
+  m_biz_required:"Name und Beginn der Tätigkeit sind Pflichtfelder.", m_no_file:"Bitte zuerst eine Datei auswählen.",
+  m_ok:"Hochgeladen und vom Server geprüft. Jetzt kontrollieren und „Erfassen“ wählen.", m_verify_fail:"Hochgeladen, aber die Serverprüfung ist fehlgeschlagen: ",
+  m_fn_down:"Serverfunktion antwortet nicht",
+  rec:{entwurf:"Entwurf",erfasst:"Erfasst"}, erfasst_on:"Erfasst: ", b_erfassen:"Erfassen", b_delete:"Entwurf löschen", h_dels:"Gelöschte Entwürfe", dels_hint:"Protokoll: Die Dateien sind entfernt, dieser Nachweis bleibt dauerhaft erhalten.", deleted_on:"Gelöscht: ", reason_l:"Grund: ",
+  confirm_erfassen:"Beleg jetzt endgültig erfassen? Danach kann er nicht mehr gelöscht oder geändert werden.",
+  confirm_delete:"Diesen Entwurf löschen? Die Datei wird entfernt. Im Protokoll bleibt vermerkt, dass ein Entwurf gelöscht wurde.",
+  reason_prompt:"Grund (optional), z. B. „falsche Datei“:", overdue:"Seit mehr als 10 Tagen nicht erfasst. Belege zeitnah erfassen.",
+  m_deleted:"Entwurf gelöscht.", m_erfasst:"Beleg erfasst und gesperrt.", m_file_left:"Entwurf gelöscht, aber die Datei konnte nicht entfernt werden: ",
+  e:{notver:"Erfassen ist erst möglich, wenn der Server die Datei geprüft hat. „Erneut prüfen“ wählen.", recorded:"Dieser Beleg ist bereits erfasst und kann nicht gelöscht werden.", timeout:"Der Server antwortet nicht. Bitte die Seite neu laden (F5) und erneut versuchen.", bizexists:"Es ist bereits ein Unternehmen angelegt.",
+     login:"E‑Mail oder Passwort ist falsch.", unconfirmed:"E‑Mail noch nicht bestätigt. Bitte den Bestätigungslink im Postfach öffnen.",
+     exists:"Für diese E‑Mail gibt es bereits ein Konto. Bitte „Anmelden“ wählen.", weakpw:"Das Passwort ist zu kurz oder zu einfach.",
+     stnr:"Steuernummer ungültig (nur Ziffern und /, 10 bis 16 Zeichen).", dup:"Diese Datei wurde bereits hochgeladen.",
+     size:"Die Dateigröße stimmt nicht mit der gespeicherten Datei überein.", mime:"Der Dateityp stimmt nicht mit der gespeicherten Datei überein.",
+     future:"Das Belegdatum darf nicht in der Zukunft liegen.", big:"Die Datei ist größer als 20 MB.", type:"Dieser Dateityp wird nicht angenommen.",
+     net:"Keine Verbindung zum Server. Bitte Internetverbindung prüfen.", generic:"Fehler: "}
+},
+en: {
+  title:"Receipt archive – test version", h_login:"Sign in",
+  login_hint:"Sign in with email and password. No account yet? Choose “Create account”.",
+  l_email:"Email", l_password:"Password (at least 8 characters)", b_login:"Sign in", b_signup:"Create account", b_logout:"Sign out", b_buero:"Dashboard",
+  h_biz_create:"Register business", biz_hint:"Enter your business details once before uploading the first receipt. These details cannot be deleted.",
+  l_biz_name:"Business name", ph_biz_name:"e.g. Taxi Rahimi", l_biz_start:"Business start date", l_stnr:"Tax number (Steuernummer, optional)",
+  b_biz:"Register business", h_biz:"Business", h_upload:"Upload receipt",
+  upload_hint:"Photo of a receipt, invoice as PDF, XML or CSV file. Max. 20 MB. New documents start as drafts and can be deleted. Once you record them, they’re locked.",
+  l_file:"File", l_source:"Document type", src_scan:"Photo or scan of a receipt", src_einv:"E‑invoice (XML)", src_taxa:"Taximeter export",
+  src_bank:"Bank statement", src_plat:"Uber/Bolt/FreeNow statement", src_other:"Other", l_docdate:"Document date (optional)",
+  b_upload:"Upload", h_docs:"Documents", docs_empty:"No documents yet. Upload your first receipt.", done_h:"📦 Handed over / done", done_pkg:"Package", done_storno:"Cancelled", all_done:"All done – no open receipts.",
+  steps:["Calculate checksum (SHA‑256)","Check for duplicates","Upload file to archive","Record document in database","Server verifies checksum"],
+  status:{verified:"Verified",unverified:"Unverified",MISMATCH:"Mismatch!"},
+  src:{scan:"Photo/scan",e_invoice_xml:"E‑invoice",taxameter_export:"Taximeter",bank_export:"Bank",platform_export:"Platform",other:"Other"},
+  signed_in:"Signed in as: ", start:"Business start: ", uploaded:"Uploaded: ", docdate:"Document date: ",
+  view:"View file", reverify:"Verify again", locale:"en-GB",
+  m_signup_ok:"Account created. Open the confirmation email, tap the link, then come back and choose “Sign in”.",
+  m_need_creds:"Please enter an email and a password with at least 8 characters.",
+  m_biz_required:"Business name and start date are required.", m_no_file:"Please choose a file first.",
+  m_ok:"Uploaded and verified by the server. Check it, then choose “Record”.", m_verify_fail:"Uploaded, but server verification failed: ",
+  m_fn_down:"Server function not responding",
+  rec:{entwurf:"Draft",erfasst:"Recorded"}, erfasst_on:"Recorded: ", b_erfassen:"Record", b_delete:"Delete draft", h_dels:"Deleted drafts", dels_hint:"Log: the files are removed, this record is kept permanently.", deleted_on:"Deleted: ", reason_l:"Reason: ",
+  confirm_erfassen:"Record this document permanently? After that it can’t be deleted or changed.",
+  confirm_delete:"Delete this draft? The file will be removed. The log keeps a note that a draft was deleted.",
+  reason_prompt:"Reason (optional), e.g. “wrong file”:", overdue:"Not recorded for more than 10 days. Record documents promptly.",
+  m_deleted:"Draft deleted.", m_erfasst:"Document recorded and locked.", m_file_left:"Draft deleted, but the file couldn’t be removed: ",
+  e:{notver:"You can record a document only after the server has verified the file. Choose “Verify again”.", recorded:"This document is already recorded and can’t be deleted.", timeout:"The server isn’t responding. Reload the page (F5) and try again.", bizexists:"A business is already registered.",
+     login:"Wrong email or password.", unconfirmed:"Email not confirmed yet. Open the confirmation link in your inbox.",
+     exists:"An account with this email already exists. Choose “Sign in”.", weakpw:"The password is too short or too simple.",
+     stnr:"Invalid tax number (digits and / only, 10 to 16 characters).", dup:"This file has already been uploaded.",
+     size:"The file size doesn’t match the stored file.", mime:"The file type doesn’t match the stored file.",
+     future:"The document date can’t be in the future.", big:"The file is larger than 20 MB.", type:"This file type isn’t accepted.",
+     net:"Can’t reach the server. Check your internet connection.", generic:"Error: "}
+},
+fa: {
+  title:"آرشیو اسناد – نسخه‌ی آزمایشی", h_login:"ورود",
+  login_hint:"با ایمیل و رمز عبور وارد شوید. اگر حساب ندارید، «ساخت حساب» را بزنید.",
+  l_email:"ایمیل", l_password:"رمز عبور (حداقل ۸ کاراکتر)", b_login:"ورود", b_signup:"ساخت حساب", b_logout:"خروج", b_buero:"داشبورد",
+  h_biz_create:"ثبت کسب‌وکار", biz_hint:"قبل از آپلود اولین سند، یک بار اطلاعات کسب‌وکار را ثبت کنید. این اطلاعات قابل حذف نیست.",
+  l_biz_name:"نام کسب‌وکار", ph_biz_name:"مثلاً Taxi Rahimi", l_biz_start:"تاریخ شروع فعالیت", l_stnr:"Steuernummer (اختیاری)",
+  b_biz:"ثبت کسب‌وکار", h_biz:"کسب‌وکار", h_upload:"آپلود سند",
+  upload_hint:"عکس رسید، PDF فاکتور، فایل XML یا CSV. حداکثر ۲۰ مگابایت. سند اول پیش‌نویس است و می‌توانید حذفش کنید. بعد از «ثبت نهایی» قابل حذف یا تغییر نیست.",
+  l_file:"فایل", l_source:"نوع سند", src_scan:"عکس یا اسکن رسید", src_einv:"فاکتور الکترونیکی (XML)", src_taxa:"خروجی تاکسی‌متر",
+  src_bank:"صورت‌حساب بانک", src_plat:"گزارش Uber/Bolt/FreeNow", src_other:"سایر", l_docdate:"تاریخ سند (اختیاری)",
+  b_upload:"آپلود", h_docs:"اسناد", docs_empty:"هنوز سندی نیست. اولین رسید را آپلود کنید.", done_h:"📦 تحویل‌شده / تمام‌شده", done_pkg:"بسته", done_storno:"باطل‌شده", all_done:"همه‌چیز انجام شده.",
+  steps:["محاسبه‌ی اثر انگشت فایل (SHA‑256)","بررسی تکراری نبودن","آپلود فایل در آرشیو","ثبت سند در دیتابیس","بررسی اثر انگشت توسط سرور"],
+  status:{verified:"تأییدشده",unverified:"تأییدنشده",MISMATCH:"عدم تطابق!"},
+  src:{scan:"عکس/اسکن",e_invoice_xml:"فاکتور XML",taxameter_export:"تاکسی‌متر",bank_export:"بانک",platform_export:"پلتفرم",other:"سایر"},
+  signed_in:"واردشده با: ", start:"شروع فعالیت: ", uploaded:"آپلود: ", docdate:"تاریخ سند: ",
+  view:"مشاهده‌ی فایل", reverify:"بررسی دوباره", locale:"fa-IR",
+  m_signup_ok:"حساب ساخته شد. ایمیل تأیید را باز کنید و روی لینک بزنید، بعد برگردید و «ورود» را بزنید.",
+  m_need_creds:"لطفاً ایمیل و یک رمز عبور حداقل ۸ کاراکتری وارد کنید.",
+  m_biz_required:"نام و تاریخ شروع فعالیت لازم است.", m_no_file:"اول یک فایل انتخاب کنید.",
+  m_ok:"فایل آپلود شد و سرور آن را تأیید کرد. حالا بررسی کنید و «ثبت نهایی» را بزنید.", m_verify_fail:"فایل آپلود شد ولی بررسی سرور ناموفق بود: ",
+  m_fn_down:"تابع سرور پاسخ نداد",
+  rec:{entwurf:"پیش‌نویس",erfasst:"ثبت‌شده"}, erfasst_on:"ثبت نهایی: ", b_erfassen:"ثبت نهایی", b_delete:"حذف پیش‌نویس", h_dels:"پیش‌نویس‌های حذف‌شده", dels_hint:"گزارش: فایل‌ها پاک شده‌اند، ولی این سابقه برای همیشه می‌ماند.", deleted_on:"حذف: ", reason_l:"دلیل: ",
+  confirm_erfassen:"این سند الان به‌طور نهایی ثبت شود؟ بعد از آن قابل حذف یا تغییر نیست.",
+  confirm_delete:"این پیش‌نویس حذف شود؟ فایل پاک می‌شود، ولی در گزارش می‌ماند که یک پیش‌نویس حذف شده است.",
+  reason_prompt:"دلیل (اختیاری)، مثلاً «فایل اشتباه»:", overdue:"بیش از ۱۰ روز است که ثبت نهایی نشده. اسناد را به‌موقع ثبت کنید.",
+  m_deleted:"پیش‌نویس حذف شد.", m_erfasst:"سند ثبت نهایی و قفل شد.", m_file_left:"پیش‌نویس حذف شد، ولی فایل پاک نشد: ",
+  e:{notver:"ثبت نهایی فقط بعد از تأیید فایل توسط سرور ممکن است. «بررسی دوباره» را بزنید.", recorded:"این سند قبلاً ثبت نهایی شده و قابل حذف نیست.", timeout:"سرور پاسخ نمی‌دهد. صفحه را دوباره بارگذاری کنید (F5) و دوباره امتحان کنید.", bizexists:"کسب‌وکار قبلاً ثبت شده است.",
+     login:"ایمیل یا رمز عبور اشتباه است.", unconfirmed:"ایمیل هنوز تأیید نشده. لینک تأیید را در صندوق ایمیل باز کنید.",
+     exists:"با این ایمیل قبلاً حساب ساخته شده. «ورود» را بزنید.", weakpw:"رمز عبور خیلی کوتاه یا ساده است.",
+     stnr:"فرمت Steuernummer درست نیست (فقط عدد و /، ۱۰ تا ۱۶ کاراکتر).", dup:"این فایل قبلاً آپلود شده است.",
+     size:"حجم فایل با نسخه‌ی ذخیره‌شده یکی نیست.", mime:"نوع فایل با نسخه‌ی ذخیره‌شده یکی نیست.",
+     future:"تاریخ سند نمی‌تواند در آینده باشد.", big:"فایل بزرگ‌تر از ۲۰ مگابایت است.", type:"این نوع فایل پذیرفته نمی‌شود.",
+     net:"اتصال به سرور برقرار نشد. اینترنت را بررسی کنید.", generic:"خطا: "}
+},
+ar: {
+  title:"أرشيف المستندات – نسخة تجريبية", h_login:"تسجيل الدخول",
+  login_hint:"سجّل الدخول بالبريد الإلكتروني وكلمة المرور. ليس لديك حساب؟ اختر «إنشاء حساب».",
+  l_email:"البريد الإلكتروني", l_password:"كلمة المرور (8 أحرف على الأقل)", b_login:"تسجيل الدخول", b_signup:"إنشاء حساب", b_logout:"تسجيل الخروج", b_buero:"لوحة التحكم",
+  h_biz_create:"تسجيل النشاط التجاري", biz_hint:"أدخل بيانات نشاطك التجاري مرة واحدة قبل رفع أول مستند. لا يمكن حذف هذه البيانات.",
+  l_biz_name:"اسم النشاط التجاري", ph_biz_name:"مثلاً Taxi Rahimi", l_biz_start:"تاريخ بدء النشاط", l_stnr:"الرقم الضريبي Steuernummer (اختياري)",
+  b_biz:"تسجيل النشاط التجاري", h_biz:"النشاط التجاري", h_upload:"رفع مستند",
+  upload_hint:"صورة إيصال، أو فاتورة PDF، أو ملف XML أو CSV. الحد الأقصى 20 ميغابايت. المستند الجديد يكون مسودة ويمكن حذفه. بعد «التسجيل النهائي» يُقفل ولا يمكن حذفه أو تعديله.",
+  l_file:"الملف", l_source:"نوع المستند", src_scan:"صورة أو مسح ضوئي لإيصال", src_einv:"فاتورة إلكترونية (XML)", src_taxa:"تصدير عدّاد التاكسي",
+  src_bank:"كشف حساب بنكي", src_plat:"كشف Uber/Bolt/FreeNow", src_other:"أخرى", l_docdate:"تاريخ المستند (اختياري)",
+  b_upload:"رفع", h_docs:"المستندات", docs_empty:"لا توجد مستندات بعد. ارفع أول إيصال.", done_h:"📦 مسلَّم / منتهٍ", done_pkg:"حزمة", done_storno:"ملغى", all_done:"تم كل شيء – لا توجد إيصالات مفتوحة.",
+  steps:["حساب البصمة الرقمية (SHA‑256)","التحقق من عدم التكرار","رفع الملف إلى الأرشيف","تسجيل المستند في قاعدة البيانات","تحقق الخادم من البصمة"],
+  status:{verified:"تم التحقق",unverified:"لم يتم التحقق",MISMATCH:"عدم تطابق!"},
+  src:{scan:"صورة/مسح",e_invoice_xml:"فاتورة إلكترونية",taxameter_export:"عدّاد التاكسي",bank_export:"بنك",platform_export:"منصة",other:"أخرى"},
+  signed_in:"مسجّل الدخول باسم: ", start:"بدء النشاط: ", uploaded:"تاريخ الرفع: ", docdate:"تاريخ المستند: ",
+  view:"عرض الملف", reverify:"إعادة التحقق", locale:"ar",
+  m_signup_ok:"تم إنشاء الحساب. افتح رسالة التأكيد واضغط على الرابط، ثم عد واختر «تسجيل الدخول».",
+  m_need_creds:"يرجى إدخال البريد الإلكتروني وكلمة مرور من 8 أحرف على الأقل.",
+  m_biz_required:"اسم النشاط وتاريخ البدء مطلوبان.", m_no_file:"يرجى اختيار ملف أولاً.",
+  m_ok:"تم الرفع وتحقق الخادم من الملف. راجعه ثم اختر «تسجيل نهائي».", m_verify_fail:"تم الرفع، لكن فشل تحقق الخادم: ",
+  m_fn_down:"وظيفة الخادم لا تستجيب",
+  rec:{entwurf:"مسودة",erfasst:"مسجّل"}, erfasst_on:"تاريخ التسجيل: ", b_erfassen:"تسجيل نهائي", b_delete:"حذف المسودة", h_dels:"المسودات المحذوفة", dels_hint:"السجل: حُذفت الملفات، لكن هذا السجل يبقى بشكل دائم.", deleted_on:"تاريخ الحذف: ", reason_l:"السبب: ",
+  confirm_erfassen:"هل تريد تسجيل هذا المستند نهائياً؟ بعد ذلك لا يمكن حذفه أو تعديله.",
+  confirm_delete:"هل تريد حذف هذه المسودة؟ سيُحذف الملف، ويبقى في السجل أن مسودة قد حُذفت.",
+  reason_prompt:"السبب (اختياري)، مثلاً «ملف خاطئ»:", overdue:"لم يُسجَّل منذ أكثر من 10 أيام. سجّل المستندات في وقتها.",
+  m_deleted:"تم حذف المسودة.", m_erfasst:"تم تسجيل المستند وقفله.", m_file_left:"تم حذف المسودة، لكن تعذّر حذف الملف: ",
+  e:{notver:"لا يمكن التسجيل النهائي إلا بعد تحقق الخادم من الملف. اختر «إعادة التحقق».", recorded:"هذا المستند مسجّل نهائياً ولا يمكن حذفه.", timeout:"الخادم لا يستجيب. أعد تحميل الصفحة (F5) وحاول مرة أخرى.", bizexists:"النشاط التجاري مسجّل بالفعل.",
+     login:"البريد الإلكتروني أو كلمة المرور غير صحيحة.", unconfirmed:"لم يتم تأكيد البريد الإلكتروني بعد. افتح رابط التأكيد في بريدك.",
+     exists:"يوجد حساب بهذا البريد الإلكتروني. اختر «تسجيل الدخول».", weakpw:"كلمة المرور قصيرة جداً أو بسيطة جداً.",
+     stnr:"الرقم الضريبي غير صالح (أرقام و / فقط، من 10 إلى 16 حرفاً).", dup:"تم رفع هذا الملف من قبل.",
+     size:"حجم الملف لا يطابق الملف المحفوظ.", mime:"نوع الملف لا يطابق الملف المحفوظ.",
+     future:"لا يمكن أن يكون تاريخ المستند في المستقبل.", big:"حجم الملف أكبر من 20 ميغابايت.", type:"نوع الملف هذا غير مقبول.",
+     net:"تعذّر الاتصال بالخادم. تحقق من اتصالك بالإنترنت.", generic:"خطأ: "}
+}};
+
+/* ---------- Übersetzungen: KI-Auslesen ---------- */
+const I18N_AI = {
+de: {
+  ai_step:"Beleg mit KI auslesen",
+  b_extract:"Mit KI auslesen", b_reextract:"Erneut mit KI auslesen", b_manual:"Von Hand eintragen", m_extracting:"KI liest den Beleg …",
+  m_ok_ai:"Hochgeladen, geprüft und von der KI ausgelesen. Bitte die Daten unten mit dem Beleg vergleichen und bestätigen.",
+  h_review:"Daten prüfen", review_hint:"Vorschlag der KI. Bitte mit dem Beleg vergleichen und bei Bedarf korrigieren. Gelb markierte Felder sind unsicher.",
+  ai_note:"Hinweis der KI: ", ai_total:"Von der KI gelesener Gesamtbetrag: ",
+  f_date:"Belegdatum", f_vendor:"Verkäufer / Lieferant", f_invno:"Rechnungs- oder Bonnummer (optional)", f_pay:"Zahlungsart",
+  f_cat:"Kategorie (Vorschlag, mit Steuerberater abstimmen)", f_lines:"Umsatzsteuer je Steuersatz", f_rate:"Satz", f_gross:"Brutto €",
+  f_vat:"USt €", f_net:"Netto", f_total:"Gesamt brutto", vat_short:"USt",
+  b_addline:"Steuersatz", b_rmline:"Zeile entfernen", b_confirm:"Daten bestätigen", b_edit:"Daten ändern", b_cancel:"Abbrechen",
+  m_confirmed:"Daten bestätigt. Jetzt „Erfassen“ wählen.", need_confirm:"Vor dem Erfassen die Daten prüfen und bestätigen.",
+  badge_ai:"KI-Vorschlag", badge_user:"Bestätigt", live_vat:"Steuerbetrag passt nicht zum Steuersatz. Bitte mit dem Beleg vergleichen.",
+  pay:{bar:"Bar",karte:"Karte",ueberweisung:"Überweisung",unbekannt:"Unbekannt"},
+  cat:{kraftstoff:"Kraftstoff",ladestrom:"Ladestrom",wartung_reparatur:"Wartung und Reparatur",reifen:"Reifen",waesche_pflege:"Wagenwäsche und Pflege",
+    versicherung:"Versicherung",kfz_steuer:"Kfz-Steuer",leasing_finanzierung:"Leasing / Finanzierung",parken_maut:"Parken und Maut",
+    vermittlung_funk:"Vermittlung / Taxizentrale",telefon_internet:"Telefon und Internet",buero_material:"Büro und Material",bewirtung:"Bewirtung",
+    fortbildung:"Fortbildung",gebuehren_beitraege:"Gebühren und Beiträge",sonstiges_betrieblich:"Sonstiges (betrieblich)",privat:"Privat (nicht betrieblich)"},
+  warn:{vat_calc:"Steuerbetrag passt nicht genau zum Steuersatz.",sum_mismatch:"Die Steuerzeilen ergeben nicht den Gesamtbetrag.",
+    line_mismatch:"Netto + USt ergibt nicht Brutto.",unusual_rate:"Ungewöhnlicher Steuersatz.",
+    over_250_missing_fields:"Über 250 €: Rechnungsnummer und Verkäufer werden benötigt (§ 14 UStG).",
+    before_business_start:"Belegdatum liegt vor dem Beginn der Tätigkeit.",private_expense:"Als privat eingestuft, zählt nicht als Betriebsausgabe.",
+    not_a_receipt:"Die KI hält diese Datei nicht für einen Beleg.",future_date:"Das Datum liegt in der Zukunft.",possible_duplicate:"Möglicherweise doppelt: Ein anderer Beleg hat dasselbe Datum und denselben Betrag. Bitte prüfen, ob es dieselbe Quittung ist."},
+  ai_err:{ai_key_missing:"Der KI-Schlüssel ist auf dem Server nicht eingerichtet.",ai_key_invalid:"Der KI-Schlüssel ist ungültig oder abgelaufen.",
+    ai_no_credit:"Das KI-Guthaben ist aufgebraucht.",ai_limit_reached:"Dieser Beleg wurde schon 5-mal ausgelesen. Bitte die Daten von Hand eintragen.",
+    ai_rate_limited:"Zu viele Anfragen. Bitte in einer Minute erneut versuchen.",ai_overloaded:"Die KI ist gerade überlastet. Bitte später erneut versuchen.",
+    ai_timeout:"Die KI hat zu lange gebraucht. Bitte erneut versuchen.",
+    unsupported_format:"Dieses Format kann die KI nicht lesen (z. B. HEIC). Bitte „Von Hand eintragen“ wählen oder als JPG/PDF hochladen.",
+    file_too_large:"Die Datei ist für die KI zu groß.",already_recorded:"Der Beleg ist bereits erfasst.",generic:"Auslesen fehlgeschlagen: "},
+  e:{amount:"Bitte Beträge wie 12,34 eingeben.",required:"Datum, Kategorie, Zahlungsart und mindestens ein Betrag sind Pflicht.",
+    notconfirmed:"Vor dem Erfassen die Daten prüfen und bestätigen.",rate:"Nur die Steuersätze 0 %, 7 % und 19 % sind möglich.",
+    line:"Netto + USt ergibt nicht Brutto.",sum:"Die Steuerzeilen ergeben nicht den Gesamtbetrag."}
+},
+en: {
+  ai_step:"Read document with AI",
+  b_extract:"Read with AI", b_reextract:"Read again with AI", b_manual:"Enter manually", m_extracting:"AI is reading the document …",
+  m_ok_ai:"Uploaded, verified and read by the AI. Compare the data below with the receipt and confirm it.",
+  h_review:"Check data", review_hint:"AI suggestion. Compare it with the receipt and correct it if needed. Fields marked yellow are uncertain.",
+  ai_note:"AI note: ", ai_total:"Total read by the AI: ",
+  f_date:"Document date", f_vendor:"Seller / supplier", f_invno:"Invoice or receipt number (optional)", f_pay:"Payment method",
+  f_cat:"Category (suggestion, check with your tax adviser)", f_lines:"VAT per rate", f_rate:"Rate", f_gross:"Gross €",
+  f_vat:"VAT €", f_net:"Net", f_total:"Total gross", vat_short:"VAT",
+  b_addline:"VAT rate", b_rmline:"Remove line", b_confirm:"Confirm data", b_edit:"Edit data", b_cancel:"Cancel",
+  m_confirmed:"Data confirmed. Now choose “Record”.", need_confirm:"Check and confirm the data before recording.",
+  badge_ai:"AI suggestion", badge_user:"Confirmed", live_vat:"VAT amount doesn’t match the rate. Compare with the receipt.",
+  pay:{bar:"Cash",karte:"Card",ueberweisung:"Bank transfer",unbekannt:"Unknown"},
+  cat:{kraftstoff:"Fuel",ladestrom:"EV charging",wartung_reparatur:"Maintenance and repair",reifen:"Tyres",waesche_pflege:"Car wash and care",
+    versicherung:"Insurance",kfz_steuer:"Vehicle tax",leasing_finanzierung:"Leasing / financing",parken_maut:"Parking and tolls",
+    vermittlung_funk:"Dispatch / taxi centre",telefon_internet:"Phone and internet",buero_material:"Office and supplies",bewirtung:"Hospitality",
+    fortbildung:"Training",gebuehren_beitraege:"Fees and memberships",sonstiges_betrieblich:"Other (business)",privat:"Private (not business)"},
+  warn:{vat_calc:"VAT amount doesn’t exactly match the rate.",sum_mismatch:"The VAT lines don’t add up to the total.",
+    line_mismatch:"Net + VAT doesn’t equal gross.",unusual_rate:"Unusual VAT rate.",
+    over_250_missing_fields:"Over €250: invoice number and seller are required (§ 14 UStG).",
+    before_business_start:"Document date is before the business start date.",private_expense:"Marked as private, not a business expense.",
+    not_a_receipt:"The AI doesn’t think this file is a receipt.",future_date:"The date is in the future.",possible_duplicate:"Possible duplicate: another document has the same date and amount. Check whether it is the same receipt."},
+  ai_err:{ai_key_missing:"The AI key isn’t set up on the server.",ai_key_invalid:"The AI key is invalid or expired.",
+    ai_no_credit:"The AI credit is used up.",ai_limit_reached:"This document has already been read 5 times. Please enter the data manually.",
+    ai_rate_limited:"Too many requests. Try again in a minute.",ai_overloaded:"The AI is overloaded right now. Try again later.",
+    ai_timeout:"The AI took too long. Please try again.",
+    unsupported_format:"The AI can’t read this format (e.g. HEIC). Choose “Enter manually” or upload as JPG/PDF.",
+    file_too_large:"The file is too large for the AI.",already_recorded:"This document is already recorded.",generic:"Reading failed: "},
+  e:{amount:"Enter amounts like 12.34.",required:"Date, category, payment method and at least one amount are required.",
+    notconfirmed:"Check and confirm the data before recording.",rate:"Only the VAT rates 0 %, 7 % and 19 % are allowed.",
+    line:"Net + VAT doesn’t equal gross.",sum:"The VAT lines don’t add up to the total."}
+},
+fa: {
+  ai_step:"خواندن سند با هوش مصنوعی",
+  b_extract:"خواندن با هوش مصنوعی", b_reextract:"خواندن دوباره با هوش مصنوعی", b_manual:"وارد کردن دستی", m_extracting:"هوش مصنوعی در حال خواندن سند …",
+  m_ok_ai:"آپلود، تأیید و توسط هوش مصنوعی خوانده شد. داده‌های پایین را با رسید مقایسه و تأیید کنید.",
+  h_review:"بررسی داده‌ها", review_hint:"پیشنهاد هوش مصنوعی. با رسید مقایسه کنید و در صورت نیاز اصلاح کنید. فیلدهای زرد نامطمئن هستند.",
+  ai_note:"توضیح هوش مصنوعی: ", ai_total:"مبلغ کل خوانده‌شده توسط هوش مصنوعی: ",
+  f_date:"تاریخ سند", f_vendor:"فروشنده / تأمین‌کننده", f_invno:"شماره‌ی فاکتور یا رسید (اختیاری)", f_pay:"روش پرداخت",
+  f_cat:"دسته (پیشنهادی، با Steuerberater هماهنگ کنید)", f_lines:"مالیات بر ارزش افزوده به تفکیک نرخ", f_rate:"نرخ", f_gross:"ناخالص €",
+  f_vat:"مالیات €", f_net:"خالص", f_total:"جمع ناخالص", vat_short:"مالیات",
+  b_addline:"نرخ مالیات", b_rmline:"حذف ردیف", b_confirm:"تأیید داده‌ها", b_edit:"تغییر داده‌ها", b_cancel:"انصراف",
+  m_confirmed:"داده‌ها تأیید شد. حالا «ثبت نهایی» را بزنید.", need_confirm:"قبل از ثبت نهایی، داده‌ها را بررسی و تأیید کنید.",
+  badge_ai:"پیشنهاد هوش مصنوعی", badge_user:"تأییدشده", live_vat:"مبلغ مالیات با نرخ جور نیست. با رسید مقایسه کنید.",
+  pay:{bar:"نقد",karte:"کارت",ueberweisung:"انتقال بانکی",unbekannt:"نامشخص"},
+  cat:{kraftstoff:"سوخت",ladestrom:"برق شارژ",wartung_reparatur:"سرویس و تعمیر",reifen:"لاستیک",waesche_pflege:"کارواش و نگهداری",
+    versicherung:"بیمه",kfz_steuer:"مالیات خودرو",leasing_finanzierung:"لیزینگ / اقساط",parken_maut:"پارکینگ و عوارض",
+    vermittlung_funk:"مرکز تاکسی / واسطه",telefon_internet:"تلفن و اینترنت",buero_material:"اداری و لوازم",bewirtung:"پذیرایی",
+    fortbildung:"آموزش",gebuehren_beitraege:"هزینه‌ها و حق عضویت",sonstiges_betrieblich:"سایر (کاری)",privat:"شخصی (غیرکاری)"},
+  warn:{vat_calc:"مبلغ مالیات دقیقاً با نرخ جور نیست.",sum_mismatch:"جمع ردیف‌های مالیات با مبلغ کل برابر نیست.",
+    line_mismatch:"خالص + مالیات با ناخالص برابر نیست.",unusual_rate:"نرخ مالیات غیرعادی است.",
+    over_250_missing_fields:"بالای ۲۵۰ یورو: شماره‌ی فاکتور و نام فروشنده لازم است (§ 14 UStG).",
+    before_business_start:"تاریخ سند قبل از شروع فعالیت است.",private_expense:"شخصی علامت خورده و هزینه‌ی کاری حساب نمی‌شود.",
+    not_a_receipt:"هوش مصنوعی فکر می‌کند این فایل رسید نیست.",future_date:"تاریخ در آینده است.",possible_duplicate:"احتمالاً تکراری: سند دیگری همین تاریخ و همین مبلغ را دارد. بررسی کنید همان رسید نباشد."},
+  ai_err:{ai_key_missing:"کلید هوش مصنوعی روی سرور تنظیم نشده است.",ai_key_invalid:"کلید هوش مصنوعی نامعتبر یا منقضی است.",
+    ai_no_credit:"اعتبار هوش مصنوعی تمام شده است.",ai_limit_reached:"این سند قبلاً ۵ بار خوانده شده. لطفاً داده‌ها را دستی وارد کنید.",
+    ai_rate_limited:"درخواست‌ها زیاد است. یک دقیقه‌ی دیگر دوباره امتحان کنید.",ai_overloaded:"هوش مصنوعی الان شلوغ است. بعداً دوباره امتحان کنید.",
+    ai_timeout:"هوش مصنوعی بیش از حد طول کشید. دوباره امتحان کنید.",
+    unsupported_format:"هوش مصنوعی این فرمت را نمی‌خواند (مثلاً HEIC). «وارد کردن دستی» را بزنید یا JPG/PDF آپلود کنید.",
+    file_too_large:"فایل برای هوش مصنوعی خیلی بزرگ است.",already_recorded:"این سند قبلاً ثبت نهایی شده است.",generic:"خواندن ناموفق بود: "},
+  e:{amount:"مبالغ را مثل 12,34 وارد کنید.",required:"تاریخ، دسته، روش پرداخت و حداقل یک مبلغ لازم است.",
+    notconfirmed:"قبل از ثبت نهایی، داده‌ها را بررسی و تأیید کنید.",rate:"فقط نرخ‌های ۰٪، ۷٪ و ۱۹٪ مجاز است.",
+    line:"خالص + مالیات با ناخالص برابر نیست.",sum:"جمع ردیف‌های مالیات با مبلغ کل برابر نیست."}
+},
+ar: {
+  ai_step:"قراءة المستند بالذكاء الاصطناعي",
+  b_extract:"القراءة بالذكاء الاصطناعي", b_reextract:"إعادة القراءة بالذكاء الاصطناعي", b_manual:"إدخال يدوي", m_extracting:"الذكاء الاصطناعي يقرأ المستند …",
+  m_ok_ai:"تم الرفع والتحقق والقراءة بالذكاء الاصطناعي. قارن البيانات أدناه بالإيصال ثم أكّدها.",
+  h_review:"مراجعة البيانات", review_hint:"اقتراح من الذكاء الاصطناعي. قارنه بالإيصال وصحّحه عند الحاجة. الحقول المظللة بالأصفر غير مؤكدة.",
+  ai_note:"ملاحظة الذكاء الاصطناعي: ", ai_total:"المبلغ الإجمالي الذي قرأه الذكاء الاصطناعي: ",
+  f_date:"تاريخ المستند", f_vendor:"البائع / المورّد", f_invno:"رقم الفاتورة أو الإيصال (اختياري)", f_pay:"طريقة الدفع",
+  f_cat:"الفئة (اقتراح، راجعها مع المستشار الضريبي)", f_lines:"ضريبة القيمة المضافة حسب النسبة", f_rate:"النسبة", f_gross:"الإجمالي €",
+  f_vat:"الضريبة €", f_net:"الصافي", f_total:"الإجمالي الكلي", vat_short:"الضريبة",
+  b_addline:"نسبة ضريبة", b_rmline:"حذف السطر", b_confirm:"تأكيد البيانات", b_edit:"تعديل البيانات", b_cancel:"إلغاء",
+  m_confirmed:"تم تأكيد البيانات. اختر الآن «تسجيل نهائي».", need_confirm:"راجع البيانات وأكّدها قبل التسجيل النهائي.",
+  badge_ai:"اقتراح الذكاء الاصطناعي", badge_user:"مؤكَّد", live_vat:"مبلغ الضريبة لا يطابق النسبة. قارنه بالإيصال.",
+  pay:{bar:"نقداً",karte:"بطاقة",ueberweisung:"تحويل بنكي",unbekannt:"غير معروف"},
+  cat:{kraftstoff:"وقود",ladestrom:"كهرباء الشحن",wartung_reparatur:"صيانة وإصلاح",reifen:"إطارات",waesche_pflege:"غسيل السيارة والعناية بها",
+    versicherung:"تأمين",kfz_steuer:"ضريبة السيارة",leasing_finanzierung:"تأجير / تمويل",parken_maut:"مواقف ورسوم طرق",
+    vermittlung_funk:"مركز التاكسي / الوساطة",telefon_internet:"هاتف وإنترنت",buero_material:"مكتب ومستلزمات",bewirtung:"ضيافة",
+    fortbildung:"تدريب",gebuehren_beitraege:"رسوم واشتراكات",sonstiges_betrieblich:"أخرى (للعمل)",privat:"خاص (ليس للعمل)"},
+  warn:{vat_calc:"مبلغ الضريبة لا يطابق النسبة تماماً.",sum_mismatch:"مجموع أسطر الضريبة لا يساوي المبلغ الإجمالي.",
+    line_mismatch:"الصافي + الضريبة لا يساوي الإجمالي.",unusual_rate:"نسبة ضريبة غير معتادة.",
+    over_250_missing_fields:"أكثر من 250 يورو: رقم الفاتورة واسم البائع مطلوبان (§ 14 UStG).",
+    before_business_start:"تاريخ المستند قبل بدء النشاط.",private_expense:"مصنَّف كخاص، ولا يُحسب كمصروف عمل.",
+    not_a_receipt:"يرى الذكاء الاصطناعي أن هذا الملف ليس إيصالاً.",future_date:"التاريخ في المستقبل.",possible_duplicate:"ربما مكرر: مستند آخر له نفس التاريخ ونفس المبلغ. تحقق مما إذا كان نفس الإيصال."},
+  ai_err:{ai_key_missing:"مفتاح الذكاء الاصطناعي غير مُعدّ على الخادم.",ai_key_invalid:"مفتاح الذكاء الاصطناعي غير صالح أو منتهي الصلاحية.",
+    ai_no_credit:"نفد رصيد الذكاء الاصطناعي.",ai_limit_reached:"تمت قراءة هذا المستند 5 مرات. يرجى إدخال البيانات يدوياً.",
+    ai_rate_limited:"طلبات كثيرة جداً. حاول مرة أخرى بعد دقيقة.",ai_overloaded:"الذكاء الاصطناعي مشغول حالياً. حاول لاحقاً.",
+    ai_timeout:"استغرق الذكاء الاصطناعي وقتاً طويلاً. حاول مرة أخرى.",
+    unsupported_format:"لا يستطيع الذكاء الاصطناعي قراءة هذه الصيغة (مثل HEIC). اختر «إدخال يدوي» أو ارفع الملف بصيغة JPG/PDF.",
+    file_too_large:"الملف كبير جداً بالنسبة للذكاء الاصطناعي.",already_recorded:"هذا المستند مسجّل نهائياً.",generic:"فشلت القراءة: "},
+  e:{amount:"أدخل المبالغ بهذا الشكل: 12,34.",required:"التاريخ والفئة وطريقة الدفع ومبلغ واحد على الأقل مطلوبة.",
+    notconfirmed:"راجع البيانات وأكّدها قبل التسجيل النهائي.",rate:"النسب المسموح بها فقط 0٪ و7٪ و19٪.",
+    line:"الصافي + الضريبة لا يساوي الإجمالي.",sum:"مجموع أسطر الضريبة لا يساوي المبلغ الإجمالي."}
+}};
+for (const k of Object.keys(I18N_AI)){
+  const { e, ai_step, ...rest } = I18N_AI[k];
+  Object.assign(I18N[k], rest);
+  Object.assign(I18N[k].e, e);
+  I18N[k].steps = [...I18N[k].steps, ai_step];
+}
+
+
+/* ---------- Übersetzungen: Taxameter ---------- */
+const TW_PAY = {
+  de:{Bar:"Bar",Unbar:"Unbar",Keine:"Keine",Debitkarte:"Debitkarte",Kreditkarte:"Kreditkarte",ElZahlungsdienstleister:"Elektronisch",Guthabenkarte:"Guthabenkarte"},
+  en:{Bar:"Cash",Unbar:"Non-cash",Keine:"None",Debitkarte:"Debit card",Kreditkarte:"Credit card",ElZahlungsdienstleister:"Electronic",Guthabenkarte:"Stored-value card"},
+  fa:{Bar:"نقد",Unbar:"غیرنقد",Keine:"هیچ",Debitkarte:"کارت بانکی",Kreditkarte:"کارت اعتباری",ElZahlungsdienstleister:"پرداخت الکترونیک",Guthabenkarte:"کارت اعتباری پیش‌پرداخت"},
+  ar:{Bar:"نقداً",Unbar:"غير نقدي",Keine:"لا شيء",Debitkarte:"بطاقة خصم",Kreditkarte:"بطاقة ائتمان",ElZahlungsdienstleister:"دفع إلكتروني",Guthabenkarte:"بطاقة رصيد"}
+};
+const I18N_TW = {
+de: {
+  tw_h_month:"Taxameter: Monatsübersicht", tw_month_hint:"Nur erfasste Exporte. Vorläufige Werte zur Abstimmung mit dem Steuerberater.",
+  tw: {
+    h_import:"Taxameter-Daten (DSFinV-TW)", status:{ok:"In Ordnung",warnings:"Mit Hinweisen",failed:"Fehlgeschlagen"},
+    period:"Zeitraum: ", ordn:"Ordnungsnr.: ", trips:"Fahrten", shifts:"Schichten", drivers:"Fahrer", km:"Besetzt-km",
+    brutto:"Brutto", netto:"Netto", ust:"USt", zero:"0 % / steuerfrei", sum:"Summe", payments:"Zahlarten: ",
+    tip_an:"Trinkgeld für Angestellte (kein Umsatz): ", no_findings:"Keine Auffälligkeiten gefunden.",
+    disclaimer:"Automatische Prüfung nach festen Regeln. Hinweise mit dem Steuerberater klären. Die Originaldatei bleibt unverändert im Archiv.",
+    b_import:"Taxameter-Daten einlesen", b_reimport:"Erneut einlesen", m_importing:"Wird eingelesen …",
+    m_imported:"Taxameter-Daten eingelesen. Bitte die Prüfergebnisse beim Beleg ansehen, dann „Erfassen“ wählen.",
+    m_failed:"Einlesen fehlgeschlagen. Details stehen beim Beleg.",
+    need_import:"Vor dem Erfassen müssen die Taxameter-Daten erfolgreich eingelesen sein.",
+    cols:["Monat","Fahrten","19 % netto","19 % USt","7 % netto","7 % USt","0 %","Brutto gesamt"],
+    f:{missing_required_file:"Pflichtdatei Fahrten.csv fehlt.",missing_file:"Datei fehlt im Export.",missing_index:"index.xml fehlt, Standardformat angenommen.",
+      column_count:"Zeile hat eine falsche Spaltenzahl.",parse_error:"Ein Wert konnte nicht gelesen werden.",encoding_fallback:"Datei war nicht UTF-8-kodiert.",
+      no_trips:"Keine Fahrten im Export.",no_device_data:"Keine Fahrzeug- oder Gerätedaten im Export.",
+      correction_rows:"Korrigierte Datensätze. Der Altstand wird nicht mitgezählt.",manual_rows:"Nachträglich im Back-Office erfasste Fahrten.",
+      manual_payments:"Nachträglich erfasste Zahlungen.",unknown_setting:"Unbekannte Betriebseinstellung.",unknown_gv:"Unbekannter Geschäftsvorfalltyp.",
+      unknown_payment_type:"Unbekannte Zahlart.",unknown_shift_event:"Unbekannter Schicht-Vorgang.",time_order:"Ende liegt vor dem Beginn.",
+      fare_sum:"Fahrpreis + Zuschlag ergibt nicht die Gesamtsumme.",tax_split:"Aufteilung 19 % / 7 % / 0 % ergibt nicht die Gesamtsumme.",
+      vat_sum:"Umsatzsteuerbetrag passt nicht zu Brutto und Netto.",vat_rate:"Netto passt nicht zum Steuersatz.",
+      reduced_rate_distance:"7 % bei mehr als 50 km: prüfen, ob die Fahrt innerhalb der Gemeinde blieb (§ 12 Abs. 2 Nr. 10 UStG).",
+      negative_revenue:"Negativer Umsatz.",payment_mismatch:"Zahlungen passen nicht zum Fahrpreis.",foreign_currency:"Zahlung in Fremdwährung.",
+      gap_trip:"Lücke in der Fahrt-Nummerierung: möglicherweise fehlen Daten.",gap_shift:"Lücke in der Schicht-Nummerierung: möglicherweise fehlen Daten.",
+      tse_error:"Die TSE hat einen Fehler gemeldet.",no_tse_transactions:"Keine TSE-Transaktionen im Export.",version:"DSFinV-TW-Version ist nicht 1.1.",
+      other_company:"Die Steuernummer im Export gehört zu einem anderen Unternehmen."},
+    err:{zip_required:"Bitte den Taxameter-Export als ZIP-Datei hochladen.",zip_invalid:"Die ZIP-Datei ist beschädigt.",zip_empty:"In der ZIP-Datei sind keine CSV-Dateien.",
+      not_taximeter_export:"Dieser Beleg ist kein Taxameter-Export.",already_recorded:"Der Beleg ist bereits erfasst.",
+      timeout:"Das Einlesen hat zu lange gedauert. Bitte erneut versuchen.",generic:"Einlesen fehlgeschlagen: "}
+  },
+  e:{twnotimported:"Vor dem Erfassen müssen die Taxameter-Daten erfolgreich eingelesen sein."}
+},
+en: {
+  tw_h_month:"Taximeter: monthly overview", tw_month_hint:"Recorded exports only. Provisional figures to review with your tax adviser.",
+  tw: {
+    h_import:"Taximeter data (DSFinV-TW)", status:{ok:"OK",warnings:"With notes",failed:"Failed"},
+    period:"Period: ", ordn:"Vehicle no.: ", trips:"Trips", shifts:"Shifts", drivers:"Drivers", km:"Paid km",
+    brutto:"Gross", netto:"Net", ust:"VAT", zero:"0 % / exempt", sum:"Total", payments:"Payment types: ",
+    tip_an:"Tips for employees (not revenue): ", no_findings:"No issues found.",
+    disclaimer:"Automatic check with fixed rules. Clarify notes with your tax adviser. The original file stays unchanged in the archive.",
+    b_import:"Read taximeter data", b_reimport:"Read again", m_importing:"Reading …",
+    m_imported:"Taximeter data read. Check the results at the document, then choose “Record”.",
+    m_failed:"Reading failed. Details are shown at the document.",
+    need_import:"The taximeter data must be read successfully before recording.",
+    cols:["Month","Trips","19 % net","19 % VAT","7 % net","7 % VAT","0 %","Total gross"],
+    f:{missing_required_file:"Required file Fahrten.csv is missing.",missing_file:"File missing in the export.",missing_index:"index.xml missing, standard format assumed.",
+      column_count:"Row has the wrong number of columns.",parse_error:"A value couldn’t be read.",encoding_fallback:"File wasn’t UTF-8 encoded.",
+      no_trips:"No trips in the export.",no_device_data:"No vehicle or device data in the export.",
+      correction_rows:"Corrected records. The old version isn’t counted.",manual_rows:"Trips added later in the back office.",
+      manual_payments:"Payments added later.",unknown_setting:"Unknown meter setting.",unknown_gv:"Unknown transaction type.",
+      unknown_payment_type:"Unknown payment type.",unknown_shift_event:"Unknown shift event.",time_order:"End is before start.",
+      fare_sum:"Fare + surcharge doesn’t equal the total.",tax_split:"19 % / 7 % / 0 % split doesn’t equal the total.",
+      vat_sum:"VAT amount doesn’t match gross and net.",vat_rate:"Net doesn’t match the VAT rate.",
+      reduced_rate_distance:"7 % on more than 50 km: check whether the trip stayed within the municipality (§ 12 (2) no. 10 UStG).",
+      negative_revenue:"Negative revenue.",payment_mismatch:"Payments don’t match the fare.",foreign_currency:"Payment in foreign currency.",
+      gap_trip:"Gap in trip numbering: data may be missing.",gap_shift:"Gap in shift numbering: data may be missing.",
+      tse_error:"The TSE reported an error.",no_tse_transactions:"No TSE transactions in the export.",version:"DSFinV-TW version isn’t 1.1.",
+      other_company:"The tax number in the export belongs to another business."},
+    err:{zip_required:"Please upload the taximeter export as a ZIP file.",zip_invalid:"The ZIP file is damaged.",zip_empty:"The ZIP file contains no CSV files.",
+      not_taximeter_export:"This document isn’t a taximeter export.",already_recorded:"This document is already recorded.",
+      timeout:"Reading took too long. Please try again.",generic:"Reading failed: "}
+  },
+  e:{twnotimported:"The taximeter data must be read successfully before recording."}
+},
+fa: {
+  tw_h_month:"تاکسی‌متر: خلاصه‌ی ماهانه", tw_month_hint:"فقط خروجی‌های ثبت‌شده. اعداد موقت برای هماهنگی با Steuerberater.",
+  tw: {
+    h_import:"داده‌های تاکسی‌متر (DSFinV-TW)", status:{ok:"درست",warnings:"با هشدار",failed:"ناموفق"},
+    period:"بازه: ", ordn:"شماره‌ی خودرو: ", trips:"سفرها", shifts:"شیفت‌ها", drivers:"رانندگان", km:"کیلومتر با مسافر",
+    brutto:"ناخالص", netto:"خالص", ust:"مالیات", zero:"۰٪ / معاف", sum:"جمع", payments:"روش‌های پرداخت: ",
+    tip_an:"انعام کارکنان (درآمد حساب نمی‌شود): ", no_findings:"مشکلی پیدا نشد.",
+    disclaimer:"بررسی خودکار با قوانین ثابت. هشدارها را با Steuerberater بررسی کنید. فایل اصلی بدون تغییر در آرشیو می‌ماند.",
+    b_import:"خواندن داده‌های تاکسی‌متر", b_reimport:"خواندن دوباره", m_importing:"در حال خواندن …",
+    m_imported:"داده‌های تاکسی‌متر خوانده شد. نتیجه‌ی بررسی را کنار سند ببینید، بعد «ثبت نهایی» را بزنید.",
+    m_failed:"خواندن ناموفق بود. جزئیات کنار سند آمده است.",
+    need_import:"قبل از ثبت نهایی، داده‌های تاکسی‌متر باید با موفقیت خوانده شوند.",
+    cols:["ماه","سفرها","۱۹٪ خالص","۱۹٪ مالیات","۷٪ خالص","۷٪ مالیات","۰٪","جمع ناخالص"],
+    f:{missing_required_file:"فایل ضروری Fahrten.csv وجود ندارد.",missing_file:"فایلی در خروجی نیست.",missing_index:"فایل index.xml نیست، فرمت استاندارد فرض شد.",
+      column_count:"تعداد ستون‌های یک ردیف اشتباه است.",parse_error:"یک مقدار خوانده نشد.",encoding_fallback:"فایل با UTF-8 کدگذاری نشده بود.",
+      no_trips:"هیچ سفری در خروجی نیست.",no_device_data:"اطلاعات خودرو یا دستگاه در خروجی نیست.",
+      correction_rows:"ردیف‌های اصلاح‌شده. نسخه‌ی قدیمی حساب نمی‌شود.",manual_rows:"سفرهایی که بعداً دستی در Back-Office اضافه شده‌اند.",
+      manual_payments:"پرداخت‌هایی که بعداً دستی اضافه شده‌اند.",unknown_setting:"وضعیت ناشناخته‌ی دستگاه.",unknown_gv:"نوع تراکنش ناشناخته.",
+      unknown_payment_type:"روش پرداخت ناشناخته.",unknown_shift_event:"رویداد شیفت ناشناخته.",time_order:"زمان پایان قبل از شروع است.",
+      fare_sum:"کرایه + اضافه‌بها با جمع کل برابر نیست.",tax_split:"تفکیک ۱۹٪ / ۷٪ / ۰٪ با جمع کل برابر نیست.",
+      vat_sum:"مبلغ مالیات با ناخالص و خالص جور نیست.",vat_rate:"خالص با نرخ مالیات جور نیست.",
+      reduced_rate_distance:"نرخ ۷٪ برای بیش از ۵۰ کیلومتر: بررسی کنید سفر داخل شهر مانده یا نه (§ 12 Abs. 2 Nr. 10 UStG).",
+      negative_revenue:"درآمد منفی.",payment_mismatch:"پرداخت‌ها با کرایه جور نیستند.",foreign_currency:"پرداخت با ارز خارجی.",
+      gap_trip:"شماره‌ی سفرها جاافتادگی دارد: ممکن است داده‌ای گم شده باشد.",gap_shift:"شماره‌ی شیفت‌ها جاافتادگی دارد: ممکن است داده‌ای گم شده باشد.",
+      tse_error:"TSE خطا گزارش داده است.",no_tse_transactions:"هیچ تراکنش TSE در خروجی نیست.",version:"نسخه‌ی DSFinV-TW نسخه‌ی 1.1 نیست.",
+      other_company:"Steuernummer داخل خروجی مال کسب‌وکار دیگری است."},
+    err:{zip_required:"لطفاً خروجی تاکسی‌متر را به‌صورت فایل ZIP آپلود کنید.",zip_invalid:"فایل ZIP خراب است.",zip_empty:"داخل فایل ZIP هیچ فایل CSV نیست.",
+      not_taximeter_export:"این سند خروجی تاکسی‌متر نیست.",already_recorded:"این سند قبلاً ثبت نهایی شده است.",
+      timeout:"خواندن بیش از حد طول کشید. دوباره امتحان کنید.",generic:"خواندن ناموفق بود: "}
+  },
+  e:{twnotimported:"قبل از ثبت نهایی، داده‌های تاکسی‌متر باید با موفقیت خوانده شوند."}
+},
+ar: {
+  tw_h_month:"عدّاد التاكسي: ملخص شهري", tw_month_hint:"الصادرات المسجّلة فقط. أرقام مبدئية للمراجعة مع المستشار الضريبي.",
+  tw: {
+    h_import:"بيانات عدّاد التاكسي (DSFinV-TW)", status:{ok:"سليم",warnings:"مع ملاحظات",failed:"فشل"},
+    period:"الفترة: ", ordn:"رقم المركبة: ", trips:"الرحلات", shifts:"المناوبات", drivers:"السائقون", km:"كم مع ركاب",
+    brutto:"الإجمالي", netto:"الصافي", ust:"الضريبة", zero:"0٪ / معفى", sum:"المجموع", payments:"طرق الدفع: ",
+    tip_an:"بقشيش الموظفين (ليس إيراداً): ", no_findings:"لم تُكتشف مشكلات.",
+    disclaimer:"فحص تلقائي بقواعد ثابتة. راجع الملاحظات مع المستشار الضريبي. يبقى الملف الأصلي دون تغيير في الأرشيف.",
+    b_import:"قراءة بيانات العدّاد", b_reimport:"إعادة القراءة", m_importing:"جارٍ القراءة …",
+    m_imported:"تمت قراءة بيانات العدّاد. راجع نتائج الفحص عند المستند ثم اختر «تسجيل نهائي».",
+    m_failed:"فشلت القراءة. التفاصيل معروضة عند المستند.",
+    need_import:"يجب قراءة بيانات العدّاد بنجاح قبل التسجيل النهائي.",
+    cols:["الشهر","الرحلات","19٪ صافٍ","19٪ ضريبة","7٪ صافٍ","7٪ ضريبة","0٪","الإجمالي"],
+    f:{missing_required_file:"الملف الإلزامي Fahrten.csv مفقود.",missing_file:"ملف مفقود في التصدير.",missing_index:"ملف index.xml مفقود، افتُرض التنسيق القياسي.",
+      column_count:"عدد أعمدة أحد الأسطر غير صحيح.",parse_error:"تعذّرت قراءة قيمة.",encoding_fallback:"الملف ليس بترميز UTF-8.",
+      no_trips:"لا توجد رحلات في التصدير.",no_device_data:"لا توجد بيانات المركبة أو الجهاز في التصدير.",
+      correction_rows:"سجلات مصحّحة. لا تُحتسب النسخة القديمة.",manual_rows:"رحلات أُضيفت لاحقاً في المكتب الخلفي.",
+      manual_payments:"مدفوعات أُضيفت لاحقاً.",unknown_setting:"وضع تشغيل غير معروف.",unknown_gv:"نوع معاملة غير معروف.",
+      unknown_payment_type:"طريقة دفع غير معروفة.",unknown_shift_event:"حدث مناوبة غير معروف.",time_order:"وقت الانتهاء قبل البداية.",
+      fare_sum:"الأجرة + الإضافة لا تساوي المجموع.",tax_split:"توزيع 19٪ / 7٪ / 0٪ لا يساوي المجموع.",
+      vat_sum:"مبلغ الضريبة لا يطابق الإجمالي والصافي.",vat_rate:"الصافي لا يطابق نسبة الضريبة.",
+      reduced_rate_distance:"نسبة 7٪ لأكثر من 50 كم: تحقّق مما إذا بقيت الرحلة داخل البلدية (§ 12 Abs. 2 Nr. 10 UStG).",
+      negative_revenue:"إيراد سالب.",payment_mismatch:"المدفوعات لا تطابق الأجرة.",foreign_currency:"دفع بعملة أجنبية.",
+      gap_trip:"فجوة في ترقيم الرحلات: قد تكون هناك بيانات مفقودة.",gap_shift:"فجوة في ترقيم المناوبات: قد تكون هناك بيانات مفقودة.",
+      tse_error:"أبلغت وحدة TSE عن خطأ.",no_tse_transactions:"لا توجد معاملات TSE في التصدير.",version:"إصدار DSFinV-TW ليس 1.1.",
+      other_company:"الرقم الضريبي في التصدير يعود لنشاط آخر."},
+    err:{zip_required:"يرجى رفع تصدير العدّاد كملف ZIP.",zip_invalid:"ملف ZIP تالف.",zip_empty:"لا يحتوي ملف ZIP على ملفات CSV.",
+      not_taximeter_export:"هذا المستند ليس تصدير عدّاد.",already_recorded:"هذا المستند مسجّل نهائياً.",
+      timeout:"استغرقت القراءة وقتاً طويلاً. حاول مرة أخرى.",generic:"فشلت القراءة: "}
+  },
+  e:{twnotimported:"يجب قراءة بيانات العدّاد بنجاح قبل التسجيل النهائي."}
+}};
+for (const k of Object.keys(I18N_TW)){
+  const { e, tw, ...rest } = I18N_TW[k];
+  Object.assign(I18N[k], rest);
+  I18N[k].tw = { ...tw, pay: TW_PAY[k] };
+  Object.assign(I18N[k].e, e);
+}
+I18N.de.ai_step = "Inhalt auslesen (KI bzw. Taxameter-Daten)";
+I18N.en.ai_step = "Read contents (AI or taximeter data)";
+I18N.fa.ai_step = "خواندن محتوا (هوش مصنوعی یا داده‌ی تاکسی‌متر)";
+I18N.ar.ai_step = "قراءة المحتوى (ذكاء اصطناعي أو بيانات العدّاد)";
+for (const k of Object.keys(I18N)) I18N[k].steps[5] = I18N[k].ai_step;
+
+/* ---------- Übersetzungen: Steuerprofil ---------- */
+const I18N_PF = {
+de: {
+  pf_h:"Steuerprofil", pf_missing:"Noch kein Steuerprofil. Bitte einmal ausfüllen: Es steuert die Prüfungen und Auswertungen.",
+  pf_from:"Gilt ab", pf_vehicle:"Art des Betriebs", pf_klein:"Kleinunternehmer (§ 19 UStG)",
+  pf_klein_hint:"Kleinunternehmer weisen keine Umsatzsteuer aus. Seit 2025: Vorjahresumsatz höchstens 25.000 € und im laufenden Jahr höchstens 100.000 €. Bitte mit dem Steuerberater klären.",
+  pf_period:"Umsatzsteuer-Voranmeldung", pf_dfv:"Dauerfristverlängerung", pf_stb:"Ich arbeite mit einem Steuerberater", pf_stb_short:"Steuerberater",
+  pf_hint:"Nichts wird überschrieben: Jede Änderung wird als neue Fassung mit Datum gespeichert.",
+  pf_save:"Speichern", pf_edit:"Ändern", pf_valid:"Gültig ab ", pf_corrected:"korrigierte Fassung", pf_future:"Geplante Änderung ab ",
+  pf_history:"Verlauf", pf_saved:"Steuerprofil gespeichert.",
+  pf:{vehicle:{taxi:"Taxi",mietwagen:"Mietwagen",beides:"Taxi und Mietwagen"}, yes:"Ja", no:"Nein",
+    period:{monat:"monatlich",quartal:"vierteljährlich",jahr:"nur Jahreserklärung",keine:"keine"},
+    dfv_short:"Dauerfristverlängerung", klein_short:"Kleinunternehmer",
+    chk_klein_vat:"Steuerprofil Kleinunternehmer, aber der Taxameter weist Umsatzsteuer aus. Ausgewiesene Steuer wird trotzdem geschuldet (§ 14c UStG). Bitte mit dem Steuerberater klären.",
+    chk_mw_7:"Steuerprofil Mietwagen, aber Umsätze mit 7 %. Der ermäßigte Satz gilt grundsätzlich nur für Taxis. Bitte die Einstellung des Wegstreckenzählers prüfen."},
+  e:{pf_before:"„Gilt ab“ liegt vor dem Beginn der Tätigkeit.", pf_far:"„Gilt ab“ liegt zu weit in der Zukunft."}
+},
+en: {
+  pf_h:"Tax profile", pf_missing:"No tax profile yet. Please fill it in once: it controls the checks and reports.",
+  pf_from:"Valid from", pf_vehicle:"Type of business", pf_klein:"Small business (§ 19 UStG)",
+  pf_klein_hint:"Small businesses don’t charge VAT. Since 2025: prior-year turnover at most €25,000 and current-year turnover at most €100,000. Please check with your tax adviser.",
+  pf_period:"VAT return", pf_dfv:"Permanent deadline extension", pf_stb:"I work with a tax adviser", pf_stb_short:"Tax adviser",
+  pf_hint:"Nothing is overwritten: every change is saved as a new dated version.",
+  pf_save:"Save", pf_edit:"Change", pf_valid:"Valid from ", pf_corrected:"corrected version", pf_future:"Planned change from ",
+  pf_history:"History", pf_saved:"Tax profile saved.",
+  pf:{vehicle:{taxi:"Taxi",mietwagen:"Private hire (Mietwagen)",beides:"Taxi and private hire"}, yes:"Yes", no:"No",
+    period:{monat:"monthly",quartal:"quarterly",jahr:"annual return only",keine:"none"},
+    dfv_short:"deadline extension", klein_short:"small business",
+    chk_klein_vat:"Tax profile says small business, but the taximeter shows VAT. VAT shown on receipts is still owed (§ 14c UStG). Please check with your tax adviser.",
+    chk_mw_7:"Tax profile says private hire, but there is revenue at 7 %. The reduced rate generally applies to taxis only. Please check the meter setting."},
+  e:{pf_before:"“Valid from” is before the business start date.", pf_far:"“Valid from” is too far in the future."}
+},
+fa: {
+  pf_h:"پروفایل مالیاتی", pf_missing:"هنوز پروفایل مالیاتی ندارید. لطفاً یک بار پرش کنید؛ بررسی‌ها و گزارش‌ها بر اساس آن انجام می‌شوند.",
+  pf_from:"معتبر از", pf_vehicle:"نوع کسب‌وکار", pf_klein:"Kleinunternehmer (§ 19 UStG)",
+  pf_klein_hint:"Kleinunternehmer مالیات بر ارزش افزوده دریافت نمی‌کند. از ۲۰۲۵: درآمد سال قبل حداکثر ۲۵٬۰۰۰ یورو و سال جاری حداکثر ۱۰۰٬۰۰۰ یورو. لطفاً با Steuerberater هماهنگ کنید.",
+  pf_period:"اظهارنامه‌ی پیش‌پرداخت مالیات (USt-VA)", pf_dfv:"تمدید دائمی مهلت (Dauerfristverlängerung)", pf_stb:"با Steuerberater کار می‌کنم", pf_stb_short:"Steuerberater",
+  pf_hint:"چیزی پاک نمی‌شود: هر تغییر به‌صورت نسخه‌ی جدید با تاریخ ذخیره می‌شود.",
+  pf_save:"ذخیره", pf_edit:"تغییر", pf_valid:"معتبر از ", pf_corrected:"نسخه‌ی اصلاح‌شده", pf_future:"تغییر برنامه‌ریزی‌شده از ",
+  pf_history:"سابقه", pf_saved:"پروفایل مالیاتی ذخیره شد.",
+  pf:{vehicle:{taxi:"تاکسی",mietwagen:"Mietwagen (اوبر/بولت)",beides:"تاکسی و Mietwagen"}, yes:"بله", no:"خیر",
+    period:{monat:"ماهانه",quartal:"فصلی",jahr:"فقط اظهارنامه‌ی سالانه",keine:"ندارد"},
+    dfv_short:"تمدید مهلت", klein_short:"Kleinunternehmer",
+    chk_klein_vat:"پروفایل شما Kleinunternehmer است، ولی تاکسی‌متر مالیات نشان می‌دهد. مالیاتی که روی رسید آمده، به هر حال باید پرداخت شود (§ 14c UStG). لطفاً با Steuerberater بررسی کنید.",
+    chk_mw_7:"پروفایل شما Mietwagen است، ولی درآمد با نرخ ۷٪ ثبت شده. نرخ ۷٪ اصولاً فقط برای تاکسی است. تنظیم دستگاه را بررسی کنید."},
+  e:{pf_before:"تاریخ «معتبر از» قبل از شروع فعالیت است.", pf_far:"تاریخ «معتبر از» خیلی در آینده است."}
+},
+ar: {
+  pf_h:"الملف الضريبي", pf_missing:"لا يوجد ملف ضريبي بعد. يرجى تعبئته مرة واحدة؛ فهو يحدد عمليات الفحص والتقارير.",
+  pf_from:"ساري من", pf_vehicle:"نوع النشاط", pf_klein:"مشروع صغير (§ 19 UStG)",
+  pf_klein_hint:"المشروع الصغير لا يحتسب ضريبة القيمة المضافة. منذ 2025: إيراد السنة السابقة 25.000 يورو كحد أقصى، والسنة الجارية 100.000 يورو كحد أقصى. يرجى المراجعة مع المستشار الضريبي.",
+  pf_period:"الإقرار المسبق لضريبة القيمة المضافة", pf_dfv:"تمديد دائم للمهلة", pf_stb:"أعمل مع مستشار ضريبي", pf_stb_short:"المستشار الضريبي",
+  pf_hint:"لا يُستبدل شيء: كل تغيير يُحفظ كنسخة جديدة مؤرخة.",
+  pf_save:"حفظ", pf_edit:"تغيير", pf_valid:"ساري من ", pf_corrected:"نسخة مصحّحة", pf_future:"تغيير مخطط من ",
+  pf_history:"السجل", pf_saved:"تم حفظ الملف الضريبي.",
+  pf:{vehicle:{taxi:"تاكسي",mietwagen:"سيارة أجرة خاصة (Mietwagen)",beides:"تاكسي وMietwagen"}, yes:"نعم", no:"لا",
+    period:{monat:"شهري",quartal:"ربع سنوي",jahr:"إقرار سنوي فقط",keine:"لا يوجد"},
+    dfv_short:"تمديد المهلة", klein_short:"مشروع صغير",
+    chk_klein_vat:"الملف الضريبي: مشروع صغير، لكن العدّاد يُظهر ضريبة. الضريبة المذكورة في الإيصال مستحقة على أي حال (§ 14c UStG). يرجى المراجعة مع المستشار الضريبي.",
+    chk_mw_7:"الملف الضريبي: Mietwagen، لكن توجد إيرادات بنسبة 7٪. النسبة المخفّضة تخص التاكسي من حيث المبدأ. يرجى فحص إعداد الجهاز."},
+  e:{pf_before:"تاريخ «ساري من» قبل بدء النشاط.", pf_far:"تاريخ «ساري من» بعيد جداً في المستقبل."}
+}};
+for (const k of Object.keys(I18N_PF)){
+  const { e, ...rest } = I18N_PF[k];
+  Object.assign(I18N[k], rest);
+  Object.assign(I18N[k].e, e);
+}
+
+Object.assign(I18N.de, { b_camera:"📷 Beleg fotografieren", or_file:"oder eine vorhandene Datei auswählen:" });
+Object.assign(I18N.en, { b_camera:"📷 Photograph receipt", or_file:"or choose an existing file:" });
+Object.assign(I18N.fa, { b_camera:"📷 عکس گرفتن از رسید", or_file:"یا یک فایل موجود را انتخاب کنید:" });
+Object.assign(I18N.ar, { b_camera:"📷 تصوير الإيصال", or_file:"أو اختر ملفاً موجوداً:" });
+Object.assign(I18N.de, { chk_label:"geprüft", need_checks:"Bitte alle gelb markierten Felder mit dem Beleg vergleichen und abhaken. Wer ein Feld ändert, hakt es automatisch ab." });
+Object.assign(I18N.en, { chk_label:"checked", need_checks:"Please compare every field marked yellow with the receipt and tick it. Editing a field ticks it automatically." });
+Object.assign(I18N.fa, { chk_label:"بررسی شد", need_checks:"لطفاً همه‌ی فیلدهای زرد را با رسید مقایسه و تیک بزنید. اگر فیلدی را تغییر دهید، خودبه‌خود تیک می‌خورد." });
+Object.assign(I18N.ar, { chk_label:"تمت المراجعة", need_checks:"يرجى مقارنة كل حقل مظلل بالأصفر بالإيصال ووضع علامة عليه. تعديل الحقل يضع العلامة تلقائياً." });
+Object.assign(I18N.de, { viewer_loading:"Wird geladen …", viewer_open:"In neuem Fenster öffnen", viewer_close:"Schließen", viewer_nopreview:"Für dieses Format gibt es keine Vorschau.", reverify_running:"Wird geprüft …", reverify_ok:"Erneut geprüft: Datei unverändert ✓ ", reverify_bad:"Prüfung fehlgeschlagen: " });
+Object.assign(I18N.en, { viewer_loading:"Loading …", viewer_open:"Open in new window", viewer_close:"Close", viewer_nopreview:"No preview for this format.", reverify_running:"Verifying …", reverify_ok:"Verified again: file unchanged ✓ ", reverify_bad:"Verification failed: " });
+Object.assign(I18N.fa, { viewer_loading:"در حال بارگذاری …", viewer_open:"باز کردن در پنجره‌ی جدید", viewer_close:"بستن", viewer_nopreview:"برای این فرمت پیش‌نمایش وجود ندارد.", reverify_running:"در حال بررسی …", reverify_ok:"دوباره بررسی شد: فایل دست‌نخورده است ✓ ", reverify_bad:"بررسی ناموفق بود: " });
+Object.assign(I18N.ar, { viewer_loading:"جارٍ التحميل …", viewer_open:"فتح في نافذة جديدة", viewer_close:"إغلاق", viewer_nopreview:"لا تتوفر معاينة لهذه الصيغة.", reverify_running:"جارٍ التحقق …", reverify_ok:"تم التحقق مجدداً: الملف لم يتغير ✓ ", reverify_bad:"فشل التحقق: " });
+Object.assign(I18N.de, { nav_docs:"Belege", nav_proto:"🔎 Prüfprotokoll", proto_h:"Prüfprotokoll",
+  proto_hint:"Nachweis für Steuerberater und Betriebsprüfung: Jede Datei hat einen digitalen Fingerabdruck (SHA-256). Stimmt er bei der Prüfung überein, ist die Datei seit dem Hochladen unverändert.",
+  b_verify_all:"Alle Belege prüfen", verify_progress:"Prüfe {n} von {m} …", verify_all_ok:"Alle {m} Belege geprüft: unverändert ✓",
+  verify_all_bad:"{k} von {m} Belegen mit Problem:", last_checks:"Letzte Prüfungen: ", never_checked:"Noch nie geprüft.",
+  n_checks:"{n} Prüfungen insgesamt", proto_empty:"Noch keine Belege." });
+Object.assign(I18N.en, { nav_docs:"Documents", nav_proto:"🔎 Audit log", proto_h:"Audit log",
+  proto_hint:"Evidence for your tax adviser and tax audits: every file has a digital fingerprint (SHA-256). If it matches when verified, the file is unchanged since upload.",
+  b_verify_all:"Verify all documents", verify_progress:"Verifying {n} of {m} …", verify_all_ok:"All {m} documents verified: unchanged ✓",
+  verify_all_bad:"{k} of {m} documents with a problem:", last_checks:"Recent checks: ", never_checked:"Never verified.",
+  n_checks:"{n} checks in total", proto_empty:"No documents yet." });
+Object.assign(I18N.fa, { nav_docs:"اسناد", nav_proto:"🔎 گزارش بررسی", proto_h:"گزارش بررسی (Prüfprotokoll)",
+  proto_hint:"مدرک برای Steuerberater و بازرسی مالیاتی: هر فایل یک اثر انگشت دیجیتال (SHA-256) دارد. اگر در بررسی یکسان باشد، یعنی فایل از زمان آپلود دست‌نخورده مانده است.",
+  b_verify_all:"بررسی همه‌ی اسناد", verify_progress:"بررسی {n} از {m} …", verify_all_ok:"همه‌ی {m} سند بررسی شد: دست‌نخورده ✓",
+  verify_all_bad:"{k} از {m} سند مشکل دارد:", last_checks:"آخرین بررسی‌ها: ", never_checked:"هنوز بررسی نشده.",
+  n_checks:"در مجموع {n} بررسی", proto_empty:"هنوز سندی نیست." });
+Object.assign(I18N.ar, { nav_docs:"المستندات", nav_proto:"🔎 سجل التحقق", proto_h:"سجل التحقق",
+  proto_hint:"دليل للمستشار الضريبي وللتدقيق الضريبي: لكل ملف بصمة رقمية (SHA-256). إذا تطابقت عند التحقق، فالملف لم يتغير منذ رفعه.",
+  b_verify_all:"التحقق من كل المستندات", verify_progress:"جارٍ التحقق {n} من {m} …", verify_all_ok:"تم التحقق من {m} مستند: لم تتغير ✓",
+  verify_all_bad:"{k} من {m} مستند بها مشكلة:", last_checks:"آخر عمليات التحقق: ", never_checked:"لم يتم التحقق بعد.",
+  n_checks:"{n} عملية تحقق إجمالاً", proto_empty:"لا توجد مستندات بعد." });
+
+Object.assign(I18N.de, { tap_zoom:"Zum Vergrößern antippen" });
+Object.assign(I18N.en, { tap_zoom:"Tap to enlarge" });
+Object.assign(I18N.fa, { tap_zoom:"برای بزرگ‌نمایی لمس کنید" });
+Object.assign(I18N.ar, { tap_zoom:"المس للتكبير" });
+/* Belegart: betrieblich / privat / gemischt */
+const KIND_TXT = {
+  de:{ k_label:"Art des Belegs", k_business:"Betrieblich", k_private:"Privat", k_mixed:"Gemischt",
+       ai_private:"Die KI hält diesen Beleg für PRIVAT. Private Belege gehören nicht ins Archiv – am besten Entwurf löschen.",
+       ai_mixed:"Die KI hat betriebliche UND private Artikel gefunden. Nur der betriebliche Anteil zählt.",
+       tip_separate:"Tipp: Taxi-Einkäufe an der Kasse getrennt bezahlen – dann gibt es einen eigenen Beleg.",
+       b_del_private:"🗑 Privat – Entwurf löschen", del_private_confirm:"Diesen privaten Beleg jetzt löschen? Er wird nicht archiviert.",
+       del_reason:"Privat – kein Betriebsbeleg",
+       f_biz_gross:"Betrieblicher Anteil (brutto)", f_biz_vat:"davon Vorsteuer", biz_items:"Betriebliche Artikel laut KI: ",
+       e_mixed:"Bitte den betrieblichen Anteil eintragen (größer als 0 und höchstens der Gesamtbetrag).",
+       e_private_cat:"Bei „Privat“ muss die Kategorie „Privat“ sein.", e_mixed_cat:"Bei „Gemischt“ bitte eine betriebliche Kategorie wählen.",
+       sum_mixed:"Gemischt – betrieblicher Anteil: ",
+       warn:{ mixed_receipt:"Gemischter Beleg: nur der betriebliche Anteil zählt.", mixed_share_missing:"Betrieblicher Anteil fehlt.",
+              mixed_share_too_large:"Betrieblicher Anteil ist größer als der Gesamtbetrag.", mixed_vat_too_large:"Vorsteuer ist größer als der betriebliche Anteil." } },
+  en:{ k_label:"Type of receipt", k_business:"Business", k_private:"Private", k_mixed:"Mixed",
+       ai_private:"The AI thinks this receipt is PRIVATE. Private receipts don’t belong in the archive – best delete the draft.",
+       ai_mixed:"The AI found business AND private items. Only the business share counts.",
+       tip_separate:"Tip: pay for taxi items separately at the checkout – then you get a separate receipt.",
+       b_del_private:"🗑 Private – delete draft", del_private_confirm:"Delete this private receipt now? It will not be archived.",
+       del_reason:"Private – not a business receipt",
+       f_biz_gross:"Business share (gross)", f_biz_vat:"of which input VAT", biz_items:"Business items according to AI: ",
+       e_mixed:"Please enter the business share (more than 0 and at most the total).",
+       e_private_cat:"For “Private” the category must be “Private”.", e_mixed_cat:"For “Mixed” please choose a business category.",
+       sum_mixed:"Mixed – business share: ",
+       warn:{ mixed_receipt:"Mixed receipt: only the business share counts.", mixed_share_missing:"Business share missing.",
+              mixed_share_too_large:"Business share is larger than the total.", mixed_vat_too_large:"Input VAT is larger than the business share." } },
+  fa:{ k_label:"نوع رسید", k_business:"کاری", k_private:"شخصی", k_mixed:"مختلط",
+       ai_private:"هوش مصنوعی این رسید را شخصی تشخیص داده. رسید شخصی جای آرشیو نیست – بهتر است پیش‌نویس را پاک کنید.",
+       ai_mixed:"هوش مصنوعی هم اقلام کاری و هم شخصی پیدا کرده. فقط بخش کاری حساب می‌شود.",
+       tip_separate:"نکته: خرید تاکسی را سر صندوق جدا پرداخت کنید تا رسید جدا بگیرید.",
+       b_del_private:"🗑 شخصی است – پیش‌نویس را پاک کن", del_private_confirm:"این رسید شخصی الان پاک شود؟ در آرشیو نمی‌ماند.",
+       del_reason:"Privat – kein Betriebsbeleg",
+       f_biz_gross:"بخش کاری (ناخالص)", f_biz_vat:"مالیات پرداختی آن (Vorsteuer)", biz_items:"اقلام کاری طبق هوش مصنوعی: ",
+       e_mixed:"لطفاً بخش کاری را وارد کنید (بیشتر از صفر و حداکثر برابر مبلغ کل).",
+       e_private_cat:"برای «شخصی» دسته باید «شخصی» باشد.", e_mixed_cat:"برای «مختلط» یک دسته‌ی کاری انتخاب کنید.",
+       sum_mixed:"مختلط – بخش کاری: ",
+       warn:{ mixed_receipt:"رسید مختلط: فقط بخش کاری حساب می‌شود.", mixed_share_missing:"بخش کاری وارد نشده.",
+              mixed_share_too_large:"بخش کاری از مبلغ کل بیشتر است.", mixed_vat_too_large:"مالیات از بخش کاری بیشتر است." } },
+  ar:{ k_label:"نوع الإيصال", k_business:"للعمل", k_private:"خاص", k_mixed:"مختلط",
+       ai_private:"يرى الذكاء الاصطناعي أن هذا الإيصال خاص. الإيصالات الخاصة لا تُحفظ في الأرشيف – الأفضل حذف المسودة.",
+       ai_mixed:"وجد الذكاء الاصطناعي مواد للعمل ومواد خاصة. يُحتسب جزء العمل فقط.",
+       tip_separate:"نصيحة: ادفع مشتريات التاكسي بشكل منفصل عند الصندوق لتحصل على إيصال مستقل.",
+       b_del_private:"🗑 خاص – احذف المسودة", del_private_confirm:"حذف هذا الإيصال الخاص الآن؟ لن يُحفظ في الأرشيف.",
+       del_reason:"Privat – kein Betriebsbeleg",
+       f_biz_gross:"جزء العمل (إجمالي)", f_biz_vat:"منه ضريبة المدخلات", biz_items:"مواد العمل حسب الذكاء الاصطناعي: ",
+       e_mixed:"يرجى إدخال جزء العمل (أكبر من صفر وبحد أقصى المبلغ الإجمالي).",
+       e_private_cat:"عند «خاص» يجب أن تكون الفئة «خاص».", e_mixed_cat:"عند «مختلط» يرجى اختيار فئة عمل.",
+       sum_mixed:"مختلط – جزء العمل: ",
+       warn:{ mixed_receipt:"إيصال مختلط: يُحتسب جزء العمل فقط.", mixed_share_missing:"جزء العمل مفقود.",
+              mixed_share_too_large:"جزء العمل أكبر من المبلغ الإجمالي.", mixed_vat_too_large:"الضريبة أكبر من جزء العمل." } }
+};
+/* Taxameter: neue Prüfhinweise (Korrektur ohne Bemerkung, Leerkilometer, Tarif) */
+const TW_NEW = {
+  de:{ correction_no_reason:"Korrektur oder Nacherfassung ohne Bemerkung: Grund im Taxameter/Back-Office nachtragen lassen.",
+       empty_km_high:"Sehr viele Leerkilometer in einer Schicht (über 70 %): Schicht prüfen.",
+       fare_below_tariff:"Fahrpreis liegt unter dem hinterlegten Taxitarif.",
+       fare_far_above_tariff:"Fahrpreis liegt weit über dem Tarif ohne Wartezeit – bitte prüfen.",
+       fare_contract_skipped:"Festpreis- oder Vertragsfahrten wurden nicht gegen den Tarif geprüft.",
+       no_tariff:"Kein Taxitarif hinterlegt – im Dashboard unter „Taxitarif“ eintragen, dann werden Fahrpreise geprüft.",
+       no_tariff_for_date:"Für dieses Datum ist kein Taxitarif hinterlegt.",
+       fare_per_km_low:"Sehr niedriger Preis pro Kilometer (unter 1 €/km).", fare_per_km_high:"Sehr hoher Preis pro Kilometer (über 10 €/km).",
+       empty_share:"Leerkilometer" },
+  en:{ correction_no_reason:"Correction or manual entry without a remark: have the reason added in the taximeter/back office.",
+       empty_km_high:"Very many empty kilometres in a shift (over 70 %): check the shift.",
+       fare_below_tariff:"Fare is below the stored taxi tariff.", fare_far_above_tariff:"Fare is far above the tariff without waiting time – please check.",
+       fare_contract_skipped:"Fixed-price or contract trips were not checked against the tariff.",
+       no_tariff:"No taxi tariff stored – enter it in the dashboard under “Taxitarif” to check fares.",
+       no_tariff_for_date:"No taxi tariff stored for this date.",
+       fare_per_km_low:"Very low price per kilometre (below €1/km).", fare_per_km_high:"Very high price per kilometre (above €10/km).",
+       empty_share:"Empty kilometres" },
+  fa:{ correction_no_reason:"اصلاح یا ثبت دستی بدون توضیح: دلیل را در تاکسی‌متر/بک‌آفیس اضافه کنید.",
+       empty_km_high:"کیلومتر خالی خیلی زیاد در یک شیفت (بیش از ۷۰٪): شیفت را بررسی کنید.",
+       fare_below_tariff:"کرایه کمتر از تعرفه‌ی ثبت‌شده است.", fare_far_above_tariff:"کرایه خیلی بیشتر از تعرفه بدون زمان انتظار است – بررسی کنید.",
+       fare_contract_skipped:"سفرهای قیمت ثابت یا قراردادی با تعرفه مقایسه نشدند.",
+       no_tariff:"تعرفه‌ی تاکسی ثبت نشده – در داشبورد بخش «Taxitarif» واردش کنید تا کرایه‌ها کنترل شوند.",
+       no_tariff_for_date:"برای این تاریخ تعرفه‌ای ثبت نشده.",
+       fare_per_km_low:"قیمت هر کیلومتر خیلی کم است (کمتر از ۱ یورو).", fare_per_km_high:"قیمت هر کیلومتر خیلی زیاد است (بیش از ۱۰ یورو).",
+       empty_share:"کیلومتر خالی" },
+  ar:{ correction_no_reason:"تصحيح أو إدخال يدوي بدون ملاحظة: يجب إضافة السبب في العداد/المكتب الخلفي.",
+       empty_km_high:"كيلومترات فارغة كثيرة جداً في مناوبة (أكثر من 70 %): راجع المناوبة.",
+       fare_below_tariff:"الأجرة أقل من التعرفة المسجلة.", fare_far_above_tariff:"الأجرة أعلى بكثير من التعرفة بدون وقت انتظار – يرجى المراجعة.",
+       fare_contract_skipped:"لم تُقارن رحلات السعر الثابت أو العقود بالتعرفة.",
+       no_tariff:"لا توجد تعرفة تاكسي مسجلة – أدخلها في لوحة التحكم تحت «Taxitarif» لفحص الأجور.",
+       no_tariff_for_date:"لا توجد تعرفة مسجلة لهذا التاريخ.",
+       fare_per_km_low:"سعر منخفض جداً لكل كيلومتر (أقل من 1 €/كم).", fare_per_km_high:"سعر مرتفع جداً لكل كيلومتر (أكثر من 10 €/كم).",
+       empty_share:"الكيلومترات الفارغة" } };
+const TW_NOT_EXPORT = {
+  de:"Fahrten.csv fehlt – diese ZIP-Datei ist wahrscheinlich kein Taxameter-Export (DSFinV-TW). Bitte den Entwurf löschen.",
+  en:"Fahrten.csv is missing – this ZIP file is probably not a taximeter export (DSFinV-TW). Please delete the draft.",
+  fa:"فایل Fahrten.csv نیست – این فایل ZIP احتمالاً خروجی تاکسی‌متر (DSFinV-TW) نیست. لطفاً پیش‌نویس را پاک کنید.",
+  ar:"ملف Fahrten.csv مفقود – ملف ZIP هذا على الأرجح ليس تصدير عداد (DSFinV-TW). يرجى حذف المسودة." };
+for (const [l, txt] of Object.entries(TW_NOT_EXPORT)) if (I18N[l] && I18N[l].tw) I18N[l].tw.f.missing_required_file = txt;
+for (const [l, o] of Object.entries(TW_NEW)){ if (!I18N[l] || !I18N[l].tw) continue; const { empty_share, ...f } = o; Object.assign(I18N[l].tw.f, f); I18N[l].tw.empty_share = empty_share; }
+const EINV_ERR = { de:"Diese XML-Datei ist keine E-Rechnung (XRechnung / ZUGFeRD).", en:"This XML file is not an e-invoice (XRechnung / ZUGFeRD).",
+  fa:"این فایل XML فاکتور الکترونیکی (XRechnung / ZUGFeRD) نیست.", ar:"ملف XML هذا ليس فاتورة إلكترونية (XRechnung / ZUGFeRD)." };
+for (const [l, txt] of Object.entries(EINV_ERR)) if (I18N[l] && I18N[l].ai_err) I18N[l].ai_err.not_e_invoice = txt;
+for (const [l, o] of Object.entries(KIND_TXT)){ if (!I18N[l]) continue; const { warn, ...rest } = o; Object.assign(I18N[l], rest); Object.assign(I18N[l].warn, warn); }
+
+let lang = "de";
+try { const s = localStorage.getItem("lang"); if (I18N[s]) lang = s; } catch(_) {}
+const T = () => I18N[lang];
+
+function applyLang(){
+  const t = T();
+  document.documentElement.lang = lang;
+  document.documentElement.dir = (lang === "fa" || lang === "ar") ? "rtl" : "ltr";
+  document.title = t.title;
+  document.querySelectorAll("[data-i18n]").forEach(el => { el.textContent = t[el.dataset.i18n]; });
+  document.querySelectorAll("[data-i18n-ph]").forEach(el => { el.placeholder = t[el.dataset.i18nPh]; });
+  { const ls = document.getElementById("langSel"); if (ls) ls.value = lang; }
+  ["authMsg","bizMsg","upMsg"].forEach(id => hide($(id)));
+  drawSteps(stepState);
+  if (currentSession) $("whoami").textContent = t.signed_in + currentSession.user.email;
+  if (typeof drawWelcome === "function") drawWelcome();
+  try { if (signupMode){ $("btnSignup").textContent = t.b_signup_go; drawAuthTexts(); } } catch(_) {}
+  try { drawSubscription(); } catch(_) {}
+  drawBizLine();
+  if (business && !$("profForm").classList.contains("hidden")){ fillProfileSelects(); syncProfileForm(); }
+  renderProfile();
+  loadDocs();
+  if (view === "proto") loadProtocol();
+}
+document.getElementById("langSel").onchange = (e) => {
+  lang = e.target.value;
+  try { localStorage.setItem("lang", lang); } catch(_) {}
+  applyLang();
+};
+
+/* ===================== Supabase ===================== */
+const SUPABASE_URL = "https://wagdzdzwyypqyvdtxmkd.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndhZ2R6ZHp3eXlwcXl2ZHR4bWtkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTE3OTc5NDksImV4cCI6MjEwNzM3Mzk0OX0.FvNeti0Mc-QNPwyKBh-8b_2KOzdY1VRPe9qMusqr3j8";
+// Schutz vor Robotern (Cloudflare Turnstile). Leer = ausgeschaltet. Den geheimen Schlüssel trägt man in Supabase ein
+// (Authentication → Bot and Abuse Protection); dann prüft Supabase jeden Anmelde-/Registrierungsversuch selbst.
+const TURNSTILE_SITE_KEY = "";
+// Online-Zahlung (Stripe) noch nicht angeschlossen: „Jetzt abonnieren“ wird erst dann angezeigt.
+const PAYMENTS_ENABLED = false;
+// Pilotphase: Registrierung nur auf Einladung. „Konto erstellen“ ist versteckt, stattdessen „Zugang anfragen“.
+const SIGNUP_OPEN = false;
+const INVITE_FLOW = /type=invite/.test(location.hash);
+// Link aus „Passwort vergessen“: vor dem Start merken (Supabase liest die Adresse sofort aus)
+const RECOVERY_FLOW = /type=recovery/.test(location.hash) || /type=recovery/.test(location.search);
+const BUCKET = "belege-original";
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+const $ = (id) => document.getElementById(id);
+let business = null, currentSession = null, stepState = null;
+
+const MIME_BY_EXT = {jpg:"image/jpeg",jpeg:"image/jpeg",png:"image/png",heic:"image/heic",webp:"image/webp",
+  pdf:"application/pdf",xml:"application/xml",csv:"text/csv",zip:"application/zip"};
+const ALLOWED = new Set(["image/jpeg","image/png","image/heic","image/webp","application/pdf","application/xml","text/xml","text/csv","application/zip"]);
+
+function show(el, text, kind){ el.textContent = text; el.className = "msg show " + kind; }
+function hide(el){ el.className = "msg"; }
+
+function translateError(err){
+  const e = T().e;
+  const m = (err && (err.message || err.error_description || err.error)) || String(err);
+  if (/Anonymous sign-ins/i.test(m)) return T().m_need_creds;
+  if (/Invalid login credentials/i.test(m)) return e.login;
+  if (/Email not confirmed/i.test(m)) return e.unconfirmed;
+  if (/already registered/i.test(m)) return e.exists;
+  if (/Password should be/i.test(m)) return e.weakpw;
+  if (/businesses_one_per_owner/i.test(m)) return e.bizexists;
+  if (/not confirmed by user/i.test(m)) return e.notconfirmed;
+  if (/subscription inactive/i.test(m)) return (SUB_TXT[lang] || SUB_TXT.de).ro;
+  if (/taximeter export not imported/i.test(m)) return e.twnotimported;
+  if (/valid_from before business start/i.test(m)) return e.pf_before;
+  if (/valid_from too far/i.test(m)) return e.pf_far;
+  if (/vat rate must be/i.test(m)) return e.rate;
+  if (/vat line does not add up/i.test(m)) return e.line;
+  if (/sum of vat lines/i.test(m)) return e.sum;
+  if (/are required/i.test(m)) return e.required;
+  if (/extraction is locked/i.test(m)) return e.recorded;
+  if (/^timeout$/.test(m)) return e.timeout;
+  if (/not verified by server/i.test(m)) return e.notver;
+  if (/already recorded|recorded documents cannot/i.test(m)) return e.recorded;
+  if (/steuernummer/i.test(m)) return e.stnr;
+  if (/duplicate|23505|unique/i.test(m)) return e.dup;
+  if (/size mismatch/i.test(m)) return e.size;
+  if (/mime type mismatch/i.test(m)) return e.mime;
+  if (/future/i.test(m)) return e.future;
+  if (/exceeded|too large|Payload too large/i.test(m)) return e.big;
+  if (/mime|invalid_mime_type/i.test(m)) return e.type;
+  if (/^timeout$/.test(m)) return e.timeout;
+  if (/Failed to fetch|NetworkError/i.test(m)) return e.net;
+  return e.generic + m;
+}
+
+function withTimeout(promise, ms = 30000){
+  return Promise.race([promise, new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), ms))]);
+}
+async function sha256Hex(file){
+  const d = await crypto.subtle.digest("SHA-256", await file.arrayBuffer());
+  return Array.from(new Uint8Array(d)).map(b => b.toString(16).padStart(2,"0")).join("");
+}
+
+/* ---------- Auth ---------- */
+function readCreds(msg){
+  const email = $("email").value.trim(), password = $("password").value;
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email) || password.length < 8){ show(msg, T().m_need_creds, "bad"); return null; }
+  return { email, password };
+}
+$("btnLogin").onclick = async () => {
+  const msg = $("authMsg"); hide(msg);
+  const c = readCreds(msg); if (!c) return;
+  if (captchaMissing(msg)) return;
+  const { error } = await sb.auth.signInWithPassword({ ...c, options: captchaOpts() }); captchaReset();
+  if (error && /Email not confirmed/i.test(error.message || "")){
+    await sb.auth.resend({ type: "signup", email: c.email, options: captchaOpts() }).catch(() => {}); captchaReset();
+    return showOtp(c.email);
+  }
+  if (error) show(msg, translateError(error), "bad");
+};
+let signupMode = false;
+function drawAuthTexts(){
+  const t = T(), h = document.querySelector("#authBox h2"), p = document.querySelector("#authBox .hint");
+  if (h) h.textContent = signupMode ? t.b_signup : t.h_login;
+  if (p) p.textContent = signupMode ? t.su_hint : t.login_hint;
+}
+function setSignupMode(on){
+  signupMode = on;
+  $("signupFields").classList.toggle("hidden", !on); $("signupPw2").classList.toggle("hidden", !on);
+  $("btnLogin").classList.toggle("hidden", on); $("btnBackLogin").classList.toggle("hidden", !on);
+  $("btnSignup").textContent = on ? T().b_signup_go : T().b_signup;
+  $("btnSignup").classList.toggle("secondary", !on);
+  drawAuthTexts();
+  $("password").autocomplete = on ? "new-password" : "current-password";
+  hide($("authMsg"));
+  if (on){ try { const r = localStorage.getItem("ref"); if (r && !$("suRef").value) $("suRef").value = r; } catch(_) {} $("suFirst").focus(); }
+}
+$("btnBackLogin").onclick = () => {
+  ["resetBox","btnRsSend"].forEach(id => $(id).classList.add("hidden"));
+  $("password").classList.remove("hidden"); const pl = document.querySelector('label[for="password"]'); if (pl) pl.classList.remove("hidden");
+  $("btnForgot").classList.remove("hidden"); if (SIGNUP_OPEN) $("btnSignup").classList.remove("hidden");
+  const lh = document.querySelector("#authBox > p.hint"); if (lh) lh.classList.remove("hidden");
+  setSignupMode(false);
+};
+$("btnSignup").onclick = async () => {
+  const msg = $("authMsg"); hide(msg);
+  if (!signupMode) return setSignupMode(true);
+  const first = $("suFirst").value.trim(), last = $("suLast").value.trim(), company = $("suCompany").value.trim();
+  if (!first || !last || !company) return show(msg, T().su_missing, "bad");
+  const c = readCreds(msg); if (!c) return;
+  if ($("password2").value !== c.password) return show(msg, T().su_pw_mismatch, "bad");
+  const btn = $("btnSignup"); btn.disabled = true;
+  const ref = $("suRef").value.trim().toUpperCase();
+  if (captchaMissing(msg)) return;
+  const { data, error } = await sb.auth.signUp({ ...c, options: { ...captchaOpts(), data: { first_name: first, last_name: last, company_name: company, ...(ref ? { ref } : {}) } } });
+  btn.disabled = false; captchaReset();
+  if (error) return show(msg, translateError(error), "bad");
+  if (!data.session) showOtp(c.email);
+};
+// E-Mail bestätigen mit Code (Konto wird erst danach nutzbar)
+let otpEmail = null;
+function showOtp(email){
+  otpEmail = email;
+  ["signupFields","signupPw2"].forEach(id => $(id).classList.add("hidden"));
+  ["btnSignup","btnLogin","btnBackLogin"].forEach(id => $(id).classList.add("hidden"));
+  $("password").classList.add("hidden"); const pl = document.querySelector('label[for="password"]'); if (pl) pl.classList.add("hidden");
+  $("email").readOnly = true;
+  $("otpHint").textContent = RT().otp_sent(email); $("otpBox").classList.remove("hidden"); $("otpCode").focus();
+  hide($("authMsg"));
+}
+$("btnOtp").onclick = async () => {
+  const msg = $("authMsg"); hide(msg);
+  const token = $("otpCode").value.replace(/\s/g, "");
+  if (!/^\d{6,8}$/.test(token)) return show(msg, RT().otp_bad, "bad");
+  $("btnOtp").disabled = true;
+  const { error } = await sb.auth.verifyOtp({ email: otpEmail, token, type: "signup" });
+  $("btnOtp").disabled = false;
+  if (error) return show(msg, RT().otp_bad, "bad");
+  // Erfolg: onAuthStateChange meldet die neue Sitzung
+};
+$("btnOtpResend").onclick = async () => {
+  const msg = $("authMsg"); hide(msg);
+  if (captchaMissing(msg)) return;
+  const { error } = await sb.auth.resend({ type: "signup", email: otpEmail, options: captchaOpts() }); captchaReset();
+  if (error) return show(msg, translateError(error), "bad");
+  show(msg, RT().otp_resent, "info");
+};
+$("btnLogout").onclick = () => { try { localStorage.removeItem("lang"); } catch(_) {} sb.auth.signOut(); };
+$("btnBuero").onclick = () => { location.href = "dashboard.html"; };
+$("btnHelp").onclick = () => openHelp();
+$("btnInvite").onclick = () => openInvite();
+
+sb.auth.onAuthStateChange((evt, session) => {
+  if (RECOVERY_FLOW && session && !window.__recDone && evt !== "SIGNED_OUT"){
+    window.__recDone = true; recoveryLink = true;
+    setTimeout(() => { $("authBox").classList.remove("hidden"); $("app").classList.add("hidden"); resetMode(2);
+      try { history.replaceState(null, "", location.pathname); } catch(_) {} }, 0);
+    return;
+  }
+  if (INVITE_FLOW && session && !window.__invDone){
+    window.__invDone = true; recoveryLink = true;
+    setTimeout(() => { $("authBox").classList.remove("hidden"); $("app").classList.add("hidden"); resetMode(2);
+      $("rsHint").textContent = (REQ_TXT[lang] || REQ_TXT.de)[1];
+      try { history.replaceState(null, "", location.pathname); } catch(_) {} }, 0);
+    return;
+  }
+  if (evt === "PASSWORD_RECOVERY" && !window.__recDone){
+    window.__recDone = true; recoveryLink = true; setTimeout(() => { $("authBox").classList.remove("hidden"); $("app").classList.add("hidden"); resetMode(2); }, 0); return; }
+  setTimeout(() => render(session), 0);
+});
+
+async function render(session){
+  currentSession = session;
+  if (!session){
+    // Anmeldeseite immer zuerst auf Deutsch; danach wählt jeder selbst
+    business = null;
+    if (lang !== "de"){ lang = "de"; try { localStorage.removeItem("lang"); } catch(_) {} applyLang(); }
+    $("authBox").classList.remove("hidden"); $("app").classList.add("hidden"); business = null;
+    $("btnLogout").classList.add("hidden"); drawWelcome(); return; }
+  $("authBox").classList.add("hidden"); $("app").classList.remove("hidden");
+  $("btnLogout").classList.remove("hidden"); drawWelcome();
+  $("whoami").textContent = T().signed_in + session.user.email;
+  await loadBusiness();
+}
+
+/* ---------- Business ---------- */
+function drawBizLine(){
+  if (!business) return;
+  $("bizLine").textContent = business.legal_name + " | " + T().start + business.business_start +
+    (business.steuernummer ? " | Steuernummer: " + business.steuernummer : "");
+}
+async function loadBusiness(){
+  const { data, error } = await sb.from("businesses").select("*").order("created_at").limit(1);
+  if (error) return show($("bizMsg"), translateError(error), "bad");
+  business = data[0] || null;
+  $("bizCreate").classList.toggle("hidden", !!business);
+  if (!business && !$("bizName").value){ const cn = currentSession?.user?.user_metadata?.company_name; if (cn) $("bizName").value = cn; }
+  ["bizInfo","uploadBox","listBox","profBox","viewNav"].forEach(id => $(id).classList.toggle("hidden", !business));
+  if (business){ drawBizLine(); drawWelcome(); await loadSubscription(); await loadProfile(); await loadDocs(); }
+}
+$("btnBiz").onclick = async () => {
+  const msg = $("bizMsg"); hide(msg);
+  const name = $("bizName").value.trim(), start = $("bizStart").value, stnr = $("bizStnr").value.trim();
+  if (!name || !start) return show(msg, T().m_biz_required, "bad");
+  const btn = $("btnBiz"); if (btn.disabled) return; btn.disabled = true;
+  try {
+    const { error } = await sb.from("businesses").insert({ legal_name: name, business_start: start, steuernummer: stnr || null });
+    if (error) return show(msg, translateError(error), "bad");
+    await loadBusiness();
+  } finally { btn.disabled = false; }
+};
+
+/* ---------- Upload ---------- */
+function drawSteps(state){
+  const ol = $("steps");
+  if (!state){ ol.innerHTML = ""; return; }
+  ol.innerHTML = "";
+  T().steps.forEach((n,i) => { const li = document.createElement("li"); li.className = state[i] || ""; li.textContent = n; ol.append(li); });
+}
+
+/* ---------- Kamera: Foto aufnehmen und direkt hochladen ---------- */
+$("btnCamera").onclick = () => $("camera").click();
+$("camera").onchange = () => {
+  const f = $("camera").files[0];
+  if (!f) return;
+  try { const dt = new DataTransfer(); dt.items.add(f); $("file").files = dt.files; }
+  catch (_) { $("camera").value = ""; return; }
+  $("source").value = "scan";
+  $("camera").value = "";
+  $("btnUpload").click();
+};
+
+$("btnUpload").onclick = async () => {
+  const msg = $("upMsg"); hide(msg);
+  const file = $("file").files[0];
+  if (!file) return show(msg, T().m_no_file, "bad");
+  if (file.size > 20 * 1024 * 1024) return show(msg, T().e.big, "bad");
+  const ext = (file.name.split(".").pop() || "").toLowerCase();
+  const mime = MIME_BY_EXT[ext] || file.type || "";
+  if (!ALLOWED.has(mime)) return show(msg, T().e.type, "bad");
+
+  const btn = $("btnUpload"); if (btn.disabled) return; btn.disabled = true;
+  // .xml ist immer eine E-Rechnung (XRechnung / ZUGFeRD-XML)
+  if (ext === "xml" && $("source").value === "scan") $("source").value = "e_invoice_xml";
+  // .zip ist der Taxameter-Export (DSFinV-TW)
+  if (ext === "zip" && $("source").value === "scan") $("source").value = "taxameter_export";
+  const srcVal = $("source").value;
+  stepState = []; drawSteps(stepState);
+  let step = 0;
+  const mark = (i, s) => { stepState[i] = s; drawSteps(stepState); };
+  try {
+    mark(0,"run");
+    const hash = await sha256Hex(file);
+    mark(0,"done"); step = 1; mark(1,"run");
+
+    const { data: dup, error: dupErr } = await withTimeout(sb.from("documents").select("id").eq("business_id", business.id).eq("sha256", hash).limit(1));
+    if (dupErr) throw dupErr;
+    if (dup.length) throw new Error("duplicate");
+    mark(1,"done"); step = 2; mark(2,"run");
+
+    const path = business.id + "/" + crypto.randomUUID() + (ext ? "." + ext : "");
+    const { error: upErr } = await withTimeout(sb.storage.from(BUCKET).upload(path, file, { contentType: mime, upsert: false }), 120000);
+    if (upErr) throw upErr;
+    mark(2,"done"); step = 3; mark(3,"run");
+
+    const { data: doc, error: insErr } = await sb.from("documents").insert({
+      business_id: business.id, storage_path: path, file_name: file.name, mime_type: mime,
+      file_size_bytes: file.size, sha256: hash, source: srcVal, document_date: $("docDate").value || null
+    }).select("id").single();
+    if (insErr){ await sb.storage.from(BUCKET).remove([path]); throw insErr; }
+    mark(3,"done"); step = 4; mark(4,"run");
+
+    const res = await verify(doc.id);
+    mark(4, res === "verified" ? "done" : "fail");
+    const wantAI = res === "verified" && canUseAI({ source: srcVal, mime_type: mime });
+    const wantTw = res === "verified" && srcVal === "taxameter_export" && /zip/i.test(mime);
+    if (res !== "verified") show(msg, T().m_verify_fail + res, "bad");
+    else if (wantTw){
+      step = 5; mark(5, "run");
+      try {
+        const r = await callTwImport(doc.id);
+        mark(5, r.status === "failed" ? "fail" : "done");
+        show(msg, r.status === "failed" ? T().tw.m_failed : T().tw.m_imported, r.status === "ok" ? "ok" : r.status === "failed" ? "bad" : "info");
+      } catch (e) { mark(5, "fail"); show(msg, twErrorText(e), "bad"); }
+    }
+    else if (!wantAI) show(msg, T().m_ok, "ok");
+    else {
+      step = 5; mark(5, "run");
+      try { await callExtract({ id: doc.id, mime_type: mime, storage_path: path }); mark(5, "done"); show(msg, T().m_ok_ai, "ok"); }
+      catch (e) { mark(5, "fail"); show(msg, aiErrorText(e), "bad"); }
+    }
+    $("file").value = ""; $("docDate").value = "";
+  } catch (e) {
+    mark(step, "fail");
+    show(msg, translateError(e), "bad");
+  } finally {
+    btn.disabled = false;
+    await loadDocs();
+  }
+};
+
+async function verify(id){
+  const { data, error } = await sb.functions.invoke("verify-document", { body: { document_id: id } });
+  if (error) return T().m_fn_down + " (" + (error.message || "error") + ")";
+  return data.status;
+}
+
+/* ---------- Deletion log ---------- */
+async function loadDeletions(){
+  if (!business) return;
+  const t = T();
+  const { data, error } = await sb.from("document_draft_deletions")
+    .select("file_name,sha256,reason,deleted_at").eq("business_id", business.id).order("deleted_at", { ascending: false });
+  const sec = $("delBox"), box = $("dels");
+  if (error || !data.length || view !== "proto"){ sec.classList.add("hidden"); return; }
+  sec.classList.remove("hidden"); box.innerHTML = "";
+  for (const r of data){
+    const el = document.createElement("div"); el.className = "doc";
+    const name = document.createElement("div"); name.className = "name"; name.textContent = r.file_name;
+    const meta = document.createElement("div"); meta.className = "meta";
+    meta.textContent = t.deleted_on + new Date(r.deleted_at).toLocaleString(t.locale) + (r.reason ? " | " + t.reason_l + r.reason : "");
+    const hash = document.createElement("div"); hash.className = "hash ltr"; hash.textContent = "SHA-256: " + r.sha256;
+    el.append(name, meta, hash); box.append(el);
+  }
+}
+
+/* ---------- Helpers ---------- */
+function mk(tag, cls, text){ const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
+function parseCents(s){
+  let v = String(s ?? "").replace(/[\s€]/g, "");
+  if (!v) return null;
+  const neg = v.startsWith("-"); if (neg) v = v.slice(1);
+  if (v.includes(",") && v.includes(".")) v = v.replace(/\./g, "").replace(",", ".");
+  else if (v.includes(",")) v = v.replace(",", ".");
+  else if (/\.\d{3}$/.test(v)) v = v.replace(/\./g, "");
+  if (!/^\d{1,9}(\.\d{1,2})?$/.test(v)) return null;
+  const [a, b = ""] = v.split(".");
+  const c = Number(a) * 100 + Number((b + "00").slice(0, 2));
+  return neg ? -c : c;
+}
+function centsToInput(c){
+  if (c == null) return "";
+  const neg = c < 0; c = Math.abs(c);
+  return (neg ? "-" : "") + Math.floor(c / 100) + "," + String(c % 100).padStart(2, "0");
+}
+const fmtEUR = (c) => c == null ? "–" : new Intl.NumberFormat("de-DE", { style: "currency", currency: "EUR" }).format(c / 100);
+const fmtDate = (iso) => iso ? new Date(iso + "T12:00:00").toLocaleDateString(T().locale) : "";
+
+/* ---------- KI auslesen ---------- */
+async function shrinkImage(blob, max = 2000){
+  const bmp = await createImageBitmap(blob);
+  const s = Math.min(1, max / Math.max(bmp.width, bmp.height));
+  const c = document.createElement("canvas");
+  c.width = Math.round(bmp.width * s); c.height = Math.round(bmp.height * s);
+  c.getContext("2d").drawImage(bmp, 0, 0, c.width, c.height);
+  const out = await new Promise(res => c.toBlob(res, "image/jpeg", 0.85));
+  if (!out) throw new Error("encode");
+  return await new Promise((res, rej) => {
+    const fr = new FileReader();
+    fr.onload = () => res(String(fr.result).split(",")[1]);
+    fr.onerror = rej; fr.readAsDataURL(out);
+  });
+}
+async function callExtract(d){
+  const body = { document_id: d.id };
+  if (d.mime_type.startsWith("image/")){
+    const { data: blob, error } = await withTimeout(sb.storage.from(BUCKET).download(d.storage_path), 60000);
+    if (error) throw error;
+    try { body.image_base64 = await shrinkImage(blob); body.image_media_type = "image/jpeg"; }
+    catch (_) { throw { aiCode: "unsupported_format" }; }
+  }
+  let res;
+  try { res = await withTimeout(sb.functions.invoke("extract-document", { body }), 120000); }
+  catch (e) { throw (e && e.message === "timeout") ? { aiCode: "ai_timeout" } : e; }
+  if (res.error){
+    let code = null;
+    try { code = (await res.error.context.json()).error; } catch (_) {}
+    throw { aiCode: code || "generic", detail: res.error.message };
+  }
+  return res.data.extraction;
+}
+function aiErrorText(e){
+  const t = T().ai_err;
+  if (e && e.aiCode) return t[e.aiCode] || (t.generic + e.aiCode);
+  return translateError(e);
+}
+const isXml = (m) => m === "application/xml" || m === "text/xml";
+const needsData = (d) => d.source === "scan" || d.source === "e_invoice_xml";
+const canUseAI = (d) => (d.source === "scan" && (d.mime_type.startsWith("image/") || d.mime_type === "application/pdf"))
+  || (d.source === "e_invoice_xml" && (isXml(d.mime_type) || d.mime_type === "application/pdf"));
+
+/* ---------- Steuerprofil ---------- */
+let profiles = [];
+const todayIso = () => { const d = new Date(); return new Date(d.getTime() - d.getTimezoneOffset() * 6e4).toISOString().slice(0, 10); };
+function profileAt(iso){ let p = null; for (const v of profiles) if (v.valid_from <= iso) p = v; return p; }
+async function loadProfile(){
+  if (!business) return;
+  const { data, error } = await sb.from("tax_profile_versions").select("*").eq("business_id", business.id).order("valid_from");
+  profiles = error ? [] : (data || []);
+  renderProfile();
+}
+function fillSelect(sel, map, keys){
+  const v = sel.value; sel.innerHTML = "";
+  for (const k of keys){ const o = mk("option", null, map[k]); o.value = k; sel.append(o); }
+  if (keys.includes(v)) sel.value = v;
+}
+function fillProfileSelects(){
+  const P = T().pf;
+  fillSelect($("pfVehicle"), P.vehicle, ["taxi", "mietwagen", "beides"]);
+  fillSelect($("pfKlein"), { no: P.no, yes: P.yes }, ["no", "yes"]);
+  fillSelect($("pfPeriod"), P.period, ["monat", "quartal", "jahr"]);
+}
+function syncProfileForm(){
+  const klein = $("pfKlein").value === "yes";
+  $("pfPeriodRow").classList.toggle("hidden", klein);
+  const dfvOk = !klein && ["monat", "quartal"].includes($("pfPeriod").value);
+  $("pfDfvRow").classList.toggle("hidden", !dfvOk);
+  if (!dfvOk) $("pfDfv").checked = false;
+}
+function openProfileForm(cur){
+  fillProfileSelects();
+  $("pfFrom").value = cur ? todayIso() : (business.business_start || todayIso());
+  $("pfVehicle").value = cur?.vehicle_type || "taxi";
+  $("pfKlein").value = cur?.kleinunternehmer ? "yes" : "no";
+  $("pfPeriod").value = cur && cur.ust_period !== "keine" ? cur.ust_period : "monat";
+  $("pfDfv").checked = !!cur?.dauerfristverlaengerung;
+  $("pfStb").checked = cur ? !!cur.has_steuerberater : true;
+  $("pfCancel").classList.toggle("hidden", !profiles.length);
+  hide($("pfMsg"));
+  syncProfileForm();
+  $("profForm").classList.remove("hidden");
+}
+function profileLine(v){
+  const P = T().pf;
+  return P.vehicle[v.vehicle_type] + ", " + (v.kleinunternehmer ? P.klein_short : P.period[v.ust_period] + (v.dauerfristverlaengerung ? " + " + P.dfv_short : ""));
+}
+function renderProfile(){
+  if (!business) return;
+  const t = T(), P = t.pf, box = $("profView");
+  $("profBox").classList.remove("hidden");
+  box.innerHTML = "";
+  const today = todayIso();
+  const cur = profileAt(today);
+  if (!profiles.length){ box.append(mk("div", "warn", t.pf_missing)); openProfileForm(null); return; }
+  if (cur){
+    const sum = mk("div", "summary");
+    sum.append(mk("div", "sline", profileLine(cur)));
+    sum.append(mk("div", "meta", t.pf_stb_short + ": " + (cur.has_steuerberater ? P.yes : P.no)));
+    sum.append(mk("div", "meta", t.pf_valid + fmtDate(cur.valid_from) + (cur.version > 1 ? " | " + t.pf_corrected : "")));
+    box.append(sum);
+  }
+  for (const f of profiles.filter((v) => v.valid_from > today)) box.append(mk("div", "meta", t.pf_future + fmtDate(f.valid_from) + ": " + profileLine(f)));
+  if (profiles.length > 1){
+    const d = mk("details", "fnd info"); d.append(mk("summary", null, t.pf_history));
+    for (const v of [...profiles].reverse()) d.append(mk("div", "ex", fmtDate(v.valid_from) + ": " + profileLine(v)));
+    box.append(d);
+  }
+  if ($("profForm").classList.contains("hidden")){
+    const row = mk("div", "actions"); const b = mk("button", "secondary", t.pf_edit);
+    b.onclick = () => { openProfileForm(cur || profiles[profiles.length - 1]); b.remove(); };
+    row.append(b); box.append(row);
+  }
+}
+$("pfKlein").onchange = syncProfileForm;
+$("pfPeriod").onchange = syncProfileForm;
+$("pfCancel").onclick = () => { $("profForm").classList.add("hidden"); renderProfile(); };
+$("pfSave").onclick = async () => {
+  const msg = $("pfMsg"); hide(msg);
+  const btn = $("pfSave"); if (btn.disabled) return;
+  const klein = $("pfKlein").value === "yes";
+  if (!$("pfFrom").value) return show(msg, T().e.required, "bad");
+  btn.disabled = true;
+  const { error } = await sb.from("tax_profiles").insert({
+    business_id: business.id, valid_from: $("pfFrom").value, version: 0,
+    vehicle_type: $("pfVehicle").value, kleinunternehmer: klein,
+    ust_period: klein ? "keine" : $("pfPeriod").value,
+    dauerfristverlaengerung: !klein && $("pfDfv").checked, has_steuerberater: $("pfStb").checked });
+  btn.disabled = false;
+  if (error) return show(msg, translateError(error), "bad");
+  $("profForm").classList.add("hidden");
+  await loadProfile();
+  show($("upMsg"), T().pf_saved, "ok");
+  loadDocs();
+};
+function profileFindings(imp){
+  const out = [], X = imp.totals || {}, P = T().pf;
+  const pr = imp.period_from ? profileAt(imp.period_from) : null;
+  if (!pr || imp.status === "failed") return out;
+  if (pr.kleinunternehmer && (X.ust_cents ?? 0) > 0) out.push(P.chk_klein_vat);
+  if (pr.vehicle_type === "mietwagen" && (X.erm_brutto_cents ?? 0) > 0) out.push(P.chk_mw_7);
+  return out;
+}
+
+/* ---------- Taxameter ---------- */
+const isTwDoc = (d) => d.source === "taxameter_export" && (/zip/i.test(d.mime_type) || /\.zip$/i.test(d.file_name || ""));
+async function callTwImport(docId){
+  let res;
+  try { res = await withTimeout(sb.functions.invoke("tw-import", { body: { document_id: docId } }), 180000); }
+  catch (e) { throw (e && e.message === "timeout") ? { twCode: "timeout" } : e; }
+  if (res.error){
+    let code = null;
+    try { code = (await res.error.context.json()).error; } catch (_) {}
+    throw { twCode: code || "generic" };
+  }
+  return res.data;
+}
+function twErrorText(e){
+  const t = T().tw;
+  if (e && e.twCode) return t.err[e.twCode] || (t.err.generic + e.twCode);
+  return translateError(e);
+}
+function twCard(imp){
+  const t = T(), tw = t.tw, X = imp.totals || {}, c = imp.counts || {};
+  const z = (v) => v ?? 0;
+  const w = mk("div", "twcard");
+  const head = mk("div", "rhead");
+  head.append(mk("strong", null, tw.h_import), mk("span", "chip tw-" + imp.status, tw.status[imp.status]));
+  w.append(head);
+  if (imp.period_from) w.append(mk("div", "meta", tw.period + fmtDate(imp.period_from) + " – " + fmtDate(imp.period_to) +
+    (imp.ordn_nrs?.length ? " | " + tw.ordn + imp.ordn_nrs.join(", ") : "")));
+  if (imp.status !== "failed"){
+    w.append(mk("div", "meta", `${tw.trips}: ${z(c.trips)} | ${tw.shifts}: ${z(c.shifts)} | ${tw.drivers}: ${z(c.drivers)} | ${tw.km}: ${X.besetzt_km ?? "–"}`
+      + (X.leer_anteil != null ? ` | ${tw.empty_share}: ${X.leer_anteil} % (${X.leer_km} / ${X.gesamt_km} km)` : "")));
+    const tbl = mk("table", "twtable");
+    const tr = (cells, head) => { const r = mk("tr"); cells.forEach((v, i) => r.append(mk(head || i === 0 ? "th" : "td", i ? "num" : null, v))); tbl.append(r); };
+    tr(["", tw.brutto, tw.netto, tw.ust], true);
+    tr(["19 %", fmtEUR(X.allgm_brutto_cents), fmtEUR(X.allgm_netto_cents), fmtEUR(z(X.allgm_brutto_cents) - z(X.allgm_netto_cents))]);
+    tr(["7 %", fmtEUR(X.erm_brutto_cents), fmtEUR(X.erm_netto_cents), fmtEUR(z(X.erm_brutto_cents) - z(X.erm_netto_cents))]);
+    tr([tw.zero, fmtEUR(X.null_cents), fmtEUR(X.null_cents), fmtEUR(0)]);
+    tr([tw.sum, fmtEUR(z(X.allgm_brutto_cents) + z(X.erm_brutto_cents) + z(X.null_cents)),
+        fmtEUR(z(X.allgm_netto_cents) + z(X.erm_netto_cents) + z(X.null_cents)), fmtEUR(X.ust_cents)]);
+    const sc = mk("div", "tscroll"); sc.append(tbl); w.append(sc);
+    const pays = Object.entries(X.by_payment || {}).map(([k, v]) => (tw.pay[k] || k) + " " + fmtEUR(v)).join(" | ");
+    if (pays) w.append(mk("div", "meta", tw.payments + pays));
+    if (X.trinkgeld_an_cents) w.append(mk("div", "meta", tw.tip_an + fmtEUR(X.trinkgeld_an_cents)));
+  }
+  const fl = imp.findings || [];
+  if (!fl.length) w.append(mk("div", "fnd ok", tw.no_findings));
+  for (const f of fl){
+    const d = mk("details", "fnd " + f.severity);
+    d.append(mk("summary", null, (tw.f[f.code] || f.code) + (f.count > 1 ? " (" + f.count + "×)" : "")));
+    if (f.examples?.length) d.append(mk("div", "ex ltr", f.examples.join(" · ")));
+    w.append(d);
+  }
+  for (const text of profileFindings(imp)){
+    const d = mk("details", "fnd warn"); d.append(mk("summary", null, text)); w.append(d);
+  }
+  w.append(mk("p", "hint", tw.disclaimer));
+  return w;
+}
+async function loadTwMonths(){
+  if (!business) return;
+  const t = T();
+  const { data, error } = await sb.from("tw_monthly_revenue").select("*").eq("business_id", business.id).order("month", { ascending: false });
+  const sec = $("twBox"), box = $("twMonths");
+  if (error || !data || !data.length){ sec.classList.add("hidden"); return; }
+  sec.classList.remove("hidden"); box.innerHTML = "";
+  const tbl = mk("table", "twtable");
+  const hr = mk("tr"); t.tw.cols.forEach((c, i) => hr.append(mk("th", i ? "num" : null, c))); tbl.append(hr);
+  const z = (v) => Number(v ?? 0);
+  for (const m of data){
+    const r = mk("tr");
+    const month = new Date(m.month + "T12:00:00").toLocaleDateString(t.locale, { month: "long", year: "numeric" });
+    [month, String(m.trips ?? 0), fmtEUR(z(m.allgm_netto_cents)), fmtEUR(z(m.allgm_brutto_cents) - z(m.allgm_netto_cents)),
+     fmtEUR(z(m.erm_netto_cents)), fmtEUR(z(m.erm_brutto_cents) - z(m.erm_netto_cents)), fmtEUR(z(m.null_cents)),
+     fmtEUR(z(m.allgm_brutto_cents) + z(m.erm_brutto_cents) + z(m.null_cents))]
+      .forEach((v, i) => r.append(mk(i ? "td" : "th", i ? "num" : null, v)));
+    tbl.append(r);
+  }
+  box.append(tbl);
+}
+
+/* ---------- Beleg ansehen (im Fenster, ohne Popup – iPhone blockiert Popups nach Wartezeit) ---------- */
+const verifyNote = {};
+/* ---------- E-Rechnung (XRechnung UBL / CII): Lesefassung ----------
+   Liest die wichtigsten Angaben aus der XML-Datei. Nur zum Lesen – maßgeblich bleibt die XML-Datei. */
+const EINV = (() => {
+  const ch = (el, n) => { if (!el) return null; for (const c of el.children) if (c.localName === n) return c; return null; };
+  const chs = (el, n) => el ? [...el.children].filter(c => c.localName === n) : [];
+  const at = (el, ...path) => { for (const n of path) el = ch(el, n); return el; };
+  const tx = (el) => (el && el.textContent || "").trim();
+  const num = (el) => { const v = Number(tx(el)); return el && Number.isFinite(v) ? v : null; };
+  const cii = (s) => /^\d{8}$/.test(s) ? `${s.slice(0,4)}-${s.slice(4,6)}-${s.slice(6,8)}` : s;
+  const PAY = { "10":"Bar", "30":"Überweisung", "31":"Überweisung", "42":"Überweisung", "48":"Karte", "54":"Kreditkarte", "55":"Debitkarte",
+    "58":"SEPA-Überweisung", "59":"SEPA-Lastschrift" };
+  function parse(xmlText){
+    const doc = new DOMParser().parseFromString(xmlText, "application/xml");
+    if (doc.getElementsByTagName("parsererror").length) throw new Error("XML nicht lesbar");
+    const r = doc.documentElement, root = r.localName;
+    const o = { format: "", kind: "Rechnung", lines: [], taxes: [], seller: {}, buyer: {}, notes: [] };
+    if (root === "Invoice" || root === "CreditNote"){
+      o.format = "XRechnung (UBL)"; if (root === "CreditNote") o.kind = "Gutschrift";
+      o.id = tx(ch(r, "ID")); o.date = tx(ch(r, "IssueDate")); o.due = tx(ch(r, "DueDate"));
+      o.currency = tx(ch(r, "DocumentCurrencyCode")) || "EUR";
+      chs(r, "Note").forEach(n => o.notes.push(tx(n)));
+      const party = (p) => { const q = at(p, "Party"); return {
+        name: tx(at(q, "PartyLegalEntity", "RegistrationName")) || tx(at(q, "PartyName", "Name")),
+        street: tx(at(q, "PostalAddress", "StreetName")), zip: tx(at(q, "PostalAddress", "PostalZone")), city: tx(at(q, "PostalAddress", "CityName")),
+        vat: tx(at(q, "PartyTaxScheme", "CompanyID")) }; };
+      o.seller = party(ch(r, "AccountingSupplierParty")); o.buyer = party(ch(r, "AccountingCustomerParty"));
+      const pm = ch(r, "PaymentMeans"); o.payCode = tx(ch(pm, "PaymentMeansCode")); o.iban = tx(at(pm, "PayeeFinancialAccount", "ID"));
+      o.terms = tx(at(r, "PaymentTerms", "Note"));
+      for (const tt of chs(r, "TaxTotal")) for (const s of chs(tt, "TaxSubtotal"))
+        o.taxes.push({ rate: num(at(s, "TaxCategory", "Percent")), basis: num(ch(s, "TaxableAmount")), tax: num(ch(s, "TaxAmount")) });
+      const m = ch(r, "LegalMonetaryTotal");
+      o.net = num(ch(m, "TaxExclusiveAmount")); o.gross = num(ch(m, "TaxInclusiveAmount")); o.payable = num(ch(m, "PayableAmount"));
+      for (const l of [...chs(r, "InvoiceLine"), ...chs(r, "CreditNoteLine")])
+        o.lines.push({ name: tx(at(l, "Item", "Name")), qty: num(ch(l, "InvoicedQuantity")) ?? num(ch(l, "CreditedQuantity")),
+          price: num(at(l, "Price", "PriceAmount")), rate: num(at(l, "Item", "ClassifiedTaxCategory", "Percent")), net: num(ch(l, "LineExtensionAmount")) });
+    } else if (root === "CrossIndustryInvoice"){
+      o.format = "XRechnung / ZUGFeRD (CII)";
+      const ed = ch(r, "ExchangedDocument"); o.id = tx(ch(ed, "ID")); o.date = cii(tx(at(ed, "IssueDateTime", "DateTimeString")));
+      if (tx(ch(ed, "TypeCode")) === "381") o.kind = "Gutschrift";
+      chs(ed, "IncludedNote").forEach(n => o.notes.push(tx(ch(n, "Content"))));
+      const t = ch(r, "SupplyChainTradeTransaction"), ag = ch(t, "ApplicableHeaderTradeAgreement"), st = ch(t, "ApplicableHeaderTradeSettlement");
+      const party = (p) => ({ name: tx(ch(p, "Name")), street: tx(at(p, "PostalTradeAddress", "LineOne")),
+        zip: tx(at(p, "PostalTradeAddress", "PostcodeCode")), city: tx(at(p, "PostalTradeAddress", "CityName")),
+        vat: chs(p, "SpecifiedTaxRegistration").map(x => tx(ch(x, "ID"))).filter(Boolean).join(", ") });
+      o.seller = party(ch(ag, "SellerTradeParty")); o.buyer = party(ch(ag, "BuyerTradeParty"));
+      o.currency = tx(ch(st, "InvoiceCurrencyCode")) || "EUR";
+      const pm = ch(st, "SpecifiedTradeSettlementPaymentMeans"); o.payCode = tx(ch(pm, "TypeCode"));
+      o.iban = tx(at(pm, "PayeePartyCreditorFinancialAccount", "IBANID"));
+      const pt = ch(st, "SpecifiedTradePaymentTerms"); o.terms = tx(ch(pt, "Description"));
+      o.due = cii(tx(at(pt, "DueDateDateTime", "DateTimeString")));
+      for (const x of chs(st, "ApplicableTradeTax")) o.taxes.push({ rate: num(ch(x, "RateApplicablePercent")), basis: num(ch(x, "BasisAmount")), tax: num(ch(x, "CalculatedAmount")) });
+      const m = ch(st, "SpecifiedTradeSettlementHeaderMonetarySummation");
+      o.net = num(ch(m, "TaxBasisTotalAmount")); o.gross = num(ch(m, "GrandTotalAmount")); o.payable = num(ch(m, "DuePayableAmount"));
+      for (const l of chs(t, "IncludedSupplyChainTradeLineItem")){
+        const ls = ch(l, "SpecifiedLineTradeSettlement");
+        o.lines.push({ name: tx(at(l, "SpecifiedTradeProduct", "Name")), qty: num(at(l, "SpecifiedLineTradeDelivery", "BilledQuantity")),
+          price: num(at(l, "SpecifiedLineTradeAgreement", "NetPriceProductTradePrice", "ChargeAmount")),
+          rate: num(at(ls, "ApplicableTradeTax", "RateApplicablePercent")), net: num(at(ls, "SpecifiedTradeSettlementLineMonetarySummation", "LineTotalAmount")) });
+      }
+    } else throw new Error("Keine E-Rechnung");
+    o.payText = o.payCode ? (PAY[o.payCode] || ("Code " + o.payCode)) : "";
+    return o;
+  }
+  const e = (s) => String(s ?? "").replace(/[&<>"']/g, c => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" })[c]);
+  const money = (v, cur) => v == null ? "–" : v.toLocaleString("de-DE", { style: "currency", currency: cur || "EUR" });
+  const dmy = (s) => /^\d{4}-\d{2}-\d{2}$/.test(s || "") ? `${s.slice(8,10)}.${s.slice(5,7)}.${s.slice(0,4)}` : (s || "");
+  const addr = (p) => [p.name, p.street, [p.zip, p.city].filter(Boolean).join(" "), p.vat ? "USt-ID: " + p.vat : ""].filter(Boolean).map(e).join("<br>");
+  function html(o){
+    const c = o.currency;
+    return `<div class="einv" dir="ltr" lang="de">
+      <div class="einv-note">Lesefassung der ${e(o.format)} – maßgeblich ist die XML-Datei</div>
+      <div class="einv-head"><div><b>${e(o.kind)} ${e(o.id)}</b><br>Datum: ${e(dmy(o.date))}${o.due ? `<br>Fällig: ${e(dmy(o.due))}` : ""}</div>
+        <div class="einv-total">${money(o.payable ?? o.gross, c)}</div></div>
+      <div class="einv-parties"><div><small>Verkäufer</small><br>${addr(o.seller)}</div><div><small>Käufer</small><br>${addr(o.buyer)}</div></div>
+      <div class="einv-scroll"><table class="einv-t"><thead><tr><th>Position</th><th class="r">Menge</th><th class="r">Preis netto</th><th class="r">USt</th><th class="r">Netto</th></tr></thead>
+      <tbody>${o.lines.map(l => `<tr><td>${e(l.name)}</td><td class="r">${l.qty ?? ""}</td><td class="r">${money(l.price, c)}</td><td class="r">${l.rate ?? ""} %</td><td class="r">${money(l.net, c)}</td></tr>`).join("")}</tbody></table></div>
+      <table class="einv-t einv-sum"><tbody>
+        ${o.taxes.map(x => `<tr><td>USt ${x.rate ?? "?"} % auf ${money(x.basis, c)}</td><td class="r">${money(x.tax, c)}</td></tr>`).join("")}
+        <tr><td>Summe netto</td><td class="r">${money(o.net, c)}</td></tr>
+        <tr class="b"><td>Gesamtbetrag</td><td class="r">${money(o.gross, c)}</td></tr>
+      </tbody></table>
+      ${o.payText || o.iban || o.terms ? `<p class="einv-pay">Zahlung: ${e([o.payText, o.iban ? "IBAN " + o.iban : "", o.terms].filter(Boolean).join(" · "))}</p>` : ""}
+      ${o.notes.filter(Boolean).length ? `<p class="einv-pay">${o.notes.filter(Boolean).map(e).join("<br>")}</p>` : ""}
+    </div>`;
+  }
+  const CSS = `.einv{font-size:14px;display:grid;gap:12px;background:#fff;color:#1d2125;border:1px solid #c9ced3;border-radius:10px;padding:14px;text-align:left}
+.einv-note{font-size:12px;background:#fff4d6;color:#6b4e00;border-radius:6px;padding:6px 8px}
+.einv-head{display:flex;justify-content:space-between;gap:10px;align-items:start}.einv-total{font-size:20px;font-weight:700}
+.einv-parties{display:grid;grid-template-columns:1fr 1fr;gap:12px}.einv-parties small{color:#5f6770}
+.einv-scroll{overflow-x:auto}.einv-t{width:100%;border-collapse:collapse}.einv-t th,.einv-t td{padding:5px 6px;border-bottom:1px solid #e3e6e9;text-align:left}
+.einv-t th{font-size:12px;color:#5f6770;font-weight:600}.einv-t .r{text-align:right;white-space:nowrap}.einv-sum{max-width:360px;margin-left:auto}.einv-sum tr.b td{font-weight:700;border-bottom:2px solid #1d2125}
+.einv-pay{margin:0;font-size:13px;color:#3b4148}@media (max-width:520px){.einv-parties{grid-template-columns:1fr}}`;
+  return { parse, html, CSS, money, dmy };
+})();
+
+(() => { const st = document.createElement("style"); st.textContent = EINV.CSS; document.head.append(st); })();
+const SHOW_INV = { de:"📄 Rechnung anzeigen", en:"📄 Show invoice", fa:"📄 نمایش فاکتور", ar:"📄 عرض الفاتورة" };
+for (const [l, txt] of Object.entries(SHOW_INV)) if (I18N[l]) I18N[l].show_invoice = txt;
+
+/* ---------- Hinweise (Hilfe zur App – keine Steuerberatung) ---------- */
+const HELP = {
+  de: { title: "Hinweise", foot: "Diese Hinweise erklären die App. Für steuerliche Fragen wenden Sie sich bitte an Ihren Steuerberater.", s: [
+    ["Was kann ich hochladen?", ["Fotos von Quittungen – am besten mit „Beleg fotografieren“.", "Rechnungen als PDF, auch mehrseitig.",
+      "E-Rechnungen als XML (XRechnung / ZUGFeRD) – werden automatisch erkannt.", "Taxameter-Export als ZIP (DSFinV-TW) – wird automatisch erkannt.",
+      "CSV-Dateien (z. B. Bank) werden archiviert, aber noch nicht ausgelesen. Word und Excel sind nicht möglich.",
+      "Jeden Beleg einzeln hochladen – nicht mehrere Fotos in einer ZIP-Datei."]],
+    ["Gute Fotos", ["Gutes Licht, Beleg glatt hinlegen, alle vier Ecken im Bild.",
+      "iPhone-Fotos aus der Galerie (HEIC) können nicht gelesen werden: den Kamera-Knopf in der App nutzen oder am iPhone „Einstellungen → Kamera → Formate → Maximale Kompatibilität“ wählen.",
+      "Mehrseitige Papierrechnungen mit dem Handy als ein PDF scannen (Notizen bzw. Google Drive → Scannen)."]],
+    ["Private und gemischte Einkäufe", ["Nur betriebliche Belege hochladen.", "Im Supermarkt Taxi-Einkäufe an der Kasse getrennt bezahlen.",
+      "Hält die KI einen Beleg für privat: Entwurf löschen. Bei gemischten Belegen nur den betrieblichen Anteil bestätigen."]],
+    ["Die KI macht nur Vorschläge", ["Die KI liest jeden Beleg aus und schlägt Werte vor. Gelb markierte Felder sind unsicher.",
+      "Erst nach dem Prüfen und „Daten bestätigen“ kann der Beleg erfasst werden."]],
+    ["Entwurf, Erfassen, Storno", ["Neue Belege sind Entwürfe und können gelöscht werden.",
+      "Nach „Erfassen“ ist der Beleg gesperrt (GoBD, Aufbewahrung 10 Jahre).",
+      "Fehler danach: im Dashboard „Stornieren“. Der Beleg bleibt im Archiv, zählt aber nicht mehr."]],
+    ["Taxameter-Export", ["Die ZIP-Datei kommt aus der Taxameter-Software bzw. von der Zentrale (DSFinV-TW).",
+      "Die App prüft u. a. Lücken, Korrekturen ohne Bemerkung, Leerkilometer und Fahrpreise gegen den Tarif. Den Tarif im Dashboard unter „Taxitarif“ eintragen.",
+      "Gelbe Hinweise bitte mit dem Steuerberater oder der Zentrale klären.", "Trinkgeld: am besten immer im Taxameter erfassen. Bar-Trinkgeld außerhalb des Taxameters bitte mit dem Steuerberater klären – bei einer Prüfung kann das Finanzamt sonst einen Betrag schätzen."]],
+    ["E-Rechnung (XML)", ["Die XML-Datei ist das Original. „Rechnung anzeigen“ zeigt eine Lesefassung.",
+      "Rechnungen aus E-Mails als Datei hochladen – nicht ausdrucken und fotografieren."]],
+    ["Paket für den Steuerberater", ["Im Dashboard (am besten am Laptop) den Monat wählen und „Paket für Steuerberater“ drücken.",
+      "Das Paket bekommt eine feste Nummer und bleibt im Archiv. Die ZIP-Datei per E-Mail an die Kanzlei senden."]] ] },
+  en: { title: "Help", foot: "These notes explain the app. For tax questions, please ask your tax adviser.", s: [
+    ["What can I upload?", ["Photos of receipts – best with “Take photo”.", "Invoices as PDF, also several pages.",
+      "E-invoices as XML (XRechnung / ZUGFeRD) – recognised automatically.", "Taximeter export as ZIP (DSFinV-TW) – recognised automatically.",
+      "CSV files (e.g. bank) are archived but not read yet. Word and Excel are not possible.",
+      "Upload each receipt separately – not several photos in one ZIP file."]],
+    ["Good photos", ["Good light, receipt flat, all four corners in the picture.",
+      "iPhone photos from the gallery (HEIC) cannot be read: use the camera button in the app or set “Settings → Camera → Formats → Most Compatible” on the iPhone.",
+      "Scan multi-page paper invoices with the phone as one PDF (Notes or Google Drive → Scan)."]],
+    ["Private and mixed purchases", ["Upload business receipts only.", "At the supermarket, pay for taxi items separately at the checkout.",
+      "If the AI thinks a receipt is private: delete the draft. For mixed receipts confirm only the business share."]],
+    ["The AI only makes suggestions", ["The AI reads every receipt and suggests values. Yellow fields are uncertain.",
+      "Only after checking and “Confirm data” can the receipt be recorded."]],
+    ["Draft, record, cancel", ["New receipts are drafts and can be deleted.", "After “Record” the receipt is locked (GoBD, kept for 10 years).",
+      "Mistakes afterwards: “Cancel (Storno)” in the dashboard. The receipt stays archived but no longer counts."]],
+    ["Taximeter export", ["The ZIP file comes from the taximeter software or the dispatch centre (DSFinV-TW).",
+      "The app checks gaps, corrections without a remark, empty kilometres and fares against the tariff. Enter the tariff in the dashboard under “Taxitarif”.",
+      "Please clarify yellow notes with your tax adviser or the dispatch centre.", "Tips: best always record them in the taximeter. Please clarify cash tips outside the taximeter with your tax adviser – otherwise the tax office may estimate an amount in an audit."]],
+    ["E-invoice (XML)", ["The XML file is the original. “Show invoice” shows a readable version.",
+      "Upload invoices from e-mails as files – do not print and photograph them."]],
+    ["Package for the tax adviser", ["In the dashboard (best on a laptop) choose the month and press “Package for tax adviser”.",
+      "The package gets a fixed number and stays in the archive. Send the ZIP file to the adviser by e-mail."]] ] },
+  fa: { title: "راهنما", foot: "این راهنما فقط طرز کار برنامه را توضیح می‌دهد. برای سؤال‌های مالیاتی با Steuerberater خود صحبت کنید.", s: [
+    ["چه چیزی می‌توانم آپلود کنم؟", ["عکس رسید – بهتر است با دکمه‌ی «Beleg fotografieren».", "فاکتور PDF، حتی چندصفحه‌ای.",
+      "فاکتور الکترونیکی XML (XRechnung / ZUGFeRD) – خودکار تشخیص داده می‌شود.", "خروجی تاکسی‌متر به شکل ZIP (DSFinV-TW) – خودکار تشخیص داده می‌شود.",
+      "فایل CSV (مثلاً بانک) بایگانی می‌شود ولی هنوز خوانده نمی‌شود. Word و Excel پذیرفته نمی‌شوند.",
+      "هر رسید را جدا آپلود کنید – نه چند عکس در یک فایل ZIP."]],
+    ["عکس خوب", ["نور کافی، رسید صاف، هر چهار گوشه داخل کادر.",
+      "عکس‌های آیفون از گالری (HEIC) خوانده نمی‌شوند: از دکمه‌ی دوربین داخل برنامه استفاده کنید یا در آیفون «Einstellungen → Kamera → Formate → Maximale Kompatibilität» را انتخاب کنید.",
+      "فاکتورهای کاغذی چندصفحه‌ای را با گوشی به شکل یک PDF اسکن کنید (Notizen یا Google Drive → Scannen)."]],
+    ["خرید شخصی و مختلط", ["فقط رسیدهای کاری را آپلود کنید.", "در سوپرمارکت، خرید تاکسی را سر صندوق جدا پرداخت کنید.",
+      "اگر هوش مصنوعی رسید را شخصی تشخیص داد: پیش‌نویس را پاک کنید. در رسید مختلط فقط بخش کاری را تأیید کنید."]],
+    ["هوش مصنوعی فقط پیشنهاد می‌دهد", ["هوش مصنوعی هر رسید را می‌خواند و مقدارها را پیشنهاد می‌دهد. فیلدهای زرد نامطمئن‌اند.",
+      "فقط بعد از بررسی و زدن «Daten bestätigen» رسید قابل ثبت است."]],
+    ["پیش‌نویس، ثبت، Storno", ["رسیدهای جدید پیش‌نویس‌اند و قابل حذف.", "بعد از «Erfassen» رسید قفل می‌شود (GoBD، نگهداری ۱۰ ساله).",
+      "اشتباه بعد از ثبت: در داشبورد «Stornieren». رسید در آرشیو می‌ماند ولی دیگر حساب نمی‌شود."]],
+    ["خروجی تاکسی‌متر", ["فایل ZIP را از نرم‌افزار تاکسی‌متر یا از Zentrale می‌گیرید (DSFinV-TW).",
+      "برنامه از جمله جاافتادگی‌ها، اصلاح بدون توضیح، کیلومتر خالی و کرایه در مقایسه با تعرفه را کنترل می‌کند. تعرفه را در داشبورد بخش «Taxitarif» وارد کنید.",
+      "هشدارهای زرد را با Steuerberater یا Zentrale روشن کنید.", "انعام: بهتر است همیشه در تاکسی‌متر ثبت شود. انعام نقدی خارج از تاکسی‌متر را با Steuerberater روشن کنید – وگرنه در بازرسی ممکن است Finanzamt مبلغی را تخمین بزند."]],
+    ["فاکتور الکترونیکی (XML)", ["فایل XML سند اصلی است. «Rechnung anzeigen» نسخه‌ی خوانا را نشان می‌دهد.",
+      "فاکتورهای ایمیلی را به شکل فایل آپلود کنید – پرینت نگیرید و عکس نگیرید."]],
+    ["بسته برای Steuerberater", ["در داشبورد (بهتر روی لپ‌تاپ) ماه را انتخاب کنید و «Paket für Steuerberater» را بزنید.",
+      "بسته شماره‌ی ثابت می‌گیرد و در آرشیو می‌ماند. فایل ZIP را با ایمیل برای دفتر مشاور بفرستید."]] ] },
+  ar: { title: "إرشادات", foot: "هذه الإرشادات تشرح التطبيق فقط. للأسئلة الضريبية يرجى مراجعة مستشارك الضريبي.", s: [
+    ["ماذا يمكنني أن أرفع؟", ["صور الإيصالات – والأفضل بزر «Beleg fotografieren».", "فواتير PDF، حتى متعددة الصفحات.",
+      "فواتير إلكترونية XML (XRechnung / ZUGFeRD) – تُعرف تلقائياً.", "تصدير العداد كملف ZIP (DSFinV-TW) – يُعرف تلقائياً.",
+      "ملفات CSV (مثل البنك) تُحفظ لكن لا تُقرأ بعد. ملفات Word وExcel غير ممكنة.",
+      "ارفع كل إيصال على حدة – وليس عدة صور في ملف ZIP واحد."]],
+    ["صور جيدة", ["إضاءة جيدة، الإيصال مسطح، والزوايا الأربع داخل الصورة.",
+      "صور الآيفون من المعرض (HEIC) لا تُقرأ: استخدم زر الكاميرا في التطبيق أو اختر في الآيفون «الإعدادات → الكاميرا → التنسيقات → الأكثر توافقاً».",
+      "امسح الفواتير الورقية متعددة الصفحات بالهاتف كملف PDF واحد."]],
+    ["المشتريات الخاصة والمختلطة", ["ارفع إيصالات العمل فقط.", "في السوبرماركت ادفع مشتريات التاكسي بشكل منفصل عند الصندوق.",
+      "إذا اعتبر الذكاء الاصطناعي الإيصال خاصاً: احذف المسودة. في الإيصال المختلط أكّد جزء العمل فقط."]],
+    ["الذكاء الاصطناعي يقترح فقط", ["يقرأ الذكاء الاصطناعي كل إيصال ويقترح القيم. الحقول الصفراء غير مؤكدة.",
+      "لا يمكن تسجيل الإيصال إلا بعد المراجعة والضغط على «Daten bestätigen»."]],
+    ["مسودة، تسجيل، إلغاء", ["الإيصالات الجديدة مسودات ويمكن حذفها.", "بعد «Erfassen» يُقفل الإيصال (GoBD، حفظ 10 سنوات).",
+      "خطأ بعد ذلك: «Stornieren» في لوحة التحكم. يبقى الإيصال في الأرشيف لكنه لا يُحتسب."]],
+    ["تصدير العداد", ["ملف ZIP يأتي من برنامج العداد أو من مركز التاكسي (DSFinV-TW).",
+      "يفحص التطبيق الفجوات والتصحيحات بدون ملاحظة والكيلومترات الفارغة والأجرة مقارنة بالتعرفة. أدخل التعرفة في لوحة التحكم تحت «Taxitarif».",
+      "يرجى توضيح الملاحظات الصفراء مع المستشار الضريبي أو المركز.", "الإكرامية: الأفضل تسجيلها دائماً في العداد. وضّح الإكرامية النقدية خارج العداد مع مستشارك الضريبي – وإلا قد تقدّر مصلحة الضرائب مبلغاً عند التدقيق."]],
+    ["الفاتورة الإلكترونية (XML)", ["ملف XML هو الأصل. «Rechnung anzeigen» يعرض نسخة مقروءة.",
+      "ارفع فواتير البريد الإلكتروني كملفات – لا تطبعها ولا تصورها."]],
+    ["حزمة المستشار الضريبي", ["في لوحة التحكم (الأفضل على الحاسوب) اختر الشهر واضغط «Paket für Steuerberater».",
+      "تحصل الحزمة على رقم ثابت وتبقى في الأرشيف. أرسل ملف ZIP بالبريد الإلكتروني إلى المكتب."]] ] },
+  tr: { title: "İpuçları", foot: "Bu ipuçları uygulamayı açıklar. Vergi soruları için lütfen vergi danışmanınıza başvurun.", s: [
+    ["Neleri yükleyebilirim?", ["Fiş fotoğrafları – en iyisi „Beleg fotografieren“ ile.", "PDF faturalar, çok sayfalı da olabilir.",
+      "XML e-faturalar (XRechnung / ZUGFeRD) – otomatik tanınır.", "ZIP olarak taksimetre dışa aktarımı (DSFinV-TW) – otomatik tanınır.",
+      "CSV dosyaları (ör. banka) arşivlenir ama henüz okunmaz. Word ve Excel mümkün değildir.",
+      "Her fişi ayrı yükleyin – birden fazla fotoğrafı tek ZIP dosyasında değil."]],
+    ["İyi fotoğraflar", ["İyi ışık, fiş düz, dört köşe de görüntüde.",
+      "Galeriden iPhone fotoğrafları (HEIC) okunamaz: uygulamadaki kamera düğmesini kullanın veya iPhone'da „Ayarlar → Kamera → Formatlar → En Uyumlu“ seçin.",
+      "Çok sayfalı kâğıt faturaları telefonla tek bir PDF olarak tarayın."]],
+    ["Özel ve karışık alışverişler", ["Sadece işletme fişlerini yükleyin.", "Süpermarkette taksi alışverişini kasada ayrı ödeyin.",
+      "Yapay zekâ fişi özel sayarsa: taslağı silin. Karışık fişlerde sadece işletme payını onaylayın."]],
+    ["Yapay zekâ sadece öneri yapar", ["Yapay zekâ her fişi okur ve değer önerir. Sarı alanlar belirsizdir.",
+      "Fiş ancak kontrol edilip „Daten bestätigen“ basıldıktan sonra kaydedilebilir."]],
+    ["Taslak, kayıt, iptal", ["Yeni fişler taslaktır ve silinebilir.", "„Erfassen“ sonrası fiş kilitlenir (GoBD, 10 yıl saklama).",
+      "Sonradan hata: panelde „Stornieren“. Fiş arşivde kalır ama artık sayılmaz."]],
+    ["Taksimetre dışa aktarımı", ["ZIP dosyası taksimetre yazılımından veya merkezden gelir (DSFinV-TW).",
+      "Uygulama boşlukları, açıklamasız düzeltmeleri, boş kilometreleri ve ücretleri tarifeye göre kontrol eder. Tarifeyi panelde „Taxitarif“ altında girin.",
+      "Sarı uyarıları vergi danışmanı veya merkezle netleştirin.", "Bahşiş: en iyisi her zaman taksimetreye kaydedin. Taksimetre dışındaki nakit bahşişi vergi danışmanınızla netleştirin – aksi halde denetimde vergi dairesi bir tutar tahmin edebilir."]],
+    ["E-fatura (XML)", ["XML dosyası asıl belgedir. „Rechnung anzeigen“ okunabilir bir sürüm gösterir.",
+      "E-postadan gelen faturaları dosya olarak yükleyin – yazdırıp fotoğraflamayın."]],
+    ["Vergi danışmanı için paket", ["Panelde (en iyisi dizüstünde) ayı seçin ve „Paket für Steuerberater“ düğmesine basın.",
+      "Paket sabit bir numara alır ve arşivde kalır. ZIP dosyasını e-postayla büroya gönderin."]] ] },
+};
+const HELP_CSS = `.helpbox{display:grid;gap:8px}
+.helpbox details{border:1px solid var(--line);border-radius:10px;background:var(--surface)}
+.helpbox summary{cursor:pointer;padding:12px 14px;font-weight:700;list-style:none;display:flex;justify-content:space-between;gap:10px}
+.helpbox summary::-webkit-details-marker{display:none}
+.helpbox summary::after{content:"▾";color:var(--muted)} .helpbox details[open] summary::after{content:"▴"}
+.helpbox ul{margin:0;padding:0 14px 12px;padding-inline-start:32px;display:grid;gap:6px}
+.helpbox .hfoot{font-size:.85rem;color:var(--muted);margin:6px 2px 0}`;
+function helpHTML(lang){
+  const h = HELP[lang] || HELP.de;
+  const e = (s) => String(s).replace(/[&<>"']/g, c => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" })[c]);
+  return `<div class="helpbox">${h.s.map(([t, items], i) => `<details${i === 0 ? " open" : ""}><summary>${e(t)}</summary><ul>${items.map(x => `<li>${e(x)}</li>`).join("")}</ul></details>`).join("")}
+    <p class="hfoot">${e(h.foot)}</p></div>`;
+}
+
+(() => { const st = document.createElement("style"); st.textContent = HELP_CSS; document.head.append(st); })();
+for (const l of ["de","en","fa","ar"]) if (I18N[l]) I18N[l].b_help = "ℹ️ " + HELP[l].title;
+const REF_OTP_TXT = {
+  de:{ l_ref:"Einladungscode (optional)", l_otp:"Bestätigungscode aus der E-Mail", b_otp:"Code bestätigen", b_otp_resend:"Code erneut senden",
+       otp_sent:(m)=>`Wir haben einen Bestätigungscode an ${m} geschickt. Bitte den Code hier eingeben (auch im Spam-Ordner nachsehen).`,
+       otp_bad:"Der Code ist falsch oder abgelaufen.", otp_resent:"Ein neuer Code wurde geschickt.", b_invite:"🎁 Einladen",
+       inv_title:"Kollegen einladen", inv_text:"Wenn sich Ihr Kollege mit diesem Code registriert, nutzen Sie die App nach seiner ersten Zahlung einen Monat gratis.",
+       inv_code:"Ihr Einladungscode", inv_share:"Link teilen", inv_copied:"Link kopiert", inv_stats:(a,b,c)=>`Eingeladen: ${a} · davon noch im Test: ${c} · Gratismonate verdient: ${b}`,
+       inv_msg:(c,l)=>`Ich nutze das Belegarchiv für mein Taxi. 7 Tage kostenlos testen, mit meinem Code ${c}: ${l}` },
+  en:{ l_ref:"Invitation code (optional)", l_otp:"Confirmation code from the e-mail", b_otp:"Confirm code", b_otp_resend:"Send code again",
+       otp_sent:(m)=>`We sent a confirmation code to ${m}. Please enter it here (also check your spam folder).`,
+       otp_bad:"The code is wrong or expired.", otp_resent:"A new code was sent.", b_invite:"🎁 Invite",
+       inv_title:"Invite colleagues", inv_text:"If your colleague registers with this code, you use the app for one month free after his first payment.",
+       inv_code:"Your invitation code", inv_share:"Share link", inv_copied:"Link copied", inv_stats:(a,b,c)=>`Invited: ${a} · still in trial: ${c} · free months earned: ${b}`,
+       inv_msg:(c,l)=>`I use Belegarchiv for my taxi. Try it free for 7 days with my code ${c}: ${l}` },
+  fa:{ l_ref:"کد دعوت (اختیاری)", l_otp:"کد تأیید از ایمیل", b_otp:"تأیید کد", b_otp_resend:"ارسال دوباره‌ی کد",
+       otp_sent:(m)=>`یک کد تأیید به ${m} فرستادیم. لطفاً کد را اینجا وارد کنید (پوشه‌ی Spam را هم نگاه کنید).`,
+       otp_bad:"کد اشتباه است یا منقضی شده.", otp_resent:"کد جدید فرستاده شد.", b_invite:"🎁 دعوت",
+       inv_title:"دعوت از همکاران", inv_text:"در صورتی که همکارتان با این کد ثبت‌نام کند، بعد از اولین پرداخت او، یک ماه رایگان از اپ استفاده می‌کنید.",
+       inv_code:"کد دعوت شما", inv_share:"اشتراک‌گذاری لینک", inv_copied:"لینک کپی شد", inv_stats:(a,b,c)=>`دعوت‌شده: ${a} · هنوز در آزمایش: ${c} · ماه رایگان به‌دست‌آمده: ${b}`,
+       inv_msg:(c,l)=>`من از Belegarchiv برای تاکسی‌ام استفاده می‌کنم. ۷ روز رایگان امتحان کن، با کد من ${c}: ${l}` },
+  ar:{ l_ref:"رمز الدعوة (اختياري)", l_otp:"رمز التأكيد من البريد الإلكتروني", b_otp:"تأكيد الرمز", b_otp_resend:"إرسال الرمز مرة أخرى",
+       otp_sent:(m)=>`أرسلنا رمز تأكيد إلى ${m}. يرجى إدخاله هنا (تحقق أيضاً من مجلد الرسائل غير المرغوبة).`,
+       otp_bad:"الرمز خاطئ أو منتهي الصلاحية.", otp_resent:"تم إرسال رمز جديد.", b_invite:"🎁 دعوة",
+       inv_title:"ادعُ زملاءك", inv_text:"إذا سجّل زميلك بهذا الرمز، تستخدم التطبيق شهراً مجاناً بعد أول دفعة له.",
+       inv_code:"رمز دعوتك", inv_share:"مشاركة الرابط", inv_copied:"تم نسخ الرابط", inv_stats:(a,b,c)=>`المدعوون: ${a} · ما زالوا في التجربة: ${c} · الأشهر المجانية المكتسبة: ${b}`,
+       inv_msg:(c,l)=>`أستخدم Belegarchiv لتاكسيي. جرّبه مجاناً 7 أيام برمزي ${c}: ${l}` } };
+for (const [l, o] of Object.entries(REF_OTP_TXT)) if (I18N[l]) for (const [k, v] of Object.entries(o)) if (typeof v === "string") I18N[l][k] = v;
+const RT = () => REF_OTP_TXT[lang] || REF_OTP_TXT.de;
+// Einladungscode aus dem Link (?ref=ABC123) merken
+try { const q = new URLSearchParams(location.search).get("ref"); if (q && /^[A-Za-z0-9]{4,12}$/.test(q)) localStorage.setItem("ref", q.toUpperCase()); } catch(_) {}
+/* ---------- Roboter-Schutz ---------- */
+let captchaToken = null, captchaWidget = null;
+function initCaptcha(){
+  if (!TURNSTILE_SITE_KEY) return;
+  const box = $("captchaBox"); box.classList.remove("hidden");
+  const go = () => { captchaWidget = window.turnstile.render(box, { sitekey: TURNSTILE_SITE_KEY, language: lang,
+    callback: (tok) => { captchaToken = tok; }, "expired-callback": () => { captchaToken = null; }, "error-callback": () => { captchaToken = null; } }); };
+  if (window.turnstile) return go();
+  const sc = document.createElement("script"); sc.src = "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit"; sc.async = true; sc.onload = go;
+  document.head.append(sc);
+}
+function captchaOpts(){ return TURNSTILE_SITE_KEY ? { captchaToken } : {}; }
+function captchaReset(){ captchaToken = null; try { if (captchaWidget != null) window.turnstile.reset(captchaWidget); } catch(_) {} }
+function captchaMissing(msg){
+  if (TURNSTILE_SITE_KEY && !captchaToken){ show(msg, ({de:"Bitte kurz bestätigen, dass Sie kein Roboter sind.",en:"Please confirm that you are not a robot.",
+    fa:"لطفاً تأیید کنید که ربات نیستید.",ar:"يرجى التأكيد أنك لست روبوتاً."})[lang] || "Bitte bestätigen, dass Sie kein Roboter sind.", "bad"); return true; }
+  return false;
+}
+initCaptcha();
+/* ---------- Passwort vergessen: Code per E-Mail, dann neues Passwort (kein Passwort im Klartext per E-Mail) ---------- */
+const RESET_TXT = {
+  de:{ b_forgot:"Passwort vergessen?", b_rs_send:"Code senden", b_rs_save:"Neues Passwort speichern", l_newpw:"Neues Passwort (mindestens 8 Zeichen)",
+       rs_hint1:"Bitte Ihre E-Mail-Adresse eingeben. Wir schicken Ihnen einen Code, mit dem Sie ein neues Passwort festlegen.",
+       rs_hint2:(m)=>`Wir haben einen Code an ${m} geschickt (auch im Spam-Ordner nachsehen). Code und neues Passwort eingeben.`,
+       rs_hint3:"Bitte ein neues Passwort festlegen.", rs_ok:"Passwort geändert. Sie sind angemeldet.", rs_short:"Das Passwort muss mindestens 8 Zeichen haben." },
+  en:{ b_forgot:"Forgot password?", b_rs_send:"Send code", b_rs_save:"Save new password", l_newpw:"New password (at least 8 characters)",
+       rs_hint1:"Please enter your e-mail address. We will send you a code to set a new password.",
+       rs_hint2:(m)=>`We sent a code to ${m} (also check your spam folder). Enter the code and your new password.`,
+       rs_hint3:"Please set a new password.", rs_ok:"Password changed. You are signed in.", rs_short:"The password must have at least 8 characters." },
+  fa:{ b_forgot:"رمز را فراموش کرده‌اید؟", b_rs_send:"ارسال کد", b_rs_save:"ذخیره‌ی رمز جدید", l_newpw:"رمز جدید (حداقل ۸ کاراکتر)",
+       rs_hint1:"لطفاً ایمیل خود را وارد کنید. یک کد برایتان می‌فرستیم تا رمز جدید بگذارید.",
+       rs_hint2:(m)=>`یک کد به ${m} فرستادیم (پوشه‌ی Spam را هم نگاه کنید). کد و رمز جدید را وارد کنید.`,
+       rs_hint3:"لطفاً رمز جدید بگذارید.", rs_ok:"رمز عوض شد. وارد شده‌اید.", rs_short:"رمز باید حداقل ۸ کاراکتر باشد." },
+  ar:{ b_forgot:"نسيت كلمة المرور؟", b_rs_send:"إرسال الرمز", b_rs_save:"حفظ كلمة المرور الجديدة", l_newpw:"كلمة مرور جديدة (8 أحرف على الأقل)",
+       rs_hint1:"يرجى إدخال بريدك الإلكتروني. سنرسل لك رمزاً لتعيين كلمة مرور جديدة.",
+       rs_hint2:(m)=>`أرسلنا رمزاً إلى ${m} (تحقق أيضاً من الرسائل غير المرغوبة). أدخل الرمز وكلمة المرور الجديدة.`,
+       rs_hint3:"يرجى تعيين كلمة مرور جديدة.", rs_ok:"تم تغيير كلمة المرور. تم تسجيل دخولك.", rs_short:"يجب أن تتكون كلمة المرور من 8 أحرف على الأقل." } };
+for (const [l, o] of Object.entries(RESET_TXT)) if (I18N[l]) for (const [k, v] of Object.entries(o)) if (typeof v === "string") I18N[l][k] = v;
+const RS = () => RESET_TXT[lang] || RESET_TXT.de;
+const REQ_TXT = { de:["Noch kein Konto? Zugang anfragen","Willkommen! Bitte legen Sie jetzt Ihr Passwort fest."],
+  en:["No account yet? Request access","Welcome! Please set your password now."],
+  fa:["حساب ندارید؟ درخواست دسترسی","خوش آمدید! لطفاً حالا رمز خود را بگذارید."], ar:["ليس لديك حساب؟ اطلب الوصول","أهلاً بك! يرجى تعيين كلمة المرور الآن."] };
+for (const [l, a] of Object.entries(REQ_TXT)) if (I18N[l]) I18N[l].b_request = a[0];
+if (!SIGNUP_OPEN) document.getElementById("btnSignup").classList.add("hidden"); else document.getElementById("lnkRequest").classList.add("hidden");
+let resetEmail = null, recoveryLink = false;
+function resetMode(step){
+  const pw = $("password"), pl = document.querySelector('label[for="password"]');
+  ["signupFields","signupPw2","otpBox"].forEach(id => $(id).classList.add("hidden"));
+  pw.classList.add("hidden"); if (pl) pl.classList.add("hidden");
+  ["btnLogin","btnSignup","btnForgot"].forEach(id => $(id).classList.add("hidden"));
+  $("btnBackLogin").classList.remove("hidden");
+  const h = document.querySelector("#authBox h2"); if (h) h.textContent = RS().b_forgot.replace("?", "").replace("؟", "");
+  const lh = document.querySelector("#authBox > p.hint"); if (lh) lh.classList.add("hidden");
+  hide($("authMsg"));
+  if (step === 1){ $("resetBox").classList.remove("hidden"); ["rsCodeRow","rsPw1","rsPw2","btnRsSave"].forEach(id => $(id).classList.add("hidden"));
+    document.querySelectorAll('label[for="rsPw1"],label[for="rsPw2"]').forEach(x => x.classList.add("hidden"));
+    $("rsHint").textContent = RS().rs_hint1; $("btnRsSend").classList.remove("hidden"); $("email").focus(); }
+  else { $("btnRsSend").classList.add("hidden"); $("resetBox").classList.remove("hidden");
+    ["rsPw1","rsPw2","btnRsSave"].forEach(id => $(id).classList.remove("hidden"));
+    document.querySelectorAll('label[for="rsPw1"],label[for="rsPw2"]').forEach(x => x.classList.remove("hidden"));
+    $("rsCodeRow").classList.toggle("hidden", recoveryLink);
+    $("rsHint").textContent = recoveryLink ? RS().rs_hint3 : RS().rs_hint2(resetEmail);
+    (recoveryLink ? $("rsPw1") : $("rsCode")).focus(); }
+}
+document.getElementById("btnForgot").onclick = () => resetMode(1);
+document.getElementById("btnRsSend").onclick = async () => {
+  const msg = $("authMsg"); hide(msg);
+  const email = $("email").value.trim();
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return show(msg, T().m_need_creds, "bad");
+  if (captchaMissing(msg)) return;
+  $("btnRsSend").disabled = true;
+  const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo: location.origin + location.pathname, ...captchaOpts() });
+  $("btnRsSend").disabled = false; captchaReset();
+  if (error) return show(msg, translateError(error), "bad");
+  resetEmail = email; resetMode(2);
+};
+document.getElementById("btnRsSave").onclick = async () => {
+  const msg = $("authMsg"); hide(msg);
+  const p1 = $("rsPw1").value, p2 = $("rsPw2").value;
+  if (p1.length < 8) return show(msg, RS().rs_short, "bad");
+  if (p1 !== p2) return show(msg, T().su_pw_mismatch, "bad");
+  $("btnRsSave").disabled = true;
+  if (!recoveryLink){
+    const token = $("rsCode").value.replace(/\s/g, "");
+    const { error } = await sb.auth.verifyOtp({ email: resetEmail, token, type: "recovery" });
+    if (error){ $("btnRsSave").disabled = false; return show(msg, RT().otp_bad, "bad"); }
+  }
+  const { error: e2 } = await sb.auth.updateUser({ password: p1 });
+  $("btnRsSave").disabled = false;
+  if (e2) return show(msg, translateError(e2), "bad");
+  recoveryLink = false; show(msg, RS().rs_ok, "ok");
+  const { data: { session: s2 } } = await sb.auth.getSession();
+  if (s2) setTimeout(() => { $("btnBackLogin").click(); render(s2); }, 900);
+};
+const SIGNUP_TXT = {
+  de:{ l_first:"Vorname", l_last:"Nachname", l_company:"Name des Unternehmens", l_password2:"Passwort wiederholen", b_back_login:"Zurück zur Anmeldung",
+       b_signup_go:"Konto jetzt erstellen", su_hint:"Neues Konto: Vorname, Nachname, Unternehmen, E-Mail (= Benutzername) und Passwort eingeben.",
+       su_missing:"Bitte Vorname, Nachname und Unternehmen ausfüllen.", su_pw_mismatch:"Die beiden Passwörter sind nicht gleich." },
+  en:{ l_first:"First name", l_last:"Last name", l_company:"Company name", l_password2:"Repeat password", b_back_login:"Back to sign in",
+       b_signup_go:"Create account now", su_hint:"New account: enter first name, last name, company, e-mail (= user name) and password.",
+       su_missing:"Please fill in first name, last name and company.", su_pw_mismatch:"The two passwords do not match." },
+  fa:{ l_first:"نام", l_last:"نام خانوادگی", l_company:"نام شرکت", l_password2:"تکرار رمز عبور", b_back_login:"برگشت به ورود",
+       b_signup_go:"ساخت حساب", su_hint:"حساب جدید: نام، نام خانوادگی، نام شرکت، ایمیل (= نام کاربری) و رمز عبور را وارد کنید.",
+       su_missing:"لطفاً نام، نام خانوادگی و نام شرکت را وارد کنید.", su_pw_mismatch:"دو رمز عبور یکسان نیستند." },
+  ar:{ l_first:"الاسم الأول", l_last:"اسم العائلة", l_company:"اسم الشركة", l_password2:"أعد كلمة المرور", b_back_login:"العودة لتسجيل الدخول",
+       b_signup_go:"إنشاء الحساب", su_hint:"حساب جديد: أدخل الاسم الأول واسم العائلة واسم الشركة والبريد الإلكتروني (= اسم المستخدم) وكلمة المرور.",
+       su_missing:"يرجى إدخال الاسم الأول واسم العائلة واسم الشركة.", su_pw_mismatch:"كلمتا المرور غير متطابقتين." } };
+for (const [l, o] of Object.entries(SIGNUP_TXT)) if (I18N[l]) Object.assign(I18N[l], o);
+/* ---------- Abo / Testzeitraum ---------- */
+const SUB_TXT = {
+  de:{ trial:(n)=> n>1 ? `Testzeitraum: noch ${n} Tage kostenlos.` : (n===1 ? "Testzeitraum: noch 1 Tag kostenlos." : "Testzeitraum: heute letzter Tag."),
+       buy:"Jetzt abonnieren", buy_info:"Die Online-Zahlung wird gerade eingerichtet. Bis dahin können Sie die App weiter testen – wir melden uns bei Ihnen.",
+       ro:"Ihr Testzeitraum ist abgelaufen. Hochladen und KI-Auslesen sind gesperrt. Ihre Belege bleiben sicher gespeichert und können weiter angesehen und exportiert werden.",
+       due:(n)=>`Zahlung offen – bitte Zahlungsdaten prüfen. Hochladen noch ${n} Tage möglich.` },
+  en:{ trial:(n)=> n>1 ? `Trial: ${n} days left for free.` : (n===1 ? "Trial: 1 day left for free." : "Trial: last day today."),
+       buy:"Subscribe now", buy_info:"Online payment is being set up. Until then you can keep testing the app – we will contact you.",
+       ro:"Your trial has ended. Uploading and AI reading are locked. Your receipts stay safely stored and can still be viewed and exported.",
+       due:(n)=>`Payment outstanding – please check your payment details. Uploading possible for ${n} more days.` },
+  fa:{ trial:(n)=> n>1 ? `دوره‌ی آزمایشی: ${n} روز رایگان باقی مانده.` : (n===1 ? "دوره‌ی آزمایشی: ۱ روز رایگان باقی مانده." : "دوره‌ی آزمایشی: امروز آخرین روز است."),
+       buy:"اشتراک بگیرید", buy_info:"پرداخت آنلاین در حال راه‌اندازی است. تا آن موقع می‌توانید برنامه را آزمایش کنید – با شما تماس می‌گیریم.",
+       ro:"دوره‌ی آزمایشی تمام شده. آپلود و خواندن با هوش مصنوعی بسته است. رسیدهای شما امن نگه داشته می‌شوند و همچنان قابل دیدن و خروجی گرفتن‌اند.",
+       due:(n)=>`پرداخت انجام نشده – لطفاً اطلاعات پرداخت را بررسی کنید. آپلود تا ${n} روز دیگر ممکن است.` },
+  ar:{ trial:(n)=> n>1 ? `الفترة التجريبية: بقي ${n} أيام مجاناً.` : (n===1 ? "الفترة التجريبية: بقي يوم واحد مجاناً." : "الفترة التجريبية: اليوم هو الأخير."),
+       buy:"اشترك الآن", buy_info:"الدفع الإلكتروني قيد الإعداد. حتى ذلك الحين يمكنك متابعة تجربة التطبيق – سنتواصل معك.",
+       ro:"انتهت الفترة التجريبية. الرفع والقراءة بالذكاء الاصطناعي مقفلان. إيصالاتك محفوظة بأمان ويمكن عرضها وتصديرها.",
+       due:(n)=>`الدفع متأخر – يرجى مراجعة بيانات الدفع. الرفع ممكن لمدة ${n} أيام أخرى.` } };
+let subscription = null;
+async function loadSubscription(){
+  try { const { data, error } = await sb.rpc("my_subscription"); subscription = error ? null : (data && data[0]) || null; }
+  catch(_) { subscription = null; }
+  drawSubscription();
+}
+function drawSubscription(){
+  const b = $("subBanner"); if (!b) return;
+  const tx = SUB_TXT[lang] || SUB_TXT.de, s = subscription;
+  b.innerHTML = ""; b.className = "subbanner hidden";
+  const canWrite = !s || s.can_write;   // ohne Abo-Daten nichts sperren (der Server prüft trotzdem)
+  ["btnCamera","btnUpload","file"].forEach(id => { const el = $(id); if (el) el.disabled = !canWrite; });
+  if (!s || s.status === "active") return;
+  let text = "", cls = "info";
+  const dl = (v) => new Date(v).toLocaleDateString(lang === "fa" ? "fa-IR" : lang === "ar" ? "ar-u-nu-latn" : lang === "en" ? "en-GB" : "de-DE", { timeZone: "Europe/Berlin" });
+  if (s.status === "archive"){
+    text = ({ de:"Archiv-Tarif: Ihre Belege sind sicher gespeichert (nur lesen).", en:"Archive plan: your receipts are stored safely (read-only).",
+              fa:"Archiv-Tarif: رسیدهای شما امن نگه داشته می‌شوند (فقط خواندنی).", ar:"خطة الأرشيف: إيصالاتك محفوظة بأمان (للقراءة فقط)." })[lang]; cls = "info"; }
+  else if (!canWrite && s.export_deadline){
+    const d = dl(s.export_deadline);
+    text = ({ de:`Nur lesen. Bitte Ihre Belege bis ${d} sichern: im Dashboard „Gesamtexport“ – oder Archiv-Tarif wählen.`,
+              en:`Read-only. Please save your receipts by ${d}: “Full export” in the dashboard – or choose the archive plan.`,
+              fa:`فقط خواندنی. لطفاً رسیدهایتان را تا ${d} ذخیره کنید: در داشبورد «خروجی کامل» – یا Archiv-Tarif را انتخاب کنید.`,
+              ar:`للقراءة فقط. يرجى حفظ إيصالاتك حتى ${d}: «تصدير كامل» في لوحة التحكم – أو اختر خطة الأرشيف.` })[lang]; cls = "ro"; }
+  else if (!canWrite){ text = tx.ro; cls = "ro"; }
+  else if (s.status === "trialing"){ text = tx.trial(s.days_left ?? 0); cls = (s.days_left ?? 0) <= 2 ? "warn" : "info"; }
+  else if (s.status === "pilot"){
+    const end = new Date(new Date(s.trial_ends_at).getTime() - 1000).toLocaleDateString(lang === "fa" ? "fa-IR" : lang === "ar" ? "ar-u-nu-latn" : lang === "en" ? "en-GB" : "de-DE", { timeZone: "Europe/Berlin" });
+    text = ({ de:`Pilotphase: kostenlos bis ${end}.`, en:`Pilot phase: free until ${end}.`, fa:`دوره‌ی پایلوت: رایگان تا ${end}.`, ar:`المرحلة التجريبية: مجانية حتى ${end}.` })[lang] || `Pilotphase: kostenlos bis ${end}.`;
+    cls = (s.days_left ?? 0) <= 14 ? "warn" : "info"; }
+  else if (s.status === "past_due"){
+    const until = new Date(new Date(s.current_period_end || Date.now()).getTime() + 7 * 864e5);
+    text = tx.due(Math.max(0, Math.ceil((until - Date.now()) / 864e5))); cls = "warn"; }
+  b.append(mk("span", null, text));
+  if (PAYMENTS_ENABLED){
+    const buy = mk("button", "small", tx.buy); buy.type = "button";
+    buy.onclick = () => { /* später: Stripe-Checkout öffnen */ };
+    b.append(buy);
+  }
+  b.className = "subbanner " + cls;
+}
+const ACT_TXT = { de:["Einladen","Hinweise","Dashboard"], en:["Invite","Help","Dashboard"], fa:["دعوت","راهنما","داشبورد"], ar:["دعوة","إرشادات","لوحة التحكم"] };
+for (const [l, a] of Object.entries(ACT_TXT)) if (I18N[l]) { I18N[l].b_invite_s = a[0]; I18N[l].b_help_s = a[1]; I18N[l].b_buero_s = a[2]; }
+const WELCOME_TXT = { de:["Herzlich willkommen","","",""], en:["Welcome","","",""], fa:["خوش آمدید","","",""], ar:["أهلاً وسهلاً","","",""],
+  _old_de:["Willkommen","Namen eintragen","Vorname?","Nachname?"], _old_en:["Welcome","Add your name","First name?","Last name?"],
+  fa:["خوش آمدید","نام خود را وارد کنید","نام؟","نام خانوادگی؟"], ar:["أهلاً وسهلاً","أدخل اسمك","الاسم الأول؟","اسم العائلة؟"] };
+function drawWelcome(){
+  const w = $("welcome"); if (!w) return;
+  if (!currentSession){ w.classList.add("hidden"); return; }
+  const hi = (WELCOME_TXT[lang] || WELCOME_TXT.de)[0];
+  const md = currentSession.user.user_metadata || {};
+  const name = [md.first_name, md.last_name].filter(Boolean).join(" ");
+  w.innerHTML = "";
+  w.append(mk("div", "hi", hi));
+  if (name) w.append(mk("div", "nm", name));
+  if (typeof business !== "undefined" && business && business.legal_name) w.append(mk("div", "co", business.legal_name));
+  w.classList.remove("hidden");
+}
+async function openInvite(){
+  const rt = RT();
+  let info = null; try { const { data } = await sb.rpc("my_referral"); info = data && data[0]; } catch(_) {}
+  if (!info || !info.referral_code) return;
+  const link = location.origin + location.pathname + "?ref=" + info.referral_code;
+  const ov = mk("div", "viewer"); ov.setAttribute("role", "dialog"); ov.setAttribute("aria-modal", "true");
+  const box = mk("div", "vbox");
+  const close = mk("button", "secondary vclose", "✕"); close.type = "button";
+  const shut = () => { ov.remove(); document.removeEventListener("keydown", onKey); };
+  const onKey = (e) => { if (e.key === "Escape") shut(); };
+  close.onclick = shut; ov.onclick = (e) => { if (e.target === ov) shut(); }; document.addEventListener("keydown", onKey);
+  const body = mk("div", "invbox");
+  const codeEl = mk("div", "invcode ltr", info.referral_code);
+  const share = mk("button", null, rt.inv_share); share.type = "button";
+  const note = mk("p", "hint", "");
+  share.onclick = async () => {
+    const text = rt.inv_msg(info.referral_code, link);
+    try { if (navigator.share){ await navigator.share({ text, url: link }); return; } } catch(_) { return; }
+    try { await navigator.clipboard.writeText(text); note.textContent = rt.inv_copied; } catch(_) { note.textContent = link; }
+  };
+  body.append(mk("p", null, rt.inv_text), codeEl, share, note);
+  box.append(close, mk("div", "name", rt.inv_title), body);
+  ov.append(box); document.body.append(ov); close.focus();
+}
+
+function openHelp(){
+  const t = T();
+  const ov = mk("div", "viewer"); ov.setAttribute("role", "dialog"); ov.setAttribute("aria-modal", "true");
+  const box = mk("div", "vbox");
+  const close = mk("button", "secondary vclose", "✕"); close.type = "button"; close.setAttribute("aria-label", t.viewer_close);
+  const shut = () => { ov.remove(); document.removeEventListener("keydown", onKey); };
+  const onKey = (e) => { if (e.key === "Escape") shut(); };
+  close.onclick = shut; ov.onclick = (e) => { if (e.target === ov) shut(); };
+  document.addEventListener("keydown", onKey);
+  const body = mk("div"); body.innerHTML = helpHTML(lang);
+  box.append(close, mk("div", "name", "ℹ️ " + (HELP[lang] || HELP.de).title), body);
+  ov.append(box); document.body.append(ov); close.focus();
+}
+
+function openViewer(d){
+  const t = T();
+  const ov = mk("div", "viewer"); ov.setAttribute("role", "dialog"); ov.setAttribute("aria-modal", "true");
+  const box = mk("div", "vbox");
+  const close = mk("button", "secondary vclose", "✕"); close.type = "button"; close.setAttribute("aria-label", t.viewer_close);
+  const shut = () => { ov.remove(); document.removeEventListener("keydown", onKey); };
+  const onKey = (e) => { if (e.key === "Escape") shut(); };
+  close.onclick = shut;
+  ov.onclick = (e) => { if (e.target === ov) shut(); };
+  document.addEventListener("keydown", onKey);
+  const body = mk("div", "vbody", t.viewer_loading);
+  box.append(close, mk("div", "name", d.file_name), body);
+  ov.append(box); document.body.append(ov);
+  close.focus();
+  sb.storage.from(BUCKET).createSignedUrl(d.storage_path, 300).then(({ data, error }) => {
+    body.innerHTML = "";
+    if (error){ body.append(mk("div", "msg show bad", translateError(error))); return; }
+    const mt = d.mime_type || "";
+    if (mt.startsWith("image/") && !/heic|heif/i.test(mt)){
+      const img = mk("img"); img.src = data.signedUrl; img.alt = d.file_name; body.append(img);
+    } else if (mt === "application/xml" || mt === "text/xml"){
+      const box = mk("div", null, t.viewer_loading); body.append(box);
+      fetch(data.signedUrl).then(r => r.text()).then(x => { box.innerHTML = EINV.html(EINV.parse(x)); })
+        .catch(() => { box.textContent = t.viewer_nopreview; });
+    } else {
+      body.append(mk("p", "hint", t.viewer_nopreview));
+    }
+    const a = mk("a", "btnlink", t.viewer_open); a.href = data.signedUrl; a.target = "_blank"; a.rel = "noopener";
+    body.append(a);
+  });
+}
+
+/* ---------- Ansicht: Belege / Prüfprotokoll ---------- */
+let view = "main";
+function setView(v){
+  view = v;
+  $("mainView").classList.toggle("hidden", v !== "main");
+  $("protoView").classList.toggle("hidden", v !== "proto");
+  $("navMain").classList.toggle("active", v === "main");
+  $("navProto").classList.toggle("active", v === "proto");
+  $("navMain").setAttribute("aria-pressed", String(v === "main"));
+  $("navProto").setAttribute("aria-pressed", String(v === "proto"));
+  if (v === "proto"){ hide($("protoMsg")); loadProtocol(); }
+  loadDeletions();
+  window.scrollTo(0, 0);
+}
+$("navMain").onclick = () => setView("main");
+$("navProto").onclick = () => setView("proto");
+
+function verifyNoteFor(t, r){
+  return r === "verified"
+    ? { kind: "ok", text: t.reverify_ok + new Date().toLocaleTimeString(t.locale) }
+    : { kind: "bad", text: t.reverify_bad + (t.status[r] || r) };
+}
+
+async function loadProtocol(){
+  if (!business) return;
+  const t = T(), box = $("protoList");
+  const [{ data: docs, error: e1 }, { data: integ }, { data: vers }] = await Promise.all([
+    sb.from("documents").select("id,file_name,source,uploaded_at,status,erfasst_at,sha256,mime_type,storage_path").eq("business_id", business.id).order("uploaded_at", { ascending: false }),
+    sb.from("document_integrity").select("document_id,status").eq("business_id", business.id),
+    sb.from("document_verifications").select("document_id,verified_at,matches").order("verified_at", { ascending: false })
+  ]);
+  box.innerHTML = "";
+  if (e1) return box.append(mk("p", "hint", translateError(e1)));
+  if (!docs.length) return box.append(mk("p", "hint", t.proto_empty));
+  const st = Object.fromEntries((integ || []).map((r) => [r.document_id, r.status]));
+  const byDoc = {};
+  for (const v of (vers || [])) (byDoc[v.document_id] ||= []).push(v);
+  for (const d of docs){
+    const s = st[d.id] || "unverified";
+    const card = mk("div", "doc");
+    const chips = mk("div", "chips");
+    chips.append(mk("span", "chip " + s, t.status[s]), mk("span", "chip " + d.status, t.rec[d.status]));
+    card.append(mk("div", "name", d.file_name), chips);
+    card.append(mk("div", "meta", t.src[d.source] + " | " + t.uploaded + new Date(d.uploaded_at).toLocaleString(t.locale) +
+      (d.erfasst_at ? " | " + t.erfasst_on + new Date(d.erfasst_at).toLocaleString(t.locale) : "")));
+    card.append(mk("div", "hash ltr", "SHA-256: " + d.sha256));
+    const list = byDoc[d.id] || [];
+    if (!list.length) card.append(mk("div", "meta", t.never_checked));
+    else {
+      const recent = list.slice(0, 3).map((v) => new Date(v.verified_at).toLocaleString(t.locale) + " " + (v.matches ? "✓" : "✗")).join(" · ");
+      card.append(mk("div", "meta", t.last_checks + recent + (list.length > 3 ? " (" + t.n_checks.replace("{n}", list.length) + ")" : "")));
+    }
+    const actions = mk("div", "actions");
+    const bView = mk("button", "secondary", t.view); bView.onclick = () => openViewer(d);
+    const bVer = mk("button", "secondary", t.reverify);
+    bVer.onclick = async () => {
+      bVer.disabled = true; bVer.textContent = t.reverify_running;
+      verifyNote[d.id] = verifyNoteFor(t, await verify(d.id));
+      await loadProtocol();
+    };
+    actions.append(bView, bVer);
+    card.append(actions);
+    if (verifyNote[d.id]) card.append(mk("div", "msg show " + verifyNote[d.id].kind, verifyNote[d.id].text));
+    box.append(card);
+  }
+}
+
+$("btnVerifyAll").onclick = async () => {
+  const btn = $("btnVerifyAll"), msg = $("protoMsg"), t = T();
+  if (btn.disabled || !business) return;
+  btn.disabled = true;
+  const { data: docs } = await sb.from("documents").select("id,file_name").eq("business_id", business.id);
+  const all = docs || [], bad = [];
+  for (let i = 0; i < all.length; i++){
+    show(msg, t.verify_progress.replace("{n}", i + 1).replace("{m}", all.length), "info");
+    const r = await verify(all[i].id);
+    if (r !== "verified") bad.push(all[i].file_name);
+    verifyNote[all[i].id] = verifyNoteFor(t, r);
+  }
+  btn.disabled = false;
+  if (!bad.length) show(msg, t.verify_all_ok.replace("{m}", all.length), "ok");
+  else show(msg, t.verify_all_bad.replace("{k}", bad.length).replace("{m}", all.length) + " " + bad.join(", "), "bad");
+  await loadProtocol();
+};
+
+/* ---------- Vorschaubilder ---------- */
+const isPreviewable = (d) => (d.mime_type || "").startsWith("image/") && !/heic|heif/i.test(d.mime_type);
+async function signedImageUrls(docs){
+  const paths = docs.filter(isPreviewable).map((d) => d.storage_path);
+  if (!paths.length) return {};
+  const { data, error } = await sb.storage.from(BUCKET).createSignedUrls(paths, 3600);
+  if (error || !data) return {};
+  return Object.fromEntries(data.filter((r) => r.signedUrl).map((r) => [r.path, r.signedUrl]));
+}
+function thumbEl(d){
+  const b = mk("button", "thumb"); b.type = "button";
+  b.setAttribute("aria-label", T().view + ": " + d.file_name);
+  if (d._url){ const im = mk("img"); im.src = d._url; im.alt = ""; im.loading = "lazy"; im.decoding = "async"; b.append(im); }
+  else {
+    const mt = d.mime_type || "", fn = d.file_name || "";
+    b.append(mk("span", "ticon", /pdf/i.test(mt) ? "📄" : /zip/i.test(mt) || /\.zip$/i.test(fn) ? "🗜️" : /xml/i.test(mt) ? "🧾" : /csv/i.test(mt) ? "📊" : "📎"));
+  }
+  b.onclick = () => openViewer(d);
+  return b;
+}
+
+/* ---------- Prüf-Formular ---------- */
+const openEdit = new Set();
+const notice = {};
+function originChip(origin){ const t = T(); return mk("span", "chip " + (origin === "ai" ? "ai" : "confirmed"), origin === "ai" ? t.badge_ai : t.badge_user); }
+
+function summaryEl(x){
+  const t = T(); const w = mk("div", "summary");
+  w.append(originChip(x.origin));
+  w.append(mk("div", "sline", [x.vendor_name, fmtDate(x.document_date), fmtEUR(x.gross_total_cents)].filter(Boolean).join(" | ")));
+  w.append(mk("div", "meta", (t.cat[x.category] || "–") + " | " + (t.pay[x.payment_method] || "–") + (x.invoice_number ? " | " + x.invoice_number : "")));
+  if (x.receipt_kind === "mixed" && x.business_gross_cents != null)
+    w.append(mk("div", "meta", t.sum_mixed + fmtEUR(x.business_gross_cents) + (x.business_vat_cents ? " (" + t.vat_short + " " + fmtEUR(x.business_vat_cents) + ")" : "")));
+  const lines = (x.vat_lines || []).map(l => l.rate + " %: " + fmtEUR(l.gross_cents) + " (" + t.vat_short + " " + fmtEUR(l.vat_cents) + ")").join(" | ");
+  if (lines) w.append(mk("div", "meta", lines));
+  for (const k of (x.warnings || [])) w.append(mk("div", "warn", t.warn[k] || k));
+  return w;
+}
+
+function reviewForm(d, x){
+  const t = T();
+  const isAI = x && x.origin === "ai";
+  const unsure = new Set(isAI ? (x.uncertain_fields || []) : []);
+  const f = mk("div", "review");
+  const head = mk("div", "rhead"); head.append(mk("strong", null, t.h_review)); if (x) head.append(originChip(x.origin)); f.append(head);
+  if (d._url){
+    const pb = mk("button", "rimg"); pb.type = "button"; pb.title = t.tap_zoom; pb.setAttribute("aria-label", t.tap_zoom);
+    const im = mk("img"); im.src = d._url; im.alt = d.file_name; im.loading = "lazy";
+    pb.append(im); pb.onclick = () => openViewer(d);
+    f.append(pb, mk("p", "hint center", t.tap_zoom));
+  }
+  if (!d._url && (d.mime_type === "application/xml" || d.mime_type === "text/xml")){
+    const bInv = mk("button", "secondary", t.show_invoice); bInv.type = "button"; bInv.onclick = () => openViewer(d); f.append(bInv);
+  }
+  if (isAI) f.append(mk("p", "hint", t.review_hint));
+  if (isAI && x.notes) f.append(mk("p", "hint", t.ai_note + x.notes));
+  if (isAI) for (const k of (x.warnings || [])) f.append(mk("div", "warn", t.warn[k] || k));
+
+  // Belegart: betrieblich / privat / gemischt (KI schlägt vor, Mensch entscheidet)
+  let kind = x?.receipt_kind || (x?.category === "privat" ? "private" : "business");
+  const kWrap = mk("div", "fld"); kWrap.append(mk("label", null, t.k_label));
+  const seg = mk("div", "kindseg"); seg.setAttribute("role", "group"); seg.setAttribute("aria-label", t.k_label);
+  const kBtns = {};
+  for (const k of ["business", "private", "mixed"]){
+    const b = mk("button", null, t["k_" + k]); b.type = "button"; kBtns[k] = b;
+    b.onclick = () => { kind = k; syncKind(true); };
+    seg.append(b);
+  }
+  kWrap.append(seg);
+  const kBox = mk("div", "kbox");
+  const mixWrap = mk("div", "grid2");
+  const iBiz = (() => { const i = mk("input", "ltr"); i.inputMode = "decimal"; i.placeholder = "0,00"; i.value = centsToInput(x?.business_gross_cents); return i; })();
+  const iBizV = (() => { const i = mk("input", "ltr"); i.inputMode = "decimal"; i.placeholder = "0,00"; i.value = centsToInput(x?.business_vat_cents); return i; })();
+  const fb = mk("div", "fld"); { const l = mk("label", null, t.f_biz_gross); iBiz.id = "f_biz_" + d.id; l.htmlFor = iBiz.id; fb.append(l, iBiz); }
+  const fv = mk("div", "fld"); { const l = mk("label", null, t.f_biz_vat); iBizV.id = "f_bizv_" + d.id; l.htmlFor = iBizV.id; fv.append(l, iBizV); }
+  mixWrap.append(fb, fv);
+  const bizNames = (x?.line_items || []).filter(i => i.business).map(i => i.name + " " + fmtEUR(i.gross_cents)).join(", ");
+  function syncKind(userClick){
+    for (const k in kBtns) kBtns[k].setAttribute("aria-pressed", String(k === kind));
+    kBox.innerHTML = "";
+    const aiSays = isAI && x.receipt_kind === kind;
+    if (kind === "private"){
+      if (aiSays) kBox.append(mk("div", null, t.ai_private));
+      const bDelP = mk("button", "secondary danger", t.b_del_private); bDelP.type = "button";
+      bDelP.onclick = async () => {
+        if (!confirm(t.del_private_confirm)) return;
+        bDelP.disabled = true;
+        const { data: path, error } = await sb.rpc("delete_draft_document", { p_document_id: d.id, p_reason: t.del_reason });
+        if (error){ show($("upMsg"), translateError(error), "bad"); return loadDocs(); }
+        const { error: rmErr } = await sb.storage.from(BUCKET).remove([path]);
+        if (rmErr) show($("upMsg"), T().m_file_left + rmErr.message, "info"); else show($("upMsg"), T().m_deleted, "ok");
+        openEdit.delete(d.id); delete notice[d.id];
+        await loadDocs();
+      };
+      kBox.append(bDelP, mk("div", "tip", t.tip_separate));
+      if (userClick || !sCat.value) sCat.value = "privat";
+    } else if (kind === "mixed"){
+      if (aiSays) kBox.append(mk("div", null, t.ai_mixed));
+      if (bizNames) kBox.append(mk("div", null, t.biz_items + bizNames));
+      kBox.append(mixWrap, mk("div", "tip", t.tip_separate));
+      if (sCat.value === "privat") sCat.value = "sonstiges_betrieblich";
+    } else if (userClick && sCat.value === "privat"){ sCat.value = ""; }
+    kBox.classList.toggle("hidden", kind === "business");
+  }
+
+  // Gelb markierte (unsichere) Felder müssen einzeln abgehakt werden
+  const checks = [];
+  let bOk = null, checkHint = null;
+  const syncOk = () => {
+    const open = checks.some((c) => !c.checked);
+    if (bOk) bOk.disabled = open;
+    if (checkHint) checkHint.classList.toggle("hidden", !open);
+  };
+  const addCheck = (wrap, watchEl) => {
+    const lab = mk("label", "chk mini");
+    const cb = mk("input"); cb.type = "checkbox";
+    lab.append(cb, mk("span", null, t.chk_label));
+    cb.onchange = () => { wrap.classList.toggle("ok", cb.checked); syncOk(); };
+    const mark = () => { if (!cb.checked){ cb.checked = true; wrap.classList.add("ok"); syncOk(); } };
+    watchEl.addEventListener("input", mark); watchEl.addEventListener("change", mark);
+    checks.push(cb); wrap.append(lab);
+  };
+  const field = (key, label, input) => {
+    const w = mk("div", "fld" + (unsure.has(key) ? " unsure" : ""));
+    const id = "f_" + key + "_" + d.id; input.id = id;
+    const l = mk("label", null, label); l.htmlFor = id; w.append(l, input);
+    if (unsure.has(key)) addCheck(w, input);
+    return w;
+  };
+  const inp = (val, cls) => { const i = mk("input", cls); i.value = val ?? ""; return i; };
+  const iDate = inp(x?.document_date, "ltr"); iDate.type = "date";
+  const iVendor = inp(x?.vendor_name);
+  const iInv = inp(x?.invoice_number, "ltr");
+  const sPay = mk("select"); for (const k of Object.keys(t.pay)){ const o = mk("option", null, t.pay[k]); o.value = k; sPay.append(o); }
+  sPay.value = x?.payment_method || "unbekannt";
+  const sCat = mk("select"); { const o = mk("option", null, "–"); o.value = ""; sCat.append(o); }
+  for (const k of Object.keys(t.cat)){ const o = mk("option", null, t.cat[k]); o.value = k; sCat.append(o); }
+  sCat.value = x?.category || "";
+  const g2 = mk("div", "grid2");
+  g2.append(field("document_date", t.f_date, iDate), field("payment_method", t.f_pay, sPay));
+  f.append(kWrap, kBox);
+  f.append(g2, field("vendor_name", t.f_vendor, iVendor), field("invoice_number", t.f_invno, iInv), field("category", t.f_cat, sCat));
+  syncKind(false);
+
+  // Steuerzeilen
+  const linesBox = mk("div", "fld" + (unsure.has("vat_lines") || unsure.has("gross_total_cents") ? " unsure" : ""));
+  linesBox.append(mk("label", null, t.f_lines));
+  const hdr = mk("div", "vline vhead");
+  hdr.append(mk("span", null, t.f_rate), mk("span", null, t.f_gross), mk("span", null, t.f_vat), mk("span", null, t.f_net));
+  linesBox.append(hdr);
+  const rowsBox = mk("div"); linesBox.append(rowsBox);
+  const totalEl = mk("div", "total");
+  const rows = [];
+  const recalc = () => {
+    let sum = 0, ok = true;
+    for (const r of rows){ const v = r.get(); if (!v) ok = false; else sum += v.gross_cents; }
+    totalEl.textContent = t.f_total + ": " + (ok && rows.length ? fmtEUR(sum) : "–");
+  };
+  const addRow = (l) => {
+    const row = mk("div", "vline");
+    const sRate = mk("select", "ltr");
+    const rates = [19, 7, 0]; if (l && !rates.includes(Number(l.rate))) rates.push(Number(l.rate));
+    for (const r of rates){ const o = mk("option", null, r + " %"); o.value = String(r); sRate.append(o); }
+    sRate.value = String(l ? Number(l.rate) : 19);
+    const iG = inp(centsToInput(l?.gross_cents), "ltr"); iG.inputMode = "decimal"; iG.placeholder = "0,00"; iG.setAttribute("aria-label", t.f_gross);
+    const iV = inp(centsToInput(l?.vat_cents), "ltr"); iV.inputMode = "decimal"; iV.placeholder = "0,00"; iV.setAttribute("aria-label", t.f_vat);
+    iV.dataset.auto = l ? "0" : "1";
+    const net = mk("span", "net ltr", "–");
+    const bRm = mk("button", "secondary small", "×"); bRm.type = "button"; bRm.title = t.b_rmline; bRm.setAttribute("aria-label", t.b_rmline);
+    const lw = mk("div", "lwarn");
+    const obj = {
+      get(){
+        const g = parseCents(iG.value), v = parseCents(iV.value), r = Number(sRate.value);
+        return g == null || v == null ? null : { rate: r, gross_cents: g, vat_cents: v, net_cents: g - v };
+      }
+    };
+    const upd = () => {
+      const g = parseCents(iG.value), r = Number(sRate.value);
+      if (iV.dataset.auto === "1" && g != null) iV.value = centsToInput(Math.round(g * r / (100 + r)));
+      const v = parseCents(iV.value);
+      net.textContent = (g != null && v != null) ? fmtEUR(g - v) : "–";
+      lw.textContent = (g != null && v != null && Math.abs(v - Math.round((g - v) * r / 100)) > 2) ? t.live_vat : "";
+      recalc();
+    };
+    iG.oninput = upd; sRate.onchange = upd;
+    iV.oninput = () => { iV.dataset.auto = "0"; upd(); };
+    bRm.onclick = () => { if (rows.length <= 1) return; rows.splice(rows.indexOf(obj), 1); row.remove(); lw.remove(); recalc(); };
+    row.append(sRate, iG, iV, net, bRm);
+    rowsBox.append(row, lw);
+    rows.push(obj); upd();
+  };
+  const initLines = x?.vat_lines?.length ? x.vat_lines : [null];
+  initLines.forEach(addRow);
+  const bAdd = mk("button", "secondary small", "+ " + t.b_addline); bAdd.type = "button";
+  bAdd.onclick = () => { if (rows.length < 5) addRow(null); };
+  linesBox.append(bAdd, totalEl);
+  if (unsure.has("vat_lines") || unsure.has("gross_total_cents")) addCheck(linesBox, rowsBox);
+  f.append(linesBox);
+  if (isAI && x.gross_total_cents != null) f.append(mk("p", "hint", t.ai_total + fmtEUR(x.gross_total_cents)));
+
+  const msg = mk("div", "msg");
+  const btns = mk("div", "actions");
+  bOk = mk("button", null, t.b_confirm); bOk.type = "button";
+  bOk.onclick = async () => {
+    hide(msg);
+    const lines = rows.map(r => r.get());
+    if (lines.some(l => !l)) return show(msg, t.e.amount, "bad");
+    if (!iDate.value || !sCat.value || !sPay.value || !lines.length) return show(msg, t.e.required, "bad");
+    const total = lines.reduce((a, l) => a + l.gross_cents, 0);
+    let bizG = null, bizV = null;
+    if (kind === "private" && sCat.value !== "privat") return show(msg, t.e_private_cat, "bad");
+    if (kind === "mixed"){
+      if (sCat.value === "privat") return show(msg, t.e_mixed_cat, "bad");
+      bizG = parseCents(iBiz.value); bizV = parseCents(iBizV.value) ?? 0;
+      if (bizG == null || bizG <= 0 || bizG > total || bizV < 0 || bizV > bizG) return show(msg, t.e_mixed, "bad");
+    }
+    if (kind === "business" && sCat.value === "privat") kind = "private";
+    bOk.disabled = true;
+    const { data, error } = await sb.rpc("confirm_extraction", { p_document_id: d.id, p_data: {
+      document_date: iDate.value, vendor_name: iVendor.value, invoice_number: iInv.value,
+      payment_method: sPay.value, category: sCat.value, gross_total_cents: total, vat_lines: lines,
+      receipt_kind: kind, business_gross_cents: bizG, business_vat_cents: bizV, line_items: x?.line_items || null } });
+    bOk.disabled = false;
+    if (error) return show(msg, translateError(error), "bad");
+    openEdit.delete(d.id);
+    notice[d.id] = { text: t.m_confirmed, kind: (data.warnings || []).length ? "info" : "ok" };
+    await loadDocs();
+  };
+  btns.append(bOk);
+  if (canUseAI(d)){
+    const bRe = mk("button", "secondary", t.b_reextract); bRe.type = "button";
+    bRe.onclick = async () => {
+      bRe.disabled = true; bRe.textContent = t.m_extracting;
+      try { await callExtract(d); openEdit.delete(d.id); delete notice[d.id]; }
+      catch (e) { notice[d.id] = { text: aiErrorText(e), kind: "bad" }; }
+      await loadDocs();
+    };
+    btns.append(bRe);
+  }
+  if (openEdit.has(d.id)){
+    const bC = mk("button", "secondary", t.b_cancel); bC.type = "button";
+    bC.onclick = () => { openEdit.delete(d.id); loadDocs(); };
+    btns.append(bC);
+  }
+  checkHint = mk("p", "hint warn-text", t.need_checks);
+  f.append(checkHint, btns, msg);
+  syncOk();
+  return f;
+}
+
+/* ---------- List ---------- */
+async function loadDocs(){
+  if (!business) return;
+  const t = T();
+  const [{ data: docs, error: e1 }, { data: integ, error: e2 }, { data: exts, error: e3 }, { data: imps }] = await Promise.all([
+    sb.from("documents").select("id,file_name,source,document_date,uploaded_at,storage_path,sha256,status,erfasst_at,mime_type").eq("business_id", business.id).order("uploaded_at", { ascending: false }),
+    sb.from("document_integrity").select("document_id,status").eq("business_id", business.id),
+    sb.from("document_latest_extraction").select("*"),
+    sb.from("tw_latest_import").select("*").eq("business_id", business.id)
+  ]);
+  // Übergebene (in einem Steuerberater-Paket) und stornierte Belege: nur ausblenden, nie löschen
+  const [pk, so] = await Promise.all([
+    sb.from("stb_packages").select("period_label,package_no,document_ids,late_document_ids,created_at").eq("business_id", business.id).order("created_at"),
+    sb.from("document_stornos").select("document_id").eq("business_id", business.id)
+  ]);
+  const inPkg = {};
+  for (const p of (pk.data || [])) for (const id of [...(p.document_ids || []), ...(p.late_document_ids || [])]) inPkg[id] = p.period_label + " · " + T().done_pkg + " " + p.package_no;
+  const stornoed = new Set((so.data || []).map(r => r.document_id));
+  loadDeletions(); loadTwMonths();
+  const box = $("docs"); box.innerHTML = "";
+  const hint = (text) => box.append(mk("p", "hint", text));
+  if (e1 || e2 || e3) return hint(translateError(e1 || e2 || e3));
+  if (!docs.length) return hint(t.docs_empty);
+  const status = Object.fromEntries(integ.map(r => [r.document_id, r.status]));
+  const urls = await signedImageUrls(docs);
+  const ext = Object.fromEntries((exts || []).map(x => [x.document_id, x]));
+  const twImp = Object.fromEntries((imps || []).map(x => [x.document_id, x]));
+  docs.sort((a, b) => (a.status === "entwurf" ? 0 : 1) - (b.status === "entwurf" ? 0 : 1));
+  const doneBox = mk("details", "done"), doneList = mk("div", "donelist"); let nDone = 0, nOpen = 0;
+  for (const d of docs){
+    const isDone = d.status !== "entwurf" && (stornoed.has(d.id) || !!inPkg[d.id]);
+    const isDraft = d.status === "entwurf";
+    const s = status[d.id] || "unverified";
+    const x = ext[d.id];
+    const card = mk("div", "doc");
+    const chips = mk("div", "chips");
+    chips.append(mk("span", "chip " + s, t.status[s]), mk("span", "chip " + d.status, t.rec[d.status]));
+    if (stornoed.has(d.id)) chips.append(mk("span", "chip storno", t.done_storno));
+    else if (inPkg[d.id]) chips.append(mk("span", "chip pkg", "📦 " + inPkg[d.id]));
+    const meta = mk("div", "meta", t.src[d.source] + " | " + t.uploaded + new Date(d.uploaded_at).toLocaleString(t.locale) +
+      (d.document_date ? " | " + t.docdate + d.document_date : "") +
+      (d.erfasst_at ? " | " + t.erfasst_on + new Date(d.erfasst_at).toLocaleString(t.locale) : ""));
+    const actions = mk("div", "actions");
+    const bView = mk("button", "secondary", t.view);
+    bView.onclick = () => openViewer(d);
+    actions.append(bView);
+    d._url = urls[d.storage_path] || null;
+    const dhead = mk("div", "dhead"), dinfo = mk("div", "dinfo");
+    dinfo.append(mk("div", "name", d.file_name), chips, meta);
+    dhead.append(thumbEl(d), dinfo);
+    const parts = [dhead];
+
+    const editing = isDraft && needsData(d) && (openEdit.has(d.id) || (x && x.origin === "ai"));
+    if (x && !editing) parts.push(summaryEl(x));
+    const imp = twImp[d.id];
+    if (d.source === "taxameter_export" && imp) parts.push(twCard(imp));
+
+    if (isDraft){
+      if (Date.now() - new Date(d.uploaded_at).getTime() > 10 * 864e5) parts.push(mk("div", "warn", t.overdue));
+      if (needsData(d)){
+        if (editing) parts.push(reviewForm(d, x));
+        else if (!x){
+          const row = mk("div", "actions");
+          if (canUseAI(d)){
+            const bAI = mk("button", "ai", t.b_extract);
+            bAI.onclick = async () => {
+              bAI.disabled = true; bAI.textContent = t.m_extracting; delete notice[d.id];
+              try { await callExtract(d); } catch (e) { notice[d.id] = { text: aiErrorText(e), kind: "bad" }; }
+              await loadDocs();
+            };
+            row.append(bAI);
+          }
+          const bMan = mk("button", "secondary", t.b_manual);
+          bMan.onclick = () => { openEdit.add(d.id); loadDocs(); };
+          row.append(bMan);
+          parts.push(row);
+        } else {
+          const bEd = mk("button", "secondary", t.b_edit);
+          bEd.onclick = () => { openEdit.add(d.id); delete notice[d.id]; loadDocs(); };
+          const row = mk("div", "actions"); row.append(bEd); parts.push(row);
+        }
+      }
+      if (d.source === "taxameter_export"){
+        if (isTwDoc(d)){
+          const row = mk("div", "actions");
+          const bI = mk("button", imp ? "secondary" : "ai", imp ? t.tw.b_reimport : t.tw.b_import);
+          bI.onclick = async () => {
+            bI.disabled = true; bI.textContent = t.tw.m_importing; delete notice[d.id];
+            try { await callTwImport(d.id); } catch (e) { notice[d.id] = { text: twErrorText(e), kind: "bad" }; }
+            await loadDocs();
+          };
+          row.append(bI); parts.push(row);
+        } else parts.push(mk("div", "warn", t.tw.err.zip_required));
+      }
+      if (notice[d.id]){ const n = mk("div", "msg show " + notice[d.id].kind, notice[d.id].text); parts.push(n); }
+
+      const needConfirm = needsData(d) && (!x || x.origin !== "user" || editing);
+      const needImport = d.source === "taxameter_export" && (!imp || imp.status === "failed");
+      const bErf = mk("button", "record", t.b_erfassen);
+      bErf.disabled = s !== "verified" || needConfirm || needImport;
+      bErf.onclick = async () => {
+        if (!confirm(T().confirm_erfassen)) return;
+        bErf.disabled = true;
+        const { error } = await sb.rpc("erfassen_document", { p_document_id: d.id });
+        notice[d.id] = error ? { text: translateError(error), kind: "bad" } : null;
+        if (!error) show($("upMsg"), T().m_erfasst, "ok");
+        await loadDocs();
+      };
+      parts.push(bErf);
+      if (needConfirm && s === "verified") parts.push(mk("p", "hint", t.need_confirm));
+      if (needImport && s === "verified") parts.push(mk("p", "hint", t.tw.need_import));
+      const bDel = mk("button", "secondary danger", t.b_delete);
+      bDel.onclick = async () => {
+        if (!confirm(T().confirm_delete)) return;
+        const reason = prompt(T().reason_prompt, "");
+        if (reason === null) return;
+        bDel.disabled = true;
+        const { data: path, error } = await sb.rpc("delete_draft_document", { p_document_id: d.id, p_reason: reason });
+        if (error){ show($("upMsg"), translateError(error), "bad"); return loadDocs(); }
+        const { error: rmErr } = await sb.storage.from(BUCKET).remove([path]);
+        if (rmErr) show($("upMsg"), T().m_file_left + rmErr.message, "info"); else show($("upMsg"), T().m_deleted, "ok");
+        openEdit.delete(d.id); delete notice[d.id];
+        await loadDocs();
+      };
+      actions.append(bDel);
+    }
+    parts.push(actions);
+    card.append(...parts);
+    if (isDone){ doneList.append(card); nDone++; } else { box.append(card); nOpen++; }
+  }
+  if (!nOpen) hint(t.all_done);
+  if (nDone){
+    const sum = mk("summary", "", t.done_h + " (" + nDone + ")");
+    doneBox.append(sum, doneList);
+    box.append(doneBox);
+  }
+}
+
+applyLang();
+</script>
+</body>
+</html>
