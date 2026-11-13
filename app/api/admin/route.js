@@ -31,6 +31,16 @@ function addCycle(iso, cycle) {
   return `${ty}-${String(tm).padStart(2, "0")}-${String(Math.min(d, last)).padStart(2, "0")}`;
 }
 const money = (v) => { const n = Number(String(v ?? "").replace(",", ".")); return Number.isFinite(n) && n >= 0 && n <= 100000 ? Math.round(n * 100) / 100 : null; };
+// Link in der Testzugang-E-Mail: dieselbe Adresse, auf der der Admin gerade arbeitet
+// (Produktion → www.dienstigo.de, Test-Branch → die Vercel-Testadresse). Nur bekannte Adressen, sonst dienstigo.de.
+function siteOf(request) {
+  const fallback = (process.env.NEXT_PUBLIC_SITE_URL || "https://www.dienstigo.de").replace(/\/$/, "");
+  try {
+    const u = new URL(request.url);
+    if (u.protocol === "https:" && (/(^|\.)dienstigo\.de$/.test(u.hostname) || /^lab-shift-app[a-z0-9-]*\.vercel\.app$/.test(u.hostname))) return u.origin;
+  } catch (e) { /* fallback */ }
+  return fallback;
+}
 const json = (body, status = 200) => Response.json(body, { status, headers: { "Cache-Control": "no-store" } });
 
 function newPassword() {
@@ -252,7 +262,7 @@ export async function POST(request) {
         await markFirstLogin(user.id);
         let mailSent = false, mailError = null;
         if (smtpConfigured()) {
-          const site = (process.env.NEXT_PUBLIC_SITE_URL || "https://www.dienstigo.de").replace(/\/$/, "");
+          const site = siteOf(request);
           const end = new Date(until).toLocaleDateString("de-DE", { timeZone: "Europe/Berlin" });
           try {
             await sendMail({ to: email, fromName: "Dienstigo", replyTo: process.env.SMTP_USER, subject: "Ihr Testzugang zu Dienstigo (14 Tage)", text: [
