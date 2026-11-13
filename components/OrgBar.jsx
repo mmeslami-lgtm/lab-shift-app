@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useContext, useEffect, useRef, useState } from "react";
+import StartSaldoDialog from "./StartSaldoDialog";
 import { OrgContext } from "../lib/orgContext";
 import { fetchAll } from "../lib/fetchAll";
 import WishesDialog from "./WishesDialog";
@@ -385,6 +386,8 @@ export default function OrgBar({ onLoadStaff, staffList, toDb, onIdsChanged, yea
           {item({ icon: Clock, label: "Meine Zeiten", onClick: () => setMyTimesOpen(true) })}
         </div>
       )}
+      {/* "Zeitkonto zum Start", once per person (script 42) – outside the message block, so it does not vanish with a message */}
+      {isLeader && hasTime && <StartSaldoDialog org={org} />}
       {(msg || autoMsg || (row && row.status === "pending") || (row && row.status === "draft" && row.review_note)) && (
         <div className="dg-group" role="status">
           {msg && <div className="dg-msg">{msg}</div>}

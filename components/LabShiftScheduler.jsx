@@ -1568,7 +1568,15 @@ function LabShiftSchedulerInner() {
         const b = byId[x.staff_id] || (byId[x.staff_id] = { hours: 0, satDeficit: 0, sunDeficit: 0, nightDeficit: 0 });
         b.satDeficit += Number(x.sat_short) || 0; b.sunDeficit += Number(x.sun_short) || 0; b.nightDeficit += Number(x.night_short) || 0;
       });
-      Object.keys(byId).forEach((id) => { byId[id].hours = planCarryHours(rowsOf[id], nowKey, mode, payoutMinutesByMonth(payouts, id)); });
+      // Zeitkonto zum Start (staff_start_balance, script 42) counts before the first month – also for people without closed months
+      let startOf = {};
+      try {
+        const stb = await orgCtx.supabase.from("staff_start_balance").select("staff_id, minutes").eq("org_id", orgCtx.orgId);
+        if (!stb.error) (stb.data || []).forEach((x) => { startOf[x.staff_id] = Number(x.minutes) || 0; });
+      } catch (_) { startOf = {}; }
+      if (cancelled) return;
+      Object.keys(startOf).forEach((id) => { if (!byId[id] && startOf[id]) byId[id] = { hours: 0, satDeficit: 0, sunDeficit: 0, nightDeficit: 0 }; });
+      Object.keys(byId).forEach((id) => { byId[id].hours = planCarryHours(rowsOf[id], nowKey, mode, payoutMinutesByMonth(payouts, id), startOf[id] || 0); });
       const byName = {};
       staffList.forEach((s) => { if (byId[s.id]) byName[s.name.trim()] = byId[s.id]; });
       setBalances(byName); setBalancesLoaded(true);

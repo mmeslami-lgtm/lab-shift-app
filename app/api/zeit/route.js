@@ -54,6 +54,14 @@ async function stamp({ orgId, staffId, direction, device, method, extra }) {
   if (prev && prev.direction === direction && Date.now() - new Date(prev.scanned_at).getTime() < 60000) {
     return { error: direction === "in" ? "Du bist schon eingestempelt." : "Du bist schon ausgestempelt.", status: 409 };
   }
+  // 8 Nov 2026: wrong button – "Kommen" while already in / "Gehen" while not in. Not booked; the screen asks
+  // "Wolltest du gehen/kommen?" and offers the other button (suggest). An open stamp older than 16 h does not count.
+  const open = await supabaseAdmin.from("attendance_sessions").select("check_in").eq("staff_id", staffId).is("check_out", null)
+    .gte("check_in", new Date(Date.now() - 16 * 3600000).toISOString()).order("check_in", { ascending: false }).limit(1);
+  const o = open.data && open.data[0];
+  const hhmm = (ts) => new Date(ts).toLocaleTimeString("de-DE", { timeZone: "Europe/Berlin", hour: "2-digit", minute: "2-digit" });
+  if (direction === "in" && o) return { error: `Du bist schon seit ${hhmm(o.check_in)} Uhr eingestempelt. Wolltest du gehen?`, status: 409, suggest: "out" };
+  if (direction === "out" && !o) return { error: "Du bist nicht eingestempelt. Wolltest du kommen?", status: 409, suggest: "in" };
   const ins = await supabaseAdmin.from("attendance_events")
     .insert({ org_id: orgId, staff_id: staffId, direction, badge_code: method, device_id: device ? device.serial : "app", raw_payload: { method, ...(extra || {}) } })
     .select("id, scanned_at").single();
@@ -123,7 +131,7 @@ export async function POST(request) {
           if (chk.data !== true) { await supabaseAdmin.from("pin_failures").insert({ staff_id: person.id }); return json({ error: "PIN falsch." }, 401); }
         }
         const r = await stamp({ orgId: device.org_id, staffId: person.id, direction: dir, device, method: "card" });
-        if (r.error) return json({ error: r.error }, r.status);
+        if (r.error) return json({ error: r.error, suggest: r.suggest }, r.status);
         return json({ ok: true, name: person.name, direction: dir, time: r.time });
       }
 
@@ -144,7 +152,7 @@ export async function POST(request) {
         return json({ error: left > 0 ? `PIN falsch. Noch ${left} Versuch(e).` : `PIN falsch. Für ${PIN_LOCK_MIN} Minuten gesperrt.` }, 401);
       }
       const r = await stamp({ orgId: device.org_id, staffId: person.id, direction, device, method: "pin" });
-      if (r.error) return json({ error: r.error }, r.status);
+      if (r.error) return json({ error: r.error, suggest: r.suggest }, r.status);
       return json({ ok: true, name: person.name, direction, time: r.time });
     }
 
@@ -187,7 +195,8 @@ export async function POST(request) {
       const t = await supabaseAdmin.from("terminal_tokens").select("token, device_id, org_id, expires_at, direction").eq("token", String(body.token || ""));
       const tok = t.data && t.data[0];
       if (!tok || new Date(tok.expires_at).getTime() < Date.now()) return json({ error: "Der Code ist abgelaufen. Bitte am Terminal noch einmal Kommen oder Gehen drücken und neu scannen." }, 410);
-      const direction = tok.direction || (body.direction === "out" ? "out" : body.direction === "in" ? "in" : null);
+      const asked = body.direction === "out" ? "out" : body.direction === "in" ? "in" : null;
+      const direction = (body.switch && asked) || tok.direction || asked; // switch: answer to "Wolltest du …?"
       if (!direction) return json({ error: "Kommen oder Gehen?", needDirection: true }, 400);
       const m = await supabaseAdmin.from("memberships").select("staff_id").eq("user_id", user.id).eq("org_id", tok.org_id);
       const staffId = m.data && m.data[0] && m.data[0].staff_id;
@@ -196,7 +205,7 @@ export async function POST(request) {
       const dev = await supabaseAdmin.from("devices").select("serial, active").eq("id", tok.device_id);
       if (!dev.data || !dev.data[0] || dev.data[0].active === false) return json({ error: "Terminal gesperrt" }, 403);
       const r = await stamp({ orgId: tok.org_id, staffId, direction, device: dev.data[0], method: "qr" });
-      if (r.error) return json({ error: r.error }, r.status);
+      if (r.error) return json({ error: r.error, suggest: r.suggest }, r.status);
       return json({ ok: true, direction, time: r.time });
     }
 
@@ -223,7 +232,7 @@ export async function POST(request) {
         extra = { lat: Math.round(lat * 1e5) / 1e5, lng: Math.round(lng * 1e5) / 1e5, acc: Number.isFinite(acc) ? Math.round(acc) : null };
       }
       const r = await stamp({ orgId: m.org_id, staffId: m.staff_id, direction, device: { serial: "mobil" }, method: "mobil", extra });
-      if (r.error) return json({ error: r.error }, r.status);
+      if (r.error) return json({ error: r.error, suggest: r.suggest }, r.status);
       return json({ ok: true, direction, time: r.time, located: !!extra.lat });
     }
 

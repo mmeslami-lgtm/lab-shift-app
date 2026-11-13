@@ -28,14 +28,14 @@ export default function ScanStamp({ org, onClose, onOpenTimes }) {
     if (streamRef.current) { streamRef.current.getTracks().forEach((t) => t.stop()); streamRef.current = null; }
   }, []);
 
-  const stamp = useCallback(async (token, direction) => {
+  const stamp = useCallback(async (token, direction, sw) => {
     setState({ phase: "busy" });
     try {
       const { data } = await org.supabase.auth.getSession();
-      const res = await fetch("/api/zeit", { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${data.session ? data.session.access_token : ""}` }, body: JSON.stringify({ action: "qr", token, direction }) });
+      const res = await fetch("/api/zeit", { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${data.session ? data.session.access_token : ""}` }, body: JSON.stringify({ action: "qr", token, direction, switch: !!sw }) });
       const body = await res.json().catch(() => ({}));
       if (res.status === 400 && body.needDirection) { setState({ phase: "ask", token }); return; }
-      if (res.status === 409) { setState({ phase: "info", text: body.error || "Schon gestempelt." }); return; }
+      if (res.status === 409) { setState({ phase: "info", text: body.error || "Schon gestempelt.", token, suggest: body.suggest }); return; }
       if (!res.ok) throw new Error(body.error || `Fehler (${res.status})`);
       setState({ phase: "done", direction: body.direction || direction, time: body.time });
     } catch (e) { setState({ phase: "error", text: e.message }); }
@@ -123,6 +123,9 @@ export default function ScanStamp({ org, onClose, onOpenTimes }) {
           </div>
         )}
         {state.phase === "info" && <div role="status" style={{ background: "#FFF4D6", color: "#7A4E00", borderRadius: 18, padding: 18, fontSize: 16, maxWidth: 420 }}>{state.text}</div>}
+        {state.phase === "info" && state.suggest && (
+          <button onClick={() => stamp(state.token, state.suggest, true)} style={{ width: "100%", maxWidth: 420, border: 0, borderRadius: 18, background: state.suggest === "out" ? "#D23B3B" : "#1F9D55", color: "#fff", fontSize: 20, fontWeight: 800, padding: "18px 0", cursor: "pointer" }}>Ja, {state.suggest === "out" ? "Gehen" : "Kommen"} stempeln</button>
+        )}
         {state.phase === "error" && <div role="alert" style={{ background: "#FCE5EA", color: "#8A2A3E", borderRadius: 18, padding: 18, fontSize: 16, maxWidth: 420 }}>{state.text}</div>}
         {(state.phase === "done" || state.phase === "info") && onOpenTimes && (
           <button onClick={() => { onClose(); onOpenTimes(); }} style={{ background: "none", border: 0, color: "#EAF1FB", textDecoration: "underline", fontSize: 16, cursor: "pointer" }}>Zu meinen Zeiten ›</button>

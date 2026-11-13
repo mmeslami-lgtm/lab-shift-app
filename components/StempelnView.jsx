@@ -17,6 +17,7 @@ export default function StempelnView() {
   const [err, setErr] = useState("");
   const [needDirection, setNeedDirection] = useState(false); // only for an old QR code without Kommen/Gehen
   const [already, setAlready] = useState("");
+  const [switchTo, setSwitchTo] = useState(null); // "in" | "out": answer button for "Wolltest du …?"
   const startedRef = React.useRef(false);
 
   useEffect(() => { // Kommen/Gehen was chosen on the terminal: the QR code carries it -> book right away
@@ -32,14 +33,15 @@ export default function StempelnView() {
     })();
   }, [org]);
 
-  async function go(direction) {
+  async function go(direction, sw) {
     setBusy(direction || "auto"); setErr("");
     try {
       const { data } = await org.supabase.auth.getSession();
-      const res = await fetch("/api/zeit", { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${data.session ? data.session.access_token : ""}` }, body: JSON.stringify({ action: "qr", token, direction }) });
+      const res = await fetch("/api/zeit", { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${data.session ? data.session.access_token : ""}` }, body: JSON.stringify({ action: "qr", token, direction, switch: !!sw }) });
       const body = await res.json().catch(() => ({}));
       if (res.status === 400 && body.needDirection) { setNeedDirection(true); setBusy(""); return; }
-      if (res.status === 409) { setAlready(body.error || "Schon gestempelt."); setBusy(""); return; }
+      if (res.status === 409) { setAlready(body.error || "Schon gestempelt."); setSwitchTo(body.suggest || null); setBusy(""); return; }
+      setAlready(""); setSwitchTo(null);
       if (!res.ok) throw new Error(body.error || `Fehler (${res.status})`);
       setDone({ direction: body.direction, time: new Date(body.time) });
     } catch (e) { setErr(e.message); }
@@ -69,7 +71,10 @@ export default function StempelnView() {
         ) : !token ? (
           <div style={{ background: "#fff", borderRadius: 18, padding: 18, fontSize: 15 }}>Bitte den QR-Code am Terminal mit der Handy-Kamera scannen.</div>
         ) : already ? (
-          <div role="status" style={{ background: "#FFF4D6", color: "#7A4E00", borderRadius: 18, padding: 18, fontSize: 16 }}>{already}</div>
+          <>
+            <div role="status" style={{ background: "#FFF4D6", color: "#7A4E00", borderRadius: 18, padding: 18, fontSize: 16 }}>{already}</div>
+            {switchTo && <button className="tbtn" onClick={() => go(switchTo, true)} disabled={!!busy} style={{ display: "block", width: "100%", border: 0, borderRadius: 22, background: switchTo === "out" ? "#D23B3B" : "#1F9D55", color: "#fff", fontSize: 22, fontWeight: 800, padding: "22px 0", cursor: "pointer" }}>Ja, {switchTo === "out" ? "Gehen" : "Kommen"} stempeln</button>}
+          </>
         ) : !needDirection ? (
           <div role="status" style={{ background: "#fff", borderRadius: 18, padding: 18, fontSize: 16, textAlign: "center" }}>{err ? "" : "Wird gebucht …"}</div>
         ) : (

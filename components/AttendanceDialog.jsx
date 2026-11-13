@@ -96,6 +96,23 @@ export default function AttendanceDialog({ onClose }) {
     showFlash(`✓ ${it.name}: ${ABSENCE[erl.kind].label} eingetragen${ABSENCE[erl.kind].sick ? " – Ersatz finden: im Dienstplan „Krankmeldung / Ausfall“." : ""}`);
     doneReload();
   }
+  // "Gehen fehlt" that is really a double stamp (e.g. time entered by hand AND a request approved): remove it (script 36)
+  // "Sehr kurze Stempelung": one click, reason filled in
+  async function quickRemove(it) {
+    setBusy(`q${it.key}`);
+    const { error } = await org.supabase.rpc("save_attendance_edits", { p_org: org.orgId, p_edits: [{ op: "remove", session_id: it.sessionId }], p_reason: "doppelt gestempelt (sehr kurze Stempelung)" });
+    setBusy(""); if (error) { setMsg(`Nicht gespeichert: ${String(error.message || "").replace(/^Änderung \d+: /, "")}`); return; }
+    showFlash(`✓ ${it.name}: kurze Stempelung entfernt`);
+    doneReload();
+  }
+  async function erlRemove(it) {
+    if (erl.reason.trim().length < 3) { setMsg("Bitte einen Grund angeben."); return; }
+    setBusy("erl");
+    const { error } = await org.supabase.rpc("save_attendance_edits", { p_org: org.orgId, p_edits: [{ op: "remove", session_id: it.sessionId }], p_reason: erl.reason.trim() });
+    setBusy(""); if (error) { setMsg(`Nicht gespeichert: ${String(error.message || "").replace(/^Änderung \d+: /, "")}`); return; }
+    showFlash(`✓ ${it.name}: doppelte Stempelung entfernt`);
+    doneReload();
+  }
   async function erlSaveTime(it) {
     if (erl.reason.trim().length < 3) { setMsg("Bitte einen Grund angeben."); return; }
     let edits;
@@ -181,9 +198,18 @@ export default function AttendanceDialog({ onClose }) {
             {withLater && <button disabled={busy === "later"} onClick={() => later([it.key])} className={optBtn(false)}>Später klären</button>}
           </div>
         )}
-        {it.kind === "gehen" && withLater && (
+        {it.kind === "gehen" && (
           <div className="mb-2 flex flex-wrap gap-2">
-            <button disabled={busy === "later"} onClick={() => later([it.key])} className={optBtn(false)}>Später klären</button>
+            <button onClick={() => setErl({ ...e, mode: "gehen" })} className={optBtn(e.mode === "gehen")}>„Gehen“ eintragen</button>
+            <button onClick={() => setErl({ ...e, mode: "remove" })} className={optBtn(e.mode === "remove")}>Doppelt – Stempelung entfernen</button>
+            {withLater && <button disabled={busy === "later"} onClick={() => later([it.key])} className={optBtn(false)}>Später klären</button>}
+          </div>
+        )}
+        {e.mode === "remove" && (
+          <div className="mt-2 flex flex-wrap items-end gap-2">
+            <span className="pb-2 text-xs text-slate-600">Stempelung Kommen {clock(it.checkIn)} · Gehen fehlt – wird entfernt (bleibt im Protokoll)</span>
+            <label className="text-xs text-slate-600">Grund (Pflicht)<input value={e.reason} maxLength={300} onChange={(ev) => setErl({ ...e, reason: ev.target.value })} placeholder="z. B. doppelt gestempelt" className={`${inp} w-56`} /></label>
+            <button onClick={() => erlRemove(it)} disabled={busy === "erl"} className="rounded-md bg-rose-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-rose-700 active:translate-y-px">{busy === "erl" ? "Moment …" : "Entfernen"}</button>
           </div>
         )}
         {e.mode === "abs" && (
@@ -215,13 +241,18 @@ export default function AttendanceDialog({ onClose }) {
     return (
       <li key={id} className="px-3 py-2 text-sm">
         <div className="flex items-center gap-2">
-          <span aria-hidden="true">{it.kind === "mobil" ? (it.loc ? "📍" : "📱") : it.kind === "manuell" ? "✎" : "⚠️"}</span>
+          <span aria-hidden="true">{it.kind === "mobil" ? (it.loc ? "📍" : "📱") : it.kind === "manuell" ? "✎" : it.kind === "kurz" ? "⏱" : "⚠️"}</span>
           <span className="min-w-0 flex-1">
             <span className="font-semibold text-slate-800">{it.name}</span>
             <span className="text-slate-500"> · {new Date(it.at).toLocaleString("de-DE", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}</span>
             <span className={`block text-xs ${problem ? "font-semibold text-rose-700" : "text-slate-600"}`}>{it.text}{it.loc ? <> · <a className="text-sky-700 underline" target="_blank" rel="noopener noreferrer" href={`https://www.openstreetmap.org/?mlat=${it.loc.lat}&mlon=${it.loc.lng}#map=17/${it.loc.lat}/${it.loc.lng}`}>Karte</a></> : null}</span>
           </span>
-          {problem ? erlButton(id, it) : <button disabled={busy === "seen"} onClick={() => seen([it.key])} className="shrink-0 rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50">Gesehen ✓</button>}
+          {it.kind === "kurz" ? (
+            <>
+              <button disabled={busy === `q${it.key}`} onClick={() => quickRemove(it)} className="shrink-0 rounded-md bg-rose-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-rose-700 active:translate-y-px">{busy === `q${it.key}` ? "…" : "Entfernen"}</button>
+              <button disabled={busy === "seen"} onClick={() => seen([it.key])} className="shrink-0 rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50">Behalten ✓</button>
+            </>
+          ) : problem ? erlButton(id, it) : <button disabled={busy === "seen"} onClick={() => seen([it.key])} className="shrink-0 rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50">Gesehen ✓</button>}
         </div>
         {problem && erl && erl.id === id && erlPanel(it, withLater)}
       </li>
@@ -430,11 +461,13 @@ export default function AttendanceDialog({ onClose }) {
       const locName = Object.fromEntries(((wl && !wl.error && wl.data) || []).map((l) => [l.id, l.code ? `${l.name} (${l.code})` : l.name]));
       const placesOf = (sid) => { const m = {}; ((la && !la.error && la.data) || []).filter((r) => r.staff_id === sid && locName[r.location_id]).forEach((r) => { m[String(r.shift_date).slice(0, 10)] = locName[r.location_id]; }); return m; };
       const hol = {}; const holidaysOf = (yy) => hol[yy] || (hol[yy] = germanHolidays(yy));
+      const stb = await sb.from("staff_start_balance").select("staff_id, minutes").eq("org_id", org.orgId); // Zeitkonto zum Start (script 42)
+      const startOf = Object.fromEntries(((!stb.error && stb.data) || []).map((x) => [x.staff_id, Number(x.minutes) || 0]));
       const sheets = people.map((p) => {
         const days = computeDays({ sessions: (ses || []).filter((x) => x.staff_id === p.id), shifts: (sh || []).filter((x) => x.staff_id === p.id), absences: (ab || []).filter((x) => x.staff_id === p.id), approved: (ap || []).filter((x) => x.staff_id === p.id), holidaysOf });
         const closedRows = (cl || []).filter((r) => r.staff_id === p.id && r.year * 12 + r.month - 1 <= y * 12 + month);
         const overtime = { mode: overtimeMode(ot), code: ot && ot.code, stored: payoutMinutesByMonth(pays, p.id) };
-        return buildSheet({ name: p.personnel_no ? `${p.name} (${p.personnel_no})` : p.name, year: y, month, days, startIso, closedRows, overtime, corrected, mobile, mode: sollMode, weeklyHours: p.weekly_hours, covers: coversOf(p.id), places: placesOf(p.id), vacation: (() => { const v = (vac.data || []).find((x) => x.staff_id === p.id); if (!v) return null; const c = elternzeitCut((ap || []).filter((x) => x.staff_id === p.id), y, v.entitlement); return { ...v, entitlement: Number(v.entitlement || 0) - c.cut, cut: c.cut }; })() });
+        return buildSheet({ name: p.personnel_no ? `${p.name} (${p.personnel_no})` : p.name, year: y, month, days, startIso, closedRows, overtime, corrected, mobile, mode: sollMode, weeklyHours: p.weekly_hours, covers: coversOf(p.id), places: placesOf(p.id), vacation: (() => { const v = (vac.data || []).find((x) => x.staff_id === p.id); if (!v) return null; const c = elternzeitCut((ap || []).filter((x) => x.staff_id === p.id), y, v.entitlement); return { ...v, entitlement: Number(v.entitlement || 0) - c.cut, cut: c.cut }; })() , startBalance: startOf[p.id] || 0 });
       });
       if (!sheets.length) { setMsg("Keine Personen gefunden."); setBusy(""); return; }
       const ok = openHtmlPrint(buildTimesheetHtml(sheets, { orgName: org.orgName, year: y, month, mode: sollMode, surcharges: zus }));

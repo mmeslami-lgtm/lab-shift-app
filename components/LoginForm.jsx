@@ -32,6 +32,17 @@ export default function LoginForm({ title = "Anmelden" }) {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  // "Passwort vergessen?" (9 Nov 2026): a temporary password by e-mail, then a new own one at sign-in (/api/passwort)
+  const [forgot, setForgot] = useState(null); // null | { msg, bad }
+  async function sendForgot() {
+    if (!email.trim()) { setForgot({ msg: "Bitte oben zuerst Ihre E-Mail-Adresse eintragen.", bad: true }); return; }
+    setForgot({ msg: "Moment …", bad: false });
+    try {
+      const res = await fetch("/api/passwort", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ email: email.trim() }) });
+      const b = await res.json().catch(() => ({}));
+      setForgot(res.ok ? { msg: b.message, bad: false } : { msg: b.error || "Das hat nicht geklappt.", bad: true });
+    } catch (e) { setForgot({ msg: "Keine Verbindung. Bitte später noch einmal versuchen.", bad: true }); }
+  }
 
   async function signIn(e) {
     e.preventDefault();
@@ -77,6 +88,10 @@ export default function LoginForm({ title = "Anmelden" }) {
       </label>
       {error && <div role="alert" style={{ fontSize: 13, color: "#B3263E", background: "#FCE5EA", borderRadius: 12, padding: "9px 12px", marginBottom: 12 }}>{error}</div>}
       <button type="submit" disabled={busy} style={{ ...btn, width: "100%", opacity: busy ? 0.6 : 1 }}>{busy ? "Moment …" : "Anmelden"}</button>
+      <div style={{ textAlign: "center", marginTop: 12 }}>
+        <button type="button" onClick={sendForgot} style={{ border: 0, background: "none", color: PRIMARY, fontSize: 15, fontWeight: 650, textDecoration: "underline", cursor: "pointer", padding: 6 }}>Passwort vergessen?</button>
+      </div>
+      {forgot && <div role="status" style={{ fontSize: 13, color: forgot.bad ? "#B3263E" : "#1F5F3A", background: forgot.bad ? "#FCE5EA" : "#E3F4EA", borderRadius: 12, padding: "9px 12px", marginTop: 8 }}>{forgot.msg}</div>}
       <div style={{ fontSize: 12, color: MUTED, marginTop: 10 }}>Zugänge werden von der Leitung vergeben. Eine Selbst-Registrierung gibt es nicht.</div>
     </form>
   );
