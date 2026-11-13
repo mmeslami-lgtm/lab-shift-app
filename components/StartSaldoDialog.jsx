@@ -38,8 +38,10 @@ export default function StartSaldoDialog({ org }) {
   }
   useEffect(() => {
     let off = false;
-    try { if (window.sessionStorage.getItem(later(org.orgId))) return undefined; } catch (e) { /* ignore */ }
-    load().then((m) => { if (!off) { setMissing(m); setOpen(m.length > 0); } });
+    let asked = false;
+    try { asked = !!window.sessionStorage.getItem(later(org.orgId)); } catch (e) { /* ignore */ }
+    // always load (for the button in the menu); open by itself only once per tab
+    load().then((m) => { if (!off) { setMissing(m); setOpen(m.length > 0 && !asked); } });
     return () => { off = true; };
   }, [org.orgId]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -66,7 +68,13 @@ export default function StartSaldoDialog({ org }) {
     setMsg(`✓ ${rows.length} gespeichert. Noch offen: ${m.length}.`);
   }
 
-  if (!open || !missing || !missing.length) return null;
+  if (!missing || !missing.length) return null;
+  // closed: a button in the menu opens it again ("Zeitkonto zum Start (3 offen)")
+  if (!open) return (
+    <button type="button" className="dg-item dg-item-warn" onClick={() => { setMsg(""); setOpen(true); }} title="Zeitkonto zum Start einmalig eintragen">
+      <span className="dg-item-label">Zeitkonto zum Start</span><span className="dg-badge">{missing.length}</span>
+    </button>
+  );
   return (
     <div role="dialog" aria-modal="true" aria-label="Zeitkonto zum Start" className="fixed inset-0 z-[80] flex items-start justify-center overflow-y-auto bg-slate-900/40 p-4">
       <div className="mt-10 w-full max-w-lg rounded-2xl bg-white p-5 shadow-xl">

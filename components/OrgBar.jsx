@@ -386,10 +386,11 @@ export default function OrgBar({ onLoadStaff, staffList, toDb, onIdsChanged, yea
           {item({ icon: Clock, label: "Meine Zeiten", onClick: () => setMyTimesOpen(true) })}
         </div>
       )}
+      {/* "Zeitkonto zum Start", once per person (script 42) – outside the message block, so it does not vanish with a message */}
+      {isLeader && hasTime && <StartSaldoDialog org={org} />}
       {(msg || autoMsg || (row && row.status === "pending") || (row && row.status === "draft" && row.review_note)) && (
         <div className="dg-group" role="status">
           {msg && <div className="dg-msg">{msg}</div>}
-          {isLeader && hasTime && <StartSaldoDialog org={org} />} {/* "Zeitkonto zum Start", once per person (script 42) */}
           {autoMsg && <div className="dg-msg dg-msg-ok">✓ {autoMsg}</div>}
           {row && row.status === "pending" && <div className="dg-msg dg-msg-warn">{MONTHS[monthIdx]} {year} wartet auf Freigabe durch die Leitung.</div>}
           {row && row.status === "draft" && row.review_note && <div className="dg-msg dg-msg-alert">{MONTHS[monthIdx]} {year} wurde zurückgewiesen: {row.review_note}</div>}
