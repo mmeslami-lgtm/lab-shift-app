@@ -1,6 +1,7 @@
 import { randomInt } from "crypto";
 import { supabaseAdmin } from "../../../lib/supabaseAdmin";
 import { FEATURES } from "../../../lib/features";
+import { sendMail, smtpConfigured } from "../../../lib/mailer";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -125,7 +126,8 @@ export async function GET(request) {
       acceptances: la.error ? [] : (la.data || []).filter((a) => a.org_id === o.id).map((a) => ({ doc: a.doc, version: a.version, at: a.accepted_at, email: a.user_email })),
     }));
     // Demo-Anfragen (script 33). Missing columns or table = empty list, never breaks the page.
-    const dr = await supabaseAdmin.from("demo_requests").select("id, created_at, company, email, phone, message, status, mail_sent, mail_error, done_at").order("created_at", { ascending: false }).limit(300);
+    let dr = await supabaseAdmin.from("demo_requests").select("id, created_at, company, email, phone, message, status, mail_sent, mail_error, done_at, org_id").order("created_at", { ascending: false }).limit(300);
+    if (dr.error) dr = await supabaseAdmin.from("demo_requests").select("id, created_at, company, email, phone, message, status, mail_sent, mail_error, done_at").order("created_at", { ascending: false }).limit(300); // script 44 missing
     return json({ me: auth.user.email, firms, demoRequests: dr.error ? [] : dr.data });
   } catch (e) {
     return json({ error: "Laden fehlgeschlagen." }, 500);
@@ -156,14 +158,23 @@ export async function POST(request) {
         return json({ ok: true });
       }
       case "set_trial": {
-        // start: test phase of 14 days from now; off: no test phase any more ("dauerhaft")
-        const orgId = String(body.orgId || ""), start = body.mode === "start";
-        if (!start && body.mode !== "off") return json({ error: "Ungültige Anfrage." }, 400);
-        const until = start ? new Date(Date.now() + 14 * 86400000).toISOString() : null;
-        const r = await supabaseAdmin.from("organizations").update({ trial_until: until }).eq("id", orgId).select("id, name");
+        // start: test phase of 14 days from now; extend: +14 days (from the end, or from today if already over);
+        // off: no test phase any more ("dauerhaft")
+        const orgId = String(body.orgId || ""), mode = body.mode;
+        if (!["start", "extend", "off"].includes(mode)) return json({ error: "Ungültige Anfrage." }, 400);
+        let until = null;
+        if (mode === "start") until = new Date(Date.now() + 14 * 86400000).toISOString();
+        if (mode === "extend") {
+          const cur = await supabaseAdmin.from("organizations").select("trial_until").eq("id", orgId);
+          const old = cur.data && cur.data[0] && cur.data[0].trial_until ? new Date(cur.data[0].trial_until).getTime() : null;
+          if (!old) return json({ error: "Diese Firma ist nicht in der Testphase." }, 400);
+          until = new Date(Math.max(old, Date.now()) + 14 * 86400000).toISOString();
+        }
+        let r = await supabaseAdmin.from("organizations").update({ trial_until: until, trial_reminder_sent_at: null }).eq("id", orgId).select("id, name");
+        if (r.error && /trial_reminder_sent_at/.test(r.error.message)) r = await supabaseAdmin.from("organizations").update({ trial_until: until }).eq("id", orgId).select("id, name"); // script 44 missing
         if (r.error) return json({ error: /trial_until/.test(r.error.message) ? "Bitte zuerst Datenbank-Skript 34 ausführen." : "Speichern fehlgeschlagen." }, 500);
         if (!r.data || r.data.length === 0) return json({ error: "Firma nicht gefunden." }, 404);
-        await log(me, start ? "trial_start" : "trial_off", orgId, null, { until });
+        await log(me, mode === "start" ? "trial_start" : mode === "extend" ? "trial_extend" : "trial_off", orgId, null, { until });
         return json({ ok: true });
       }
       case "billing_save": {
@@ -213,6 +224,81 @@ export async function POST(request) {
         if (p.for_due) await supabaseAdmin.from("org_billing").update({ next_due: p.for_due, updated_at: new Date().toISOString(), updated_by: me.id }).eq("org_id", p.org_id);
         await log(me, "billing_payment_delete", p.org_id, id, { amount: p.amount, forDue: p.for_due });
         return json({ ok: true });
+      }
+      case "testzugang": {
+        // Demo-Anfrage -> Testfirma (14 Tage) + Inhaber-Konto; E-Mail mit vorläufigem Passwort an den Kunden
+        const id = String(body.id || "");
+        const planner = body.planner === "lab_planner" ? "lab_planner" : "generic_planner";
+        const dq = await supabaseAdmin.from("demo_requests").select("id, company, email, org_id").eq("id", id);
+        if (dq.error) return json({ error: /org_id/.test(dq.error.message) ? "Bitte zuerst Datenbank-Skript 44 ausführen." : "Anfrage konnte nicht geladen werden." }, 500);
+        const d = dq.data && dq.data[0];
+        if (!d) return json({ error: "Anfrage nicht gefunden." }, 404);
+        if (d.org_id) return json({ error: "Für diese Anfrage gibt es schon einen Testzugang." }, 409);
+        const email = String(d.email || "").trim().toLowerCase();
+        if (!EMAIL.test(email)) return json({ error: "Die E-Mail in der Anfrage ist ungültig." }, 400);
+        const base = String(d.company || "").trim().slice(0, 110) || "Testfirma";
+        const all = await supabaseAdmin.from("organizations").select("name");
+        const taken = new Set((all.data || []).map((o) => String(o.name).trim().toLowerCase()));
+        let name = base, k = 1;
+        while (taken.has(name.toLowerCase())) { k += 1; name = `${base} (Test ${k})`; }
+        const password = newPassword();
+        const user = await createLogin(email, password);
+        const rpc = await supabaseAdmin.rpc("create_organization", { p_name: name, p_owner: user.id, p_products: [planner, "employee_app", "time_tracking"] });
+        if (rpc.error) { await supabaseAdmin.auth.admin.deleteUser(user.id); throw new Error("Firma konnte nicht angelegt werden: " + rpc.error.message); }
+        const orgId = rpc.data;
+        const until = new Date(Date.now() + 14 * 86400000).toISOString();
+        await supabaseAdmin.from("organizations").update({ trial_until: until }).eq("id", orgId);
+        await supabaseAdmin.from("demo_requests").update({ org_id: orgId, status: "erledigt", done_at: new Date().toISOString(), done_by: me.id }).eq("id", id);
+        await markFirstLogin(user.id);
+        let mailSent = false, mailError = null;
+        if (smtpConfigured()) {
+          const site = (process.env.NEXT_PUBLIC_SITE_URL || "https://www.dienstigo.de").replace(/\/$/, "");
+          const end = new Date(until).toLocaleDateString("de-DE", { timeZone: "Europe/Berlin" });
+          try {
+            await sendMail({ to: email, fromName: "Dienstigo", replyTo: process.env.SMTP_USER, subject: "Ihr Testzugang zu Dienstigo (14 Tage)", text: [
+              "Guten Tag,",
+              "",
+              `vielen Dank für Ihr Interesse an Dienstigo. Ihr Testzugang für „${name}“ ist eingerichtet und gilt bis zum ${end}.`,
+              "",
+              `Anmelden: ${site}/login?als=inhaber`,
+              `E-Mail: ${email}`,
+              `Vorläufiges Passwort: ${password}`,
+              "",
+              "Nach der ersten Anmeldung legen Sie ein eigenes Passwort fest und bestätigen die Nutzungsbedingungen der Testphase.",
+              "Bitte geben Sie in der Testphase nur erfundene (fiktive) Daten ein. Mit „Beispiel-Mitarbeiter anlegen“ füllen Sie Ihre Testfirma mit erfundenen Personen.",
+              "",
+              "Fragen? Antworten Sie einfach auf diese E-Mail.",
+              "",
+              "Viele Grüße",
+              "Ihr Dienstigo-Team",
+            ].join("\n") });
+            mailSent = true;
+          } catch (e) { mailError = e && e.message ? String(e.message).slice(0, 200) : "Fehler"; }
+        } else mailError = "SMTP nicht eingerichtet";
+        await log(me, "testzugang", orgId, email, { name, planner, until, demo: id, mailSent });
+        // only if the mail did not go out: show the password ONCE so the admin can pass it on
+        return json({ ok: true, orgId, name, email, mailSent, mailError, password: mailSent ? null : password });
+      }
+      case "trial_delete": {
+        // Testfirma komplett löschen (nur Firmen mit Testphase). Logins, die zu keiner anderen Firma gehören, werden auch gelöscht.
+        const orgId = String(body.orgId || "");
+        const o = await supabaseAdmin.from("organizations").select("id, name, trial_until").eq("id", orgId);
+        const org = o.data && o.data[0];
+        if (!org) return json({ error: "Firma nicht gefunden." }, 404);
+        if (!org.trial_until) return json({ error: "Nur Testfirmen können gelöscht werden." }, 400);
+        const mem = await supabaseAdmin.from("memberships").select("user_id").eq("org_id", orgId);
+        const users = [...new Set((mem.data || []).map((m) => m.user_id))];
+        const del = await supabaseAdmin.rpc("delete_trial_org", { p_org: orgId });
+        if (del.error) return json({ error: /delete_trial_org/.test(del.error.message) ? "Bitte zuerst Datenbank-Skript 44 ausführen." : "Löschen fehlgeschlagen: " + del.error.message }, 500);
+        let removed = 0;
+        for (const u of users) {
+          if (u === me.id) continue;
+          const other = await supabaseAdmin.from("memberships").select("org_id").eq("user_id", u);
+          const adm = await supabaseAdmin.from("platform_admins").select("user_id").eq("user_id", u);
+          if ((other.data || []).length === 0 && !(adm.data || []).length) { const r = await supabaseAdmin.auth.admin.deleteUser(u); if (!r.error) removed += 1; }
+        }
+        await log(me, "trial_delete", null, orgId, { name: org.name, logins: removed });
+        return json({ ok: true, removed });
       }
       case "create_org": {
         const name = String(body.name || "").trim(), email = String(body.ownerEmail || "").trim().toLowerCase();

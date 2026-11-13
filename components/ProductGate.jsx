@@ -5,6 +5,7 @@ import { supabase, supabaseConfigured } from "../lib/supabaseClient";
 import { OrgContext } from "../lib/orgContext";
 import LoginForm from "./LoginForm";
 import LegalConsent from "./LegalConsent";
+import TrialBanner from "./TrialBanner";
 import { legalComplete } from "../lib/legal";
 
 const PAPER = "#E9EEF8";
@@ -54,9 +55,11 @@ export default function ProductGate({ product, supervisorOnly = false, label, ch
       if (!ok) { setState({ status: "denied", own: own.map((m) => ({ name: m.organizations ? m.organizations.name : "Firma", role: m.role, products: enabled(m.org_id) })) }); return; }
       // Testphase (Skript 34): planner pages stay closed until the owner has accepted the current texts.
       // Only the planner pages (supervisorOnly); the employee app is not touched. Missing column = no test phase.
+      let trialUntil = null;
       if (supervisorOnly) {
         const tr = await supabase.from("organizations").select("trial_until").eq("id", ok.org_id);
         if (!tr.error && tr.data && tr.data[0] && tr.data[0].trial_until) {
+          trialUntil = tr.data[0].trial_until;
           const la = await supabase.from("legal_acceptances").select("doc, version").eq("org_id", ok.org_id);
           if (cancelled) return;
           if (la.error || !legalComplete(la.data)) {
@@ -81,7 +84,7 @@ export default function ProductGate({ product, supervisorOnly = false, label, ch
       const features = fr.error ? [] : (fr.data || []).filter((f) => f.enabled).map((f) => f.feature);
       setState({
         status: "ok",
-        ctx: { supabase, session, orgId: ok.org_id, orgName: ok.organizations ? ok.organizations.name : "Firma", role: ok.role, staffId: ok.staff_id, products: enabled(ok.org_id), features, requireApproval, retentionYears, shortNoticeDays },
+        ctx: { supabase, session, orgId: ok.org_id, orgName: ok.organizations ? ok.organizations.name : "Firma", role: ok.role, staffId: ok.staff_id, products: enabled(ok.org_id), features, requireApproval, retentionYears, shortNoticeDays, trialUntil, trialOver: !!trialUntil && new Date(trialUntil).getTime() < Date.now() },
       });
     })();
     return () => { cancelled = true; };
@@ -136,5 +139,10 @@ export default function ProductGate({ product, supervisorOnly = false, label, ch
       </div></div>
     );
   }
-  return <OrgContext.Provider value={state.ctx}>{children}</OrgContext.Provider>;
+  return (
+    <OrgContext.Provider value={state.ctx}>
+      {supervisorOnly && state.ctx.trialUntil && <TrialBanner supabase={supabase} orgId={state.ctx.orgId} role={state.ctx.role} trialUntil={state.ctx.trialUntil} />}
+      {children}
+    </OrgContext.Provider>
+  );
 }
