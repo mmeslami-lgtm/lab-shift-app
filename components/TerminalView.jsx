@@ -79,7 +79,7 @@ function Terminal({ creds, onReset }) {
     const res = await fetch("/api/zeit", { method: "POST", headers: { "content-type": "application/json", "x-device-serial": creds.serial, "x-device-key": creds.key }, body: JSON.stringify(payload) });
     const body = await res.json().catch(() => ({}));
     if (res.status === 401 && payload.action !== "pin") setFatal(true);
-    if (!res.ok) throw new Error(body.error || `Fehler (${res.status})`);
+    if (!res.ok) { const er = new Error(body.error || `Fehler (${res.status})`); er.suggest = body.suggest; throw er; }
     return body;
   }, [creds]);
 
@@ -145,7 +145,10 @@ function Terminal({ creds, onReset }) {
       setCard(null); setChoice(null); choiceRef.current = null;
       setPinMode({ step: "done", name: b.name, direction, time: new Date(b.time) });
       clearTimeout(idleRef.current); idleRef.current = setTimeout(back, 4000);
-    } catch (e) { setCard((c) => ({ ...(c || { code }), pin: "", err: e.message })); clearTimeout(idleRef.current); idleRef.current = setTimeout(back, 6000); }
+    } catch (e) { // wrong button ("Wolltest du gehen?"): keep the PIN, show both buttons, a bit more time
+      setCard((c) => ({ ...(c || { code }), pin: e.suggest ? ((c && c.pin) || "") : "", dir: e.suggest ? null : c && c.dir, err: e.message }));
+      clearTimeout(idleRef.current); idleRef.current = setTimeout(back, e.suggest ? 12000 : 6000);
+    }
   }
 
   async function openPin() {
@@ -158,7 +161,7 @@ function Terminal({ creds, onReset }) {
       const b = await call({ action: "pin", staff_id: pinMode.person.id, pin: pinMode.pin, direction });
       setPinMode({ step: "done", name: b.name, direction, time: new Date(b.time) });
       clearTimeout(idleRef.current); idleRef.current = setTimeout(back, 4000);
-    } catch (e) { setPinMode((m) => ({ ...m, pin: "", err: e.message })); }
+    } catch (e) { setPinMode((m) => ({ ...m, pin: e.suggest ? m.pin : "", err: e.message })); } // wrong button: keep the PIN
   }
 
   const t = new Date(now + offset);

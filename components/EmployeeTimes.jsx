@@ -47,6 +47,7 @@ export default function EmployeeTimes({ org }) {
   const [absences, setAbsences] = useState([]);
   const [approved, setApproved] = useState([]); // approved Anträge (Urlaub / Fortbildung / Krank)
   const [ot, setOt] = useState({ mode: "konto", stored: {} }); // Überstunden-Auszahlung (lib/overtime.js)
+  const [startMin, setStartMin] = useState(0); // Zeitkonto at the start (staff_start_balance, script 42)
   const [weekly, setWeekly] = useState(0); // own weekly hours (only needed for "Soll = Vertrag")
   const sollMode = (org.features || []).includes("soll_vertrag") ? "vertrag" : "plan";
   const [cmsg, setCmsg] = useState({ text: "", bad: false });
@@ -70,6 +71,7 @@ export default function EmployeeTimes({ org }) {
     setOt({ mode: otMode, stored: payoutMinutesByMonth(po.data || [], org.staffId) });
     const me = await sb.from("staff").select("weekly_hours").eq("id", org.staffId);
     setWeekly(me.data && me.data[0] ? Number(me.data[0].weekly_hours) || 0 : 0);
+    try { const sb0 = await sb.from("staff_start_balance").select("minutes").eq("staff_id", org.staffId); setStartMin(!sb0.error && sb0.data && sb0.data[0] ? Number(sb0.data[0].minutes) || 0 : 0); } catch (e) { setStartMin(0); }
     const tp = await sb.from("org_products").select("created_at").eq("org_id", org.orgId).eq("product", "time_tracking");
     setTtStart(tp.data && tp.data[0] && tp.data[0].created_at ? isoOf(new Date(tp.data[0].created_at)) : null);
     const co = await sb.from("attendance_corrections").select("session_id, field").eq("org_id", org.orgId).eq("staff_id", org.staffId);
@@ -121,7 +123,7 @@ export default function EmployeeTimes({ org }) {
     const ck = Object.keys(closedMap).map(Number).sort((a, b) => a - b);
     const firstClosed = ck.length ? `${Math.floor(ck[0] / 12)}-${String((ck[0] % 12) + 1).padStart(2, "0")}-01` : null;
     const from = [firstIso, firstClosed].filter(Boolean).sort()[0];
-    return walkBalance({ fromIso: from, untilIso: iso, dailyOf: (x) => (firstIso && x >= firstIso && x < todayIso && days[x] ? days[x].daily : 0), closedOf: (k) => closedMap[k] || 0, mode: ot.mode, stored: ot.stored }).balance;
+    return walkBalance({ fromIso: from, untilIso: iso, dailyOf: (x) => (firstIso && x >= firstIso && x < todayIso && days[x] ? days[x].daily : 0), closedOf: (k) => closedMap[k] || 0, mode: ot.mode, stored: ot.stored, start: startMin }).balance;
   };
   // today counts only once it is done (stamped in and out) – a day that has not started yet is no minus
   const total = balanceBefore(todayIso) + (days[todayIso] && days[todayIso].sessions.length && !days[todayIso].open ? days[todayIso].daily : 0);

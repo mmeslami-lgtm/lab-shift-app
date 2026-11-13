@@ -39,7 +39,7 @@ export default function MobileStamp({ org, withLocation, onClose, onOpenTimes, o
         body: JSON.stringify({ action: "mobil", direction, org: org.orgId, ...(pos || {}) }),
       });
       const body = await res.json().catch(() => ({}));
-      if (res.status === 409) { setState({ phase: "error", text: body.error || "Schon gestempelt." }); return; }
+      if (res.status === 409) { setState({ phase: "error", text: body.error || "Schon gestempelt.", suggest: body.suggest }); return; } // suggest: wrong button?
       if (!res.ok) throw new Error(body.error || `Fehler (${res.status})`);
       setState({ phase: "done", direction: body.direction || direction, time: body.time, located: body.located });
     } catch (e) {
@@ -84,7 +84,10 @@ export default function MobileStamp({ org, withLocation, onClose, onOpenTimes, o
         {state.phase === "error" && (
           <div style={{ width: "100%", maxWidth: 420 }}>
             <div role="alert" style={{ background: "#FCE5EA", color: "#8A2A3E", borderRadius: 18, padding: 18, fontSize: 16 }}>{state.text}</div>
-            <button onClick={() => setState({ phase: "choose" })} style={{ marginTop: 14, width: "100%", border: 0, borderRadius: 14, padding: "12px 0", fontSize: 16, fontWeight: 700, background: "#EAF1FB", color: "#0F2238", cursor: "pointer" }}>Noch einmal</button>
+            {state.suggest && (
+              <button onClick={() => stamp(state.suggest)} style={{ marginTop: 14, width: "100%", border: 0, borderRadius: 14, padding: "16px 0", fontSize: 18, fontWeight: 800, background: state.suggest === "out" ? "#D23B3B" : "#1F9D55", color: "#fff", cursor: "pointer" }}>Ja, {state.suggest === "out" ? "Gehen" : "Kommen"} stempeln</button>
+            )}
+            <button onClick={() => setState({ phase: "choose" })} style={{ marginTop: 14, width: "100%", border: 0, borderRadius: 14, padding: "12px 0", fontSize: 16, fontWeight: 700, background: "#EAF1FB", color: "#0F2238", cursor: "pointer" }}>{state.suggest ? "Abbrechen" : "Noch einmal"}</button>
           </div>
         )}
         {state.phase === "done" && onOpenTimes && (
