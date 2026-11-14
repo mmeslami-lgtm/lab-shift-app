@@ -48,6 +48,7 @@ export default function AdminDashboard({ view = "admin" }) {
   const [nf, setNf] = useState({ name: "", ownerEmail: "", password: "", products: { generic_planner: true, employee_app: true } });
   const [open, setOpen] = useState(null);
   const [showDone, setShowDone] = useState(false);
+  const [tzPlan, setTzPlan] = useState({}); // Demo-Anfrage -> gewählte Art der Testfirma (Standard: allgemein)
   const [mf, setMf] = useState({ email: "", role: "supervisor", staffId: "", password: "" });
   const [mErr, setMErr] = useState("");
   const [nErr, setNErr] = useState("");
@@ -241,6 +242,19 @@ export default function AdminDashboard({ view = "admin" }) {
                           onClick={() => act({ action: "demo_status", id: d.id, done: !done }, { key: "dm" + d.id, okText: done ? `„${d.company}“ wieder offen.` : `„${d.company}“ erledigt.` })}>
                           {label("dm" + d.id, done ? "Wieder öffnen" : "Erledigt ✓")}
                         </button>
+                        {!d.org_id && (
+                          <span data-tz={d.id} style={{ display: "inline-flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+                            <select aria-label="Art der Testfirma" value={tzPlan[d.id] || "generic_planner"} onChange={(e) => setTzPlan({ ...tzPlan, [d.id]: e.target.value })} style={{ ...fld, width: "auto", marginTop: 0, padding: "6px 8px" }}>
+                              <option value="generic_planner">Dienstplaner allgemein</option>
+                              <option value="lab_planner">Dienstplaner Labor</option>
+                            </select>
+                            <button style={{ ...ghost, background: PRIMARY, color: "#fff", borderColor: PRIMARY }} disabled={busy}
+                              onClick={() => { if (window.confirm(`Testzugang (14 Tage) für „${d.company}“ anlegen?\n\nEs wird eine Testfirma mit Inhaber-Konto ${d.email} angelegt und eine E-Mail mit vorläufigem Passwort an ${d.email} geschickt.`)) act({ action: "testzugang", id: d.id, planner: tzPlan[d.id] || "generic_planner" }, { key: "tz" + d.id, title: "Testzugang angelegt – die E-Mail an den Kunden konnte NICHT gesendet werden. Bitte diese Zugangsdaten selbst weitergeben", okText: `Testzugang für „${d.company}“ angelegt.` }); }}>
+                              {label("tz" + d.id, "Testzugang 14 Tage")}
+                            </button>
+                          </span>
+                        )}
+                        {d.org_id && <span data-tz-done={d.id} style={{ fontSize: 13, color: "#1F6347", fontWeight: 600, alignSelf: "center" }}>✓ Testzugang angelegt{(() => { const f = firms.find((x) => x.id === d.org_id); return f ? ` („${f.name}“)` : ""; })()}</span>}
                         <button style={{ ...ghost, color: "#B3263E" }} disabled={busy}
                           onClick={() => { if (window.confirm(`Anfrage von „${d.company}“ endgültig löschen?`)) act({ action: "demo_delete", id: d.id }, { key: "dd" + d.id, okText: "Anfrage gelöscht." }); }}>
                           {label("dd" + d.id, "Löschen")}
@@ -304,6 +318,21 @@ export default function AdminDashboard({ view = "admin" }) {
             {f.trialUntil && (
               <button style={{ ...ghost, background: "#DDF2E8", color: "#1F6347", borderColor: "#B7E1CB" }} disabled={busy} onClick={() => { if (window.confirm(`„${f.name}“ dauerhaft freischalten (keine Testphase mehr)?`)) act({ action: "set_trial", orgId: f.id, mode: "off" }, { key: "to" + f.id, okText: `„${f.name}“ ist dauerhaft freigeschaltet.` }); }}>
                 {label("to" + f.id, "Dauerhaft freischalten")}
+              </button>
+            )}
+            {f.trialUntil && (
+              <button data-trial-extend={f.id} style={ghost} disabled={busy} onClick={() => act({ action: "set_trial", orgId: f.id, mode: "extend" }, { key: "tx" + f.id, okText: `Testphase für „${f.name}“ um 14 Tage verlängert.` })}>
+                {label("tx" + f.id, "+14 Tage verlängern")}
+              </button>
+            )}
+            {f.trialUntil && (
+              <button data-trial-delete={f.id} style={{ ...ghost, color: "#B3263E" }} disabled={busy} onClick={() => {
+                const typed = window.prompt(`Testfirma „${f.name}“ mit ALLEN Daten und Konten endgültig löschen?\n\nZur Bestätigung bitte den Firmennamen genau eintippen:`);
+                if (typed === null) return;
+                if (typed.trim() !== f.name) { say("Name stimmt nicht – nichts gelöscht.", "error"); return; }
+                act({ action: "trial_delete", orgId: f.id }, { key: "tdel" + f.id, okText: `Testfirma „${f.name}“ gelöscht.` });
+              }}>
+                {label("tdel" + f.id, "Testfirma löschen")}
               </button>
             )}
           </div>

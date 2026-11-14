@@ -1,5 +1,6 @@
 import { createHash, randomBytes } from "crypto";
 import { supabaseAdmin } from "../../../lib/supabaseAdmin";
+import { trialOver, TRIAL_OVER_MSG } from "../../../lib/trial";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -181,6 +182,7 @@ export async function POST(request) {
       const m = await supabaseAdmin.from("memberships").select("role").eq("user_id", user.id).eq("org_id", orgId);
       if (!m.data || !m.data[0] || !["owner", "supervisor"].includes(m.data[0].role)) return json({ error: "Nur Leitung oder Inhaber können ein Terminal einrichten" }, 403);
       if (!(await hasProduct(orgId))) return json({ error: "Zeiterfassung ist für diese Firma nicht freigeschaltet (Plattform-Verwaltung)" }, 403);
+      if (await trialOver(orgId)) return json({ error: TRIAL_OVER_MSG }, 403); // Testphase vorbei: kein neues Terminal (Stempeln geht weiter)
       const ABC = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // no 0/O, 1/I
       const raw = Array.from(randomBytes(8), (x) => ABC[x % ABC.length]).join("");
       const code = raw.slice(0, 4) + "-" + raw.slice(4);

@@ -1,5 +1,6 @@
 import { randomBytes } from "crypto";
 import { supabaseAdmin } from "../../../lib/supabaseAdmin";
+import { trialOver, TRIAL_OVER_MSG } from "../../../lib/trial";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -55,6 +56,8 @@ export async function POST(request) {
   const orgId = String(body.org_id || "");
   const me = await leaderOf(request, orgId);
   if (!me) return json({ error: "Nur Leitung oder Inhaber dieser Firma." }, 403);
+  // Testphase vorbei: nur ansehen (list), nichts anlegen/ändern (Paket 38b)
+  if (body.action !== "list" && (await trialOver(orgId))) return json({ error: TRIAL_OVER_MSG }, 403);
   try {
     switch (body.action) {
       case "list": {
