@@ -17,6 +17,7 @@
 | وابستگی‌ها | next 14.2.5، react 18.3.1، @supabase/supabase-js 2.45.0، lucide-react، **jsqr 1.4.0** (جدید) |
 
 ## ۲. روال کار (تثبیت‌شده، از ۲۴ اکتبر بدون Pull request)
+- **(۱۹ نوامبر) آپلود گیت‌هاب حداکثر ۱۰۰ فایل در هر بار** («Yowza, that's a lot of files»). Firefox هم پوشه‌ها را جا انداخت. راه: **همیشه کنار زیپ کامل، یک زیپ کوچک «…-klein» فقط با فایل‌های تغییرکرده (با همان پوشه‌ها)** بده؛ کاربر آن را با **Edge** (وارد حساب گیت‌هاب) روی `upload/test` می‌کشد. Claude بعدش با `git clone` شاخهٔ test را با فایل‌های خودش مقایسه می‌کند (مخزن عمومی است). فایل `index.html` («Belegarchiv»، از پروژهٔ تاکسی) اشتباهی در ریشهٔ test رفته؛ کاربر بعداً پاک می‌کند.
 
 1. آپلود بسته در شاخهٔ **test** (گزینهٔ «Commit directly to the test branch»).
 2. امتحان روی آدرس آزمایشی.
@@ -221,17 +222,18 @@
 - تست: سرور با دیتابیس ساختگی ۲۶/۲۶؛ مرورگر کلیک‌به‌کلیک (Banner، ProductGate، /admin، موبایل ۳۷۵px) ۲۸/۲۸؛ دیتابیس واقعی در تراکنش لغوشده (بالا)؛ TypeScript: بدون خطای parse و «used before declaration».
 
 ### Land & Sprache – Dubai-Basis (بستهٔ D1، ۱۹ نوامبر؛ اسکریپت ۴۵)
-- **/admin، کارت هر شرکت:** «Land» (Deutschland / VAE (Dubai)) و «Sprache» (Deutsch / English). Zeitzone و Währung خودکار از کشور (VAE = Asia/Dubai، AED). تغییر کشور با پنجرهٔ تأیید. ثبت در `admin_log` (`set_land`). اکشن API: `set_land`.
-- **/admin، کارت «Feiertage VAE»** (بالای فهرست شرکت‌ها، تاشو): تاریخ + اسم ← «Hinzufügen» (همان تاریخ دوباره = اسم عوض می‌شود)، «Löschen» با تأیید؛ برای همهٔ شرکت‌های VAE. اکشن‌ها: `holiday_add`، `holiday_delete` (در `admin_log`). کاربر تاریخ‌های اسلامی (و بقیه) را هر سال خودش وارد می‌کند؛ هیچ تاریخی از پیش وارد نشده.
+- **/admin، داخل بخش تاشوی «Funktionen nur für diese Firma» هر شرکت (تصمیم کاربر ۱۹ نوامبر؛ اول بالای کارت بود، کاربر خواست جابه‌جا شود؛ اثر برای همهٔ بخش‌های شرکت می‌ماند، مثل بقیهٔ Funktionen):** «Land» (Deutschland / UAE) و «Sprache» (Deutsch / English)؛ اگر غیر از آلمان/آلمانی باشد، در عنوان بخش هم دیده می‌شود (مثلاً «· UAE · English»). Zeitzone و Währung خودکار از کشور (VAE = Asia/Dubai، AED). تغییر کشور با پنجرهٔ تأیید. ثبت در `admin_log` (`set_land`). اکشن API: `set_land`.
+- **/admin، کارت «Feiertage UAE»** (بالای فهرست شرکت‌ها، تاشو): تاریخ + اسم ← «Hinzufügen» (همان تاریخ دوباره = اسم عوض می‌شود)، «Löschen» با تأیید؛ برای همهٔ شرکت‌های VAE. اکشن‌ها: `holiday_add`، `holiday_delete` (در `admin_log`). کاربر تاریخ‌های اسلامی (و بقیه) را هر سال خودش وارد می‌کند؛ هیچ تاریخی از پیش وارد نشده.
+- **اسم کشور روی صفحه «UAE» است، نه «VAE»** (خواست کاربر ۱۹ نوامبر). کد داخلی همان `AE` است.
 - **متن دکمه:** «Testphase neu: 14 Tage ab heute» ← «Testphase erneuern: 14 Tage ab heute».
 - **تعطیلات:** `lib/timesheet.js` → `setCountryHolidays(country, list)`، `holidaysOf(year)`، `holidayCountry()`. `ProductGate` یک بار با `lib/country.js → loadCountry()` کشور/زبان/ساعت/پول و (فقط VAE) فهرست تعطیلات را می‌خواند و در ctx می‌گذارد (`country, language, timezone, currency`). همهٔ جاهایی که قبلاً `germanHolidays` بود (Soll = Vertrag، Stundenzettel، closedOnHolidays در دو برنامه‌ریز، AttendanceDialog) حالا `holidaysOf` هستند. برای آلمان نتیجه دقیقاً همان است (تست ۲۰۲۰–۲۰۳۵ و دو سال روزبه‌روز با نسخهٔ قبلی). اگر چیزی خوانده نشود ← آلمان. آخر هفته در امارات هم Sa/So است ← منطق پلن عوض نشد. بخش دستی «Feiertage» در نوار پلن مثل قبل دستی است.
-- **Zuschläge در VAE خاموش:** در Anwesenheit بخش «Zuschläge einstellen» پنهان؛ در Stundenzettel جعبهٔ «Zuschlagsstunden» و ستون «Zuschläge» نیست؛ متن پایین: «Feiertage: VAE (eingetragene Liste).» (`buildTimesheetHtml` با `noSurcharges`، `country`). کمک: `surchargesOn(ctx)`.
+- **Zuschläge در VAE خاموش:** در Anwesenheit بخش «Zuschläge einstellen» پنهان؛ در Stundenzettel جعبهٔ «Zuschlagsstunden» و ستون «Zuschläge» نیست؛ متن پایین: «Feiertage: UAE (eingetragene Liste).» (`buildTimesheetHtml` با `noSurcharges`، `country`). کمک: `surchargesOn(ctx)`.
 - **ساعت:** پیام «schon eingestempelt seit …» در `/api/zeit` و تاریخ پایان در `TrialBanner` با ساعت شرکت. پیام‌های مخصوص ادمین (Keep-alive، Demo، Testzugang) برلین می‌مانند. مرورگر در دبی خودش ساعت دبی دارد.
 - **پول:** فعلاً جایی دیده نمی‌شود (تنها جای پول = Zuschläge که در VAE خاموش است)؛ ستون برای D3/قیمت‌ها آماده است.
 - **دیکشنری:** `lib/i18n.js` → `t(lang, key, vars)` (نبود انگلیسی ← آلمانی ← خود کلید)، `localeOf(lang)` (en = en-GB). در D1 هنوز هیچ متنی روی صفحه عوض نشده؛ D2 از این استفاده می‌کند.
 - **دست نخورده:** فایل‌های اپ کارمند، مولد پلن، transport-scanner.
-- **تست:** TypeScript (parse + used-before-declaration) ۱۱ فایل OK؛ esbuild همهٔ importها OK؛ تست واحد تعطیلات/Stundenzettel/i18n ۳۶/۳۶؛ API ادمین با دیتابیس ساختگی ۱۵/۱۵؛ مرورگر (Land/Sprache + Feiertage VAE، کلیک‌ها) بدون خطا؛ دیتابیس واقعی در تراکنش rollback همه درست.
-- **امتحان کاربر در test:** ۱) /admin: یک شرکت آزمایشی را VAE + English کن ← زیرش «Asia/Dubai · AED». ۲) «Feiertage VAE» یک تاریخ وارد کن (مثلاً یک دوشنبه). ۳) با همان شرکت: Anwesenheit ← «Zuschläge einstellen» نباید باشد؛ Stundenzettel بدون Zuschläge، آن دوشنبه Soll 0. ۴) یک شرکت آلمانی: همه‌چیز مثل قبل. ۵) شرکت را دوباره Deutschland کن.
+- **تست:** TypeScript (parse + used-before-declaration) ۱۱ فایل OK؛ esbuild همهٔ importها OK؛ تست واحد تعطیلات/Stundenzettel/i18n ۳۶/۳۶؛ API ادمین با دیتابیس ساختگی ۱۵/۱۵؛ مرورگر (Land/Sprache + Feiertage UAE، کلیک‌ها) بدون خطا؛ دیتابیس واقعی در تراکنش rollback همه درست.
+- **امتحان کاربر در test:** ۱) /admin: در «Funktionen nur für diese Firma» یک شرکت آزمایشی را VAE + English کن ← زیرش «Asia/Dubai · AED». ۲) «Feiertage UAE» یک تاریخ وارد کن (مثلاً یک دوشنبه). ۳) با همان شرکت: Anwesenheit ← «Zuschläge einstellen» نباید باشد؛ Stundenzettel بدون Zuschläge، آن دوشنبه Soll 0. ۴) یک شرکت آلمانی: همه‌چیز مثل قبل. ۵) شرکت را دوباره Deutschland کن.
 
 ### امنیت و حقوقی
 هدرهای امنیتی، `/impressum`، `/datenschutz`، فوتر، robots/sitemap؛ RLS روی همهٔ جدول‌ها.

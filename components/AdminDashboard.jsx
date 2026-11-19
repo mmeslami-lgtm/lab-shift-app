@@ -287,7 +287,7 @@ export default function AdminDashboard({ view = "admin" }) {
         {nErr && <div role="alert" style={errBox}>{nErr}</div>}
       </div>
 
-      <HolidaysVAE holidays={holidays} act={act} busy={busy} label={label} />
+      <HolidaysUAE holidays={holidays} act={act} busy={busy} label={label} />
 
       <div style={{ fontSize: 14, color: MUTED, margin: "6px 2px 8px" }}>{firms.length} Firmen</div>
       {firms.map((f) => (
@@ -314,7 +314,6 @@ export default function AdminDashboard({ view = "admin" }) {
               </button>
             ))}
           </div>
-          <LandBox f={f} act={act} busy={busy} label={label} />
           <div data-trial-actions={f.id} style={{ display: "flex", gap: 8, flexWrap: "wrap", margin: "0 0 10px" }}>
             <button style={ghost} disabled={busy} onClick={() => act({ action: "set_trial", orgId: f.id, mode: "start" }, { key: "ts" + f.id, okText: `Testphase für „${f.name}“: 14 Tage ab heute.` })}>
               {label("ts" + f.id, f.trialUntil ? "Testphase erneuern: 14 Tage ab heute" : "Testphase 14 Tage starten")}
@@ -342,7 +341,8 @@ export default function AdminDashboard({ view = "admin" }) {
           </div>
           {Object.keys(FEATURES).length > 0 && (
             <details style={{ margin: "0 0 10px" }}>
-              <summary style={{ cursor: "pointer", fontSize: 13, color: MUTED }}>Funktionen nur für diese Firma ({Object.keys(FEATURES).filter((k) => f.features && f.features[k]).length} an)</summary>
+              <summary style={{ cursor: "pointer", fontSize: 13, color: MUTED }}>Funktionen nur für diese Firma ({Object.keys(FEATURES).filter((k) => f.features && f.features[k]).length} an{f.land && f.land.country !== "DE" ? ` · ${COUNTRIES[f.land.country] ? COUNTRIES[f.land.country].label : f.land.country}` : ""}{f.land && f.land.language !== "de" ? ` · ${LANGUAGES[f.land.language] || f.land.language}` : ""})</summary>
+              <div style={{ marginTop: 8 }}><LandBox f={f} act={act} busy={busy} label={label} /></div>
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
                 {Object.keys(FEATURES).map((k) => {
                   const on = !!(f.features && f.features[k]);
@@ -592,8 +592,8 @@ function LandBox({ f, act, busy, label }) {
   );
 }
 
-// Paket D1: Feiertage der VAE (gelten für alle Firmen mit Land VAE). Deutschland wird automatisch berechnet.
-function HolidaysVAE({ holidays, act, busy, label }) {
+// Paket D1: Feiertage der UAE (gelten für alle Firmen mit Land UAE). Deutschland wird automatisch berechnet.
+function HolidaysUAE({ holidays, act, busy, label }) {
   const [day, setDay] = useState("");
   const [name, setName] = useState("");
   const [err, setErr] = useState("");
@@ -603,8 +603,8 @@ function HolidaysVAE({ holidays, act, busy, label }) {
   const wd = (iso) => ["So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"][new Date(String(iso).slice(0, 10) + "T12:00:00").getDay()];
   return (
     <details data-holidays-vae style={{ ...card }}>
-      <summary style={{ cursor: "pointer", fontSize: 16, fontWeight: 700 }}>Feiertage VAE <span style={{ fontSize: 13, fontWeight: 400, color: MUTED }}>({holidays === null ? "Skript 45 fehlt" : `${list.length} eingetragen`})</span></summary>
-      <div style={{ fontSize: 13, color: MUTED, margin: "8px 0" }}>Gelten für alle Firmen mit Land „VAE“. Islamische Feiertage bitte jedes Jahr nach der offiziellen Bekanntgabe eintragen. Gleiches Datum noch einmal = Name wird ersetzt.</div>
+      <summary style={{ cursor: "pointer", fontSize: 16, fontWeight: 700 }}>Feiertage UAE <span style={{ fontSize: 13, fontWeight: 400, color: MUTED }}>({holidays === null ? "Skript 45 fehlt" : `${list.length} eingetragen`})</span></summary>
+      <div style={{ fontSize: 13, color: MUTED, margin: "8px 0" }}>Gelten für alle Firmen mit Land „UAE“. Islamische Feiertage bitte jedes Jahr nach der offiziellen Bekanntgabe eintragen. Gleiches Datum noch einmal = Name wird ersetzt.</div>
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-end" }}>
         <label style={{ fontSize: 12, color: MUTED }}>Datum<input type="date" value={day} onChange={(e) => setDay(e.target.value)} style={{ ...fld, width: 170 }} /></label>
         <label style={{ fontSize: 12, color: MUTED, flex: "1 1 220px" }}>Name<input value={name} maxLength={80} onChange={(e) => setName(e.target.value)} placeholder="z. B. Eid al-Fitr" style={fld} /></label>

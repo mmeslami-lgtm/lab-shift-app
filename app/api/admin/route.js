@@ -125,7 +125,7 @@ export async function GET(request) {
     const bl = await supabaseAdmin.from("org_billing").select("org_id, amount, cycle, next_due, note");
     const py = await supabaseAdmin.from("org_payments").select("id, org_id, amount, paid_on, for_due, note, created_at").order("created_at", { ascending: false }).limit(2000);
     const trialOf = {}; if (!tr.error) (tr.data || []).forEach((t) => { trialOf[t.id] = t.trial_until; });
-    // Land & Sprache (script 45). Missing columns/table = Deutschland, keine VAE-Feiertage.
+    // Land & Sprache (script 45). Missing columns/table = Deutschland, keine UAE-Feiertage.
     const lr = await supabaseAdmin.from("organizations").select("id, country, language, timezone, currency");
     const landOf = {}; if (!lr.error) (lr.data || []).forEach((l) => { landOf[l.id] = { country: l.country, language: l.language, timezone: l.timezone, currency: l.currency }; });
     const ch = await supabaseAdmin.from("country_holidays").select("country, day, name").order("day");
@@ -185,7 +185,7 @@ export async function POST(request) {
         return json({ ok: true });
       }
       case "holiday_add": {
-        // Feiertage VAE (country_holidays): Datum + Name; gleiches Datum = Name wird ersetzt
+        // Feiertage UAE (country_holidays): Datum + Name; gleiches Datum = Name wird ersetzt
         const country = body.country, day = String(body.day || ""), name = String(body.name || "").trim();
         if (country !== "AE" || !/^\d{4}-\d{2}-\d{2}$/.test(day) || isNaN(new Date(day + "T12:00:00").getTime())) return json({ error: "Bitte ein gültiges Datum angeben." }, 400);
         if (name.length < 1 || name.length > 80) return json({ error: "Bitte einen Namen angeben (höchstens 80 Zeichen)." }, 400);
