@@ -2,6 +2,7 @@ import { randomInt } from "crypto";
 import { supabaseAdmin } from "../../../lib/supabaseAdmin";
 import { FEATURES } from "../../../lib/features";
 import { sendMail, smtpConfigured } from "../../../lib/mailer";
+import { COUNTRIES, LANGUAGES } from "../../../lib/country";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -124,6 +125,10 @@ export async function GET(request) {
     const bl = await supabaseAdmin.from("org_billing").select("org_id, amount, cycle, next_due, note");
     const py = await supabaseAdmin.from("org_payments").select("id, org_id, amount, paid_on, for_due, note, created_at").order("created_at", { ascending: false }).limit(2000);
     const trialOf = {}; if (!tr.error) (tr.data || []).forEach((t) => { trialOf[t.id] = t.trial_until; });
+    // Land & Sprache (script 45). Missing columns/table = Deutschland, keine UAE-Feiertage.
+    const lr = await supabaseAdmin.from("organizations").select("id, country, language, timezone, currency");
+    const landOf = {}; if (!lr.error) (lr.data || []).forEach((l) => { landOf[l.id] = { country: l.country, language: l.language, timezone: l.timezone, currency: l.currency }; });
+    const ch = await supabaseAdmin.from("country_holidays").select("country, day, name").order("day");
     const firms = orgs.data.map((o) => ({
       ...o,
       products: Object.fromEntries(PRODUCTS.map((p) => [p, !!prods.data.find((x) => x.org_id === o.id && x.product === p && x.enabled)])),
@@ -131,6 +136,7 @@ export async function GET(request) {
       members: mems.data.filter((m) => m.org_id === o.id).map((m) => ({ userId: m.user_id, email: (users[m.user_id] || {}).email || "?", lastSignIn: (users[m.user_id] || {}).lastSignIn || null, role: m.role, staffId: m.staff_id, staffName: m.staff_id ? staffName[m.staff_id] || null : null })),
       staff: staff.data.filter((s) => s.org_id === o.id && s.active).map((s) => ({ id: s.id, name: s.name, hasLogin: mems.data.some((m) => m.staff_id === s.id) })),
       trialUntil: trialOf[o.id] || null,
+      land: landOf[o.id] || { country: "DE", language: "de", timezone: "Europe/Berlin", currency: "EUR" },
       billing: bl.error ? null : ((bl.data || []).find((b) => b.org_id === o.id) || null),
       payments: py.error ? [] : (py.data || []).filter((p) => p.org_id === o.id).slice(0, 6),
       acceptances: la.error ? [] : (la.data || []).filter((a) => a.org_id === o.id).map((a) => ({ doc: a.doc, version: a.version, at: a.accepted_at, email: a.user_email })),
@@ -138,7 +144,7 @@ export async function GET(request) {
     // Demo-Anfragen (script 33). Missing columns or table = empty list, never breaks the page.
     let dr = await supabaseAdmin.from("demo_requests").select("id, created_at, company, email, phone, message, status, mail_sent, mail_error, done_at, org_id").order("created_at", { ascending: false }).limit(300);
     if (dr.error) dr = await supabaseAdmin.from("demo_requests").select("id, created_at, company, email, phone, message, status, mail_sent, mail_error, done_at").order("created_at", { ascending: false }).limit(300); // script 44 missing
-    return json({ me: auth.user.email, firms, demoRequests: dr.error ? [] : dr.data });
+    return json({ me: auth.user.email, firms, demoRequests: dr.error ? [] : dr.data, holidays: ch.error ? null : (ch.data || []) });
   } catch (e) {
     return json({ error: "Laden fehlgeschlagen." }, 500);
   }
@@ -165,6 +171,36 @@ export async function POST(request) {
         if (r.error) throw r.error;
         if (!r.data || r.data.length === 0) return json({ error: "Anfrage nicht gefunden." }, 404);
         await log(me, "demo_delete", null, id, { company: r.data[0].company });
+        return json({ ok: true });
+      }
+      case "set_land": {
+        // Paket D1: Land + Sprache einer Firma. Zeitzone und Währung folgen dem Land.
+        const orgId = String(body.orgId || ""), country = body.country, language = body.language;
+        if (!COUNTRIES[country] || !LANGUAGES[language]) return json({ error: "Ungültige Anfrage." }, 400);
+        const c = COUNTRIES[country];
+        const r = await supabaseAdmin.from("organizations").update({ country, language, timezone: c.timezone, currency: c.currency }).eq("id", orgId).select("id, name");
+        if (r.error) throw r.error;
+        if (!r.data || r.data.length === 0) return json({ error: "Firma nicht gefunden." }, 404);
+        await log(me, "set_land", orgId, null, { country, language, timezone: c.timezone, currency: c.currency });
+        return json({ ok: true });
+      }
+      case "holiday_add": {
+        // Feiertage UAE (country_holidays): Datum + Name; gleiches Datum = Name wird ersetzt
+        const country = body.country, day = String(body.day || ""), name = String(body.name || "").trim();
+        if (country !== "AE" || !/^\d{4}-\d{2}-\d{2}$/.test(day) || isNaN(new Date(day + "T12:00:00").getTime())) return json({ error: "Bitte ein gültiges Datum angeben." }, 400);
+        if (name.length < 1 || name.length > 80) return json({ error: "Bitte einen Namen angeben (höchstens 80 Zeichen)." }, 400);
+        const r = await supabaseAdmin.from("country_holidays").upsert({ country, day, name }, { onConflict: "country,day" });
+        if (r.error) throw r.error;
+        await log(me, "holiday_add", null, day, { country, name });
+        return json({ ok: true });
+      }
+      case "holiday_delete": {
+        const country = body.country, day = String(body.day || "");
+        if (country !== "AE" || !/^\d{4}-\d{2}-\d{2}$/.test(day)) return json({ error: "Ungültige Anfrage." }, 400);
+        const r = await supabaseAdmin.from("country_holidays").delete().eq("country", country).eq("day", day).select("day, name");
+        if (r.error) throw r.error;
+        if (!r.data || r.data.length === 0) return json({ error: "Feiertag nicht gefunden." }, 404);
+        await log(me, "holiday_delete", null, day, { country, name: r.data[0].name });
         return json({ ok: true });
       }
       case "set_trial": {
