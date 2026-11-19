@@ -11,6 +11,7 @@ import ScanStamp from "./ScanStamp";
 import MobileStamp from "./MobileStamp";
 import Schulung from "./Schulung";
 import { withPlaceCodes, routeHref } from "../lib/locations";
+import { tx, monthName, dayMonth, dec } from "../lib/i18n";
 
 // ---------------------------------------------------------------------------------------------
 // Employee app on REAL data. Reads only what the database rules allow for this login:
@@ -24,9 +25,6 @@ const PRIMARY = "#243B6B";
 const PAPER = "#E9EEF8";
 const MUTED = "#6B7588";
 const LINE = "#D9DEE7";
-const MONTH_DE = ["Januar", "Februar", "März", "April", "Mai", "Juni", "Juli", "August", "September", "Oktober", "November", "Dezember"];
-const WEEKDAY_SHORT = ["So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"];
-const WEEKDAY_LONG = ["Sonntag", "Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag"];
 const GRID_HEAD = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"];
 
 // Colours are handed out in the order the supervisor listed the shifts.
@@ -46,7 +44,7 @@ const daysIn = (y, m) => new Date(y, m + 1, 0).getDate();
 const hhmm = (t) => String(t || "").slice(0, 5);
 const toMin = (t) => { const [h, m] = String(t).split(":"); return (+h || 0) * 60 + (+m || 0); };
 const parseIso = (s) => { const [y, m, d] = s.split("-").map(Number); return new Date(y, m - 1, d); };
-const fmtH = (h) => h.toFixed(1).replace(".", ",");
+const fmtH = (h) => dec(h.toFixed(1));
 
 function shiftIcon(def) {
   if (def.requires_rest_after) return Moon;
@@ -84,7 +82,7 @@ function PlaceLine({ place, dark }) {
         <div style={{ fontWeight: 700 }}>📍 {place.name}</div>
         {place.address && <div style={{ opacity: 0.75, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{place.address}</div>}
       </div>
-      {place.address && <a href={routeHref(place)} target="_blank" rel="noopener noreferrer" style={{ flex: "none", fontSize: 13, fontWeight: 700, padding: "6px 12px", borderRadius: 999, background: dark ? "#FFFFFF" : "#1B2433", color: dark ? "#1B2433" : "#FFFFFF", textDecoration: "none" }}>Route</a>}
+      {place.address && <a href={routeHref(place)} target="_blank" rel="noopener noreferrer" style={{ flex: "none", fontSize: 13, fontWeight: 700, padding: "6px 12px", borderRadius: 999, background: dark ? "#FFFFFF" : "#1B2433", color: dark ? "#1B2433" : "#FFFFFF", textDecoration: "none" }}>{tx("Route")}</a>}
     </div>
   );
 }
@@ -222,7 +220,7 @@ export default function EmployeeLive() {
   const shownDefs = useMemo(() => (defs || []).filter((d) => d.active !== false), [defs]);
   const codes = useMemo(() => makeCodes(shownDefs), [shownDefs]);
   const styleOf = (key) => { const i = Math.max(0, shownDefs.findIndex((d) => d.key === key)); return PALETTE[i % PALETTE.length]; };
-  const nameOf = (id) => (people.find((p) => p.id === id) || {}).name || "Unbekannt";
+  const nameOf = (id) => (people.find((p) => p.id === id) || {}).name || tx("Unbekannt");
 
   const grid = useMemo(() => {
     const lead = (new Date(view.y, view.m, 1).getDay() + 6) % 7;
@@ -250,16 +248,16 @@ export default function EmployeeLive() {
     );
   }
   const relDay = (iso) => {
-    if (iso === todayIso) return "Heute";
+    if (iso === todayIso) return tx("Heute");
     const t = parseIso(todayIso); t.setDate(t.getDate() + 1);
-    if (iso === isoOf(t.getFullYear(), t.getMonth(), t.getDate())) return "Morgen";
-    const d = parseIso(iso); return `${WEEKDAY_SHORT[d.getDay()]}, ${d.getDate()}. ${MONTH_DE[d.getMonth()].slice(0, 3)}.`;
+    if (iso === isoOf(t.getFullYear(), t.getMonth(), t.getDate())) return tx("Morgen");
+    const d = parseIso(iso); return dayMonth(d, { weekday: "short", month: "short" });
   };
 
   const selDate = parseIso(selIso);
   const selKey = myMonth[selIso];
   const monthHours = Object.values(myMonth).reduce((sum, k) => sum + (defByKey[k] ? netHours(defByKey[k]) : 0), 0);
-  const tabs = [["plan", "Plan", CalendarDays], ["team", "Team", Users], ["requests", "Anträge", FileText], ["time", "Zeiten", Clock], ["wishes", "Wünsche", Gift]];
+  const tabs = [["plan", tx("Plan"), CalendarDays], ["team", tx("Team"), Users], ["requests", tx("Anträge"), FileText], ["time", tx("Zeiten"), Clock], ["wishes", tx("Wünsche"), Gift]];
 
   return (
     <div dir="ltr" style={{ background: PAPER, color: INK, fontFamily: "system-ui, -apple-system, 'Segoe UI', sans-serif", minHeight: "100vh", paddingBottom: 96 }}>
@@ -271,12 +269,12 @@ export default function EmployeeLive() {
             <div style={{ fontSize: 13, color: MUTED }}>{org.orgName}</div>
             <div style={{ fontSize: 22, fontWeight: 700, letterSpacing: -0.3 }}>{(people.find((p) => p.id === my) || {}).name || org.session.user.email}</div>
           </div>
-          <button onClick={() => setSchulung(true)} aria-label="Schulung und Hilfe" style={{ border: "1.5px solid #9AAED0", borderRadius: 12, background: "#fff", color: INK, fontSize: 14, fontWeight: 600, padding: "9px 12px", cursor: "pointer", marginRight: 6 }}>🎓 Hilfe</button>
-          <button onClick={() => sb.auth.signOut()} style={{ border: "1.5px solid #9AAED0", borderRadius: 12, background: "#fff", color: INK, fontSize: 14, fontWeight: 600, padding: "9px 14px", cursor: "pointer" }}>Abmelden</button>
+          <button onClick={() => setSchulung(true)} aria-label={tx("Schulung und Hilfe")} style={{ border: "1.5px solid #9AAED0", borderRadius: 12, background: "#fff", color: INK, fontSize: 14, fontWeight: 600, padding: "9px 12px", cursor: "pointer", marginRight: 6 }}>{tx("🎓 Hilfe")}</button>
+          <button onClick={() => sb.auth.signOut()} style={{ border: "1.5px solid #9AAED0", borderRadius: 12, background: "#fff", color: INK, fontSize: 14, fontWeight: 600, padding: "9px 14px", cursor: "pointer" }}>{tx("Abmelden")}</button>
         </div>
 
-        {error && <Card style={{ background: "#FCE5EA", color: "#8A2A3E", fontSize: 13, marginBottom: 12 }}>Fehler beim Laden: {error}</Card>}
-        {!my && <Card style={{ background: "#FFF1D2", color: "#7A4E00", fontSize: 14, marginBottom: 12 }}>Dein Konto ist noch keiner Person zugeordnet. Die Leitung muss das einrichten, dann siehst du deine Schichten.</Card>}
+        {error && <Card style={{ background: "#FCE5EA", color: "#8A2A3E", fontSize: 13, marginBottom: 12 }}>{tx("Fehler beim Laden:")} {tx(error)}</Card>}
+        {!my && <Card style={{ background: "#FFF1D2", color: "#7A4E00", fontSize: 14, marginBottom: 12 }}>{tx("Dein Konto ist noch keiner Person zugeordnet. Die Leitung muss das einrichten, dann siehst du deine Schichten.")}</Card>}
 
         {tab === "plan" && (
           <>
@@ -288,8 +286,8 @@ export default function EmployeeLive() {
                     <>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
                         <div>
-                          <div style={{ fontSize: 13, opacity: 0.75 }}>Deine nächste Schicht · {relDay(nextShift.shift_date)}
-                            {(myChanges[nextShift.shift_date] || []).some((c) => c.key === nextShift.shift_key && c.kind !== "cancelled") && <span style={{ marginLeft: 8, background: "#F59E0B", color: "#1B2433", borderRadius: 999, padding: "2px 8px", fontSize: 11, fontWeight: 700 }}>Geändert</span>}
+                          <div style={{ fontSize: 13, opacity: 0.75 }}>{tx("Deine nächste Schicht ·")} {relDay(nextShift.shift_date)}
+                            {(myChanges[nextShift.shift_date] || []).some((c) => c.key === nextShift.shift_key && c.kind !== "cancelled") && <span style={{ marginLeft: 8, background: "#F59E0B", color: "#1B2433", borderRadius: 999, padding: "2px 8px", fontSize: 11, fontWeight: 700 }}>{tx("Geändert")}</span>}
                           </div>
                           <div style={{ fontSize: 26, fontWeight: 700, marginTop: 4, letterSpacing: -0.4 }}>{def.label}</div>
                         </div>
@@ -300,18 +298,18 @@ export default function EmployeeLive() {
                       <PlaceLine place={myPlaces[nextShift.shift_date]} dark />
                     </>
                   );
-                })() : <div style={{ fontSize: 15 }}>Für dich ist noch keine Schicht veröffentlicht.</div>}
+                })() : <div style={{ fontSize: 15 }}>{tx("Für dich ist noch keine Schicht veröffentlicht.")}</div>}
               </div>
             )}
 
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-              <button aria-label="Vorheriger Monat" onClick={() => shiftMonth(-1)} style={navBtn}><ChevronLeft size={18} /></button>
-              <div style={{ fontSize: 17, fontWeight: 650 }}>{MONTH_DE[view.m]} {view.y}</div>
-              <button aria-label="Nächster Monat" onClick={() => shiftMonth(1)} style={navBtn}><ChevronRight size={18} /></button>
+              <button aria-label={tx("Vorheriger Monat")} onClick={() => shiftMonth(-1)} style={navBtn}><ChevronLeft size={18} /></button>
+              <div style={{ fontSize: 17, fontWeight: 650 }}>{monthName(view.m)} {view.y}</div>
+              <button aria-label={tx("Nächster Monat")} onClick={() => shiftMonth(1)} style={navBtn}><ChevronRight size={18} /></button>
             </div>
             <Card style={{ padding: "12px 10px" }}>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", marginBottom: 6 }}>
-                {GRID_HEAD.map((h) => <div key={h} style={{ textAlign: "center", fontSize: 11, color: MUTED }}>{h}</div>)}
+                {GRID_HEAD.map((h) => <div key={h} style={{ textAlign: "center", fontSize: 11, color: MUTED }}>{tx(h)}</div>)}
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 4 }}>
                 {grid.map((d, i) => {
@@ -319,12 +317,12 @@ export default function EmployeeLive() {
                   const iso = isoOf(view.y, view.m, d); const key = myMonth[iso]; const st = key ? styleOf(key) : null;
                   const today = iso === todayIso;
                   return (
-                    <button key={d} onClick={() => setSelIso(iso)} aria-label={`${d}. ${MONTH_DE[view.m]}${key && defByKey[key] ? ", " + defByKey[key].label : ", frei"}${(myChanges[iso] || []).length ? " (geändert)" : ""}`}
+                    <button key={d} onClick={() => setSelIso(iso)} aria-label={`${dayMonth(new Date(view.y, view.m, d))}${key && defByKey[key] ? ", " + defByKey[key].label : tx(", frei")}${(myChanges[iso] || []).length ? tx(" (geändert)") : ""}`}
                       style={{ position: "relative", height: 54, borderRadius: 12, border: iso === selIso ? `2px solid ${PRIMARY}` : "2px solid transparent", background: st ? st.soft : PAPER, padding: "5px 0", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "space-between", cursor: "pointer" }}>
                       <span className="tn" style={{ fontSize: 13, fontWeight: today ? 800 : 500, color: today ? "#fff" : INK, background: today ? PRIMARY : "transparent", borderRadius: 10, minWidth: 22, lineHeight: "22px", textAlign: "center" }}>{d}</span>
                       {st ? <span style={{ fontSize: 11, fontWeight: 700, color: st.ink }}>{codes[key] || "?"}</span>
                         : (myChanges[iso] || []).some((c) => c.kind === "cancelled") ? <span style={{ fontSize: 11, fontWeight: 700, color: "#B45309" }}>✕</span>
-                        : closedDays.has(iso) ? <span style={{ fontSize: 10, fontWeight: 600, color: MUTED }}>zu</span>
+                        : closedDays.has(iso) ? <span style={{ fontSize: 10, fontWeight: 600, color: MUTED }}>{tx("zu")}</span>
                         : halfDays[iso] ? <span style={{ fontSize: 10, fontWeight: 600, color: MUTED }}>½</span> : <span style={{ height: 14 }} />}
                       {(myChanges[iso] || []).length > 0 && <i aria-hidden="true" style={{ position: "absolute", top: 4, right: 5, width: 7, height: 7, borderRadius: 7, background: "#F59E0B" }} />}
                     </button>
@@ -334,17 +332,17 @@ export default function EmployeeLive() {
               <div style={{ display: "flex", flexWrap: "wrap", gap: "6px 14px", marginTop: 12, paddingLeft: 4, fontSize: 11, color: MUTED }}>
                 {shownDefs.map((d) => <span key={d.key} style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><i style={{ width: 9, height: 9, borderRadius: 3, background: styleOf(d.key).solid, display: "inline-block" }} />{codes[d.key]} {d.label}</span>)}
               </div>
-              {Object.keys(myChanges).length > 0 && <div style={{ fontSize: 11, color: "#B45309", marginTop: 8, paddingLeft: 4 }}>● geändert · ✕ entfällt</div>}
-              {(closedDays.size > 0 || Object.keys(halfDays).length > 0) && <div style={{ fontSize: 11, color: MUTED, marginTop: 6, paddingLeft: 4 }}>{[closedDays.size > 0 && "zu = Betrieb geschlossen", Object.keys(halfDays).length > 0 && "½ = nur halber Tag geöffnet"].filter(Boolean).join(" · ")}</div>}
-              <div className="tn" style={{ fontSize: 12, color: MUTED, marginTop: 10, paddingLeft: 4 }}>Geplant in diesem Monat: {fmtH(monthHours)} Std.</div>
+              {Object.keys(myChanges).length > 0 && <div style={{ fontSize: 11, color: "#B45309", marginTop: 8, paddingLeft: 4 }}>{tx("● geändert · ✕ entfällt")}</div>}
+              {(closedDays.size > 0 || Object.keys(halfDays).length > 0) && <div style={{ fontSize: 11, color: MUTED, marginTop: 6, paddingLeft: 4 }}>{[closedDays.size > 0 && tx("zu = Betrieb geschlossen"), Object.keys(halfDays).length > 0 && tx("½ = nur halber Tag geöffnet")].filter(Boolean).join(" · ")}</div>}
+              <div className="tn" style={{ fontSize: 12, color: MUTED, marginTop: 10, paddingLeft: 4 }}>{tx("Geplant in diesem Monat:")} {fmtH(monthHours)} {tx("Std.")}</div>
             </Card>
 
             <Card style={{ marginTop: 14 }}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-                <div style={{ fontSize: 15, fontWeight: 650 }}>{WEEKDAY_LONG[selDate.getDay()]}, {selDate.getDate()}. {MONTH_DE[selDate.getMonth()]}</div>
+                <div style={{ fontSize: 15, fontWeight: 650 }}>{dayMonth(selDate, { weekday: "long" })}</div>
                 <div style={{ display: "flex", gap: 6 }}>
-                  <button aria-label="Vorheriger Tag" onClick={() => moveSel(-1)} style={{ ...navBtn, width: 30, height: 30 }}><ChevronLeft size={16} /></button>
-                  <button aria-label="Nächster Tag" onClick={() => moveSel(1)} style={{ ...navBtn, width: 30, height: 30 }}><ChevronRight size={16} /></button>
+                  <button aria-label={tx("Vorheriger Tag")} onClick={() => moveSel(-1)} style={{ ...navBtn, width: 30, height: 30 }}><ChevronLeft size={16} /></button>
+                  <button aria-label={tx("Nächster Tag")} onClick={() => moveSel(1)} style={{ ...navBtn, width: 30, height: 30 }}><ChevronRight size={16} /></button>
                 </div>
               </div>
               {selKey && defByKey[selKey] ? (() => {
@@ -356,16 +354,16 @@ export default function EmployeeLive() {
                       <div style={{ fontWeight: 650, color: st.ink }}>{def.label}</div>
                       <div className="tn" style={{ fontSize: 13, color: MUTED }}>{hhmm(def.start_time)} – {hhmm(def.end_time)}</div>
                     </div>
-                    <div className="tn" style={{ fontSize: 13, fontWeight: 650, color: st.ink }}>{fmtH(netHours(def))} Std.</div>
+                    <div className="tn" style={{ fontSize: 13, fontWeight: 650, color: st.ink }}>{fmtH(netHours(def))} {tx("Std.")}</div>
                   </div>
                 );
-              })() : <div style={{ fontSize: 14, color: MUTED }}>{closedDays.has(selIso) ? "Der Betrieb ist an diesem Tag geschlossen." : halfDays[selIso] ? `Kein Dienst. Der Betrieb ist an diesem Tag nur ${halfDays[selIso] === "am" ? "vormittags" : "nachmittags"} geöffnet.` : "Kein Dienst. Der Tag ist frei."}</div>}
+              })() : <div style={{ fontSize: 14, color: MUTED }}>{closedDays.has(selIso) ? tx("Der Betrieb ist an diesem Tag geschlossen.") : halfDays[selIso] ? tx("Kein Dienst. Der Betrieb ist an diesem Tag nur {0} geöffnet.", halfDays[selIso] === "am" ? "vormittags" : "nachmittags") : tx("Kein Dienst. Der Tag ist frei.")}</div>}
               {selKey && defByKey[selKey] && <PlaceLine place={myPlaces[selIso]} />}
               {(myChanges[selIso] || []).map((c, i) => (
                 <div key={i} style={{ marginTop: 10, background: "#FFF1D2", color: "#7A4E00", borderRadius: 12, padding: "9px 12px", fontSize: 13, fontWeight: 600 }}>
                   {c.kind === "cancelled"
-                    ? `Deine Schicht „${(defByKey[c.key] || {}).label || c.key}“ an diesem Tag entfällt.`
-                    : `Geändert: Du bist neu für „${(defByKey[c.key] || {}).label || c.key}“ eingeteilt.`}
+                    ? tx("Deine Schicht „{0}“ an diesem Tag entfällt.", (defByKey[c.key] || {}).label || c.key)
+                    : tx("Geändert: Du bist neu für „{0}“ eingeteilt.", (defByKey[c.key] || {}).label || c.key)}
                 </div>
               ))}
             </Card>
@@ -378,31 +376,31 @@ export default function EmployeeLive() {
           return (
             <>
               <div style={{ display: "flex", background: "#E7EBF2", borderRadius: 14, padding: 3, marginBottom: 12 }}>
-                {[["people", "Mitarbeitende"], ["shifts", "Schichten"]].map(([k, l]) => (
+                {[["people", tx("Mitarbeitende")], ["shifts", tx("Schichten")]].map(([k, l]) => (
                   <button key={k} onClick={() => setTeamMode(k)} style={{ flex: 1, border: 0, borderRadius: 11, padding: "9px 0", fontSize: 14, fontWeight: 650, cursor: "pointer", background: teamMode === k ? "#fff" : "transparent", color: teamMode === k ? PRIMARY : MUTED }}>{l}</button>
                 ))}
               </div>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-                <button aria-label="Vorheriger Tag" onClick={() => moveSel(-1)} style={navBtn}><ChevronLeft size={18} /></button>
-                <div style={{ fontSize: 16, fontWeight: 650 }}>{WEEKDAY_SHORT[selDate.getDay()]}, {selDate.getDate()}. {MONTH_DE[selDate.getMonth()].slice(0, 3)}.</div>
-                <button aria-label="Nächster Tag" onClick={() => moveSel(1)} style={navBtn}><ChevronRight size={18} /></button>
+                <button aria-label={tx("Vorheriger Tag")} onClick={() => moveSel(-1)} style={navBtn}><ChevronLeft size={18} /></button>
+                <div style={{ fontSize: 16, fontWeight: 650 }}>{dayMonth(selDate, { weekday: "short", month: "short" })}</div>
+                <button aria-label={tx("Nächster Tag")} onClick={() => moveSel(1)} style={navBtn}><ChevronRight size={18} /></button>
               </div>
-              <div style={{ fontSize: 12, color: MUTED, margin: "0 2px 8px" }}>{working.length} im Dienst · {freePeople.length} nicht im Dienst</div>
+              <div style={{ fontSize: 12, color: MUTED, margin: "0 2px 8px" }}>{working.length} {tx("im Dienst ·")} {freePeople.length} {tx("nicht im Dienst")}</div>
 
               {teamMode === "people" && (
                 <>
                   {working.map((w) => { const d = defByKey[w.key]; const st = styleOf(w.key); return (
                     <div key={w.id + w.key} style={{ background: "#fff", borderRadius: 16, padding: "12px 14px", marginBottom: 8, display: "flex", gap: 12, alignItems: "center" }}>
                       <i style={{ width: 5, alignSelf: "stretch", borderRadius: 3, background: st.solid }} />
-                      <div><div style={{ fontSize: 15, fontWeight: w.id === my ? 700 : 600 }}>{nameOf(w.id)}{w.id === my ? " (du)" : ""}</div>
+                      <div><div style={{ fontSize: 15, fontWeight: w.id === my ? 700 : 600 }}>{nameOf(w.id)}{w.id === my ? tx(" (du)") : ""}</div>
                         <div className="tn" style={{ fontSize: 13, color: st.ink }}>{d ? `${d.label} · ${hhmm(d.start_time)} – ${hhmm(d.end_time)}` : w.key}</div></div>
                     </div>); })}
                   {freePeople.map((p) => (
                     <div key={p.id} style={{ background: "#EDEFF4", borderRadius: 16, padding: "12px 14px", marginBottom: 8, display: "flex", gap: 12, alignItems: "center" }}>
                       <i style={{ width: 5, alignSelf: "stretch", borderRadius: 3, background: "#C4CAD6" }} />
-                      <div><div style={{ fontSize: 15, fontWeight: p.id === my ? 700 : 600 }}>{p.name}{p.id === my ? " (du)" : ""}</div><div style={{ fontSize: 13, color: MUTED }}>Frei</div></div>
+                      <div><div style={{ fontSize: 15, fontWeight: p.id === my ? 700 : 600 }}>{p.name}{p.id === my ? tx(" (du)") : ""}</div><div style={{ fontSize: 13, color: MUTED }}>{tx("Frei")}</div></div>
                     </div>))}
-                  {!people.length && <div style={{ fontSize: 14, color: MUTED }}>Keine Personen sichtbar.</div>}
+                  {!people.length && <div style={{ fontSize: 14, color: MUTED }}>{tx("Keine Personen sichtbar.")}</div>}
                 </>
               )}
               {teamMode === "shifts" && shownDefs.map((d) => {
@@ -412,9 +410,9 @@ export default function EmployeeLive() {
                     <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
                       <i style={{ width: 5, alignSelf: "stretch", minHeight: 38, borderRadius: 3, background: st.solid }} />
                       <div style={{ flex: 1 }}><div style={{ fontSize: 15, fontWeight: 650 }}>{d.label}</div><div className="tn" style={{ fontSize: 13, color: MUTED }}>{hhmm(d.start_time)} – {hhmm(d.end_time)}</div></div>
-                      <span style={{ fontSize: 13, color: MUTED }}>{list.length} {list.length === 1 ? "Person" : "Personen"}</span>
+                      <span style={{ fontSize: 13, color: MUTED }}>{list.length} {list.length === 1 ? tx("Person") : tx("Personen")}</span>
                     </div>
-                    {list.map((w) => <div key={w.id} style={{ fontSize: 14, padding: "4px 0 0 17px", fontWeight: w.id === my ? 700 : 400 }}>{nameOf(w.id)}{w.id === my ? " (du)" : ""}</div>)}
+                    {list.map((w) => <div key={w.id} style={{ fontSize: 14, padding: "4px 0 0 17px", fontWeight: w.id === my ? 700 : 400 }}>{nameOf(w.id)}{w.id === my ? tx(" (du)") : ""}</div>)}
                   </div>
                 );
               })}
@@ -426,9 +424,9 @@ export default function EmployeeLive() {
 
         <StampReminder org={org} onOpenTimes={() => setTab("time")} />
         {(org.products || []).includes("time_tracking") && org.staffId && (
-          <button onClick={() => (mobil ? setMobilOpen(true) : setScanOpen(true))} aria-label={mobil ? "Stempeln: Kommen oder Gehen" : "Stempeln: QR-Code am Terminal scannen"}
+          <button onClick={() => (mobil ? setMobilOpen(true) : setScanOpen(true))} aria-label={mobil ? tx("Stempeln: Kommen oder Gehen") : tx("Stempeln: QR-Code am Terminal scannen")}
             style={{ position: "fixed", right: 16, bottom: "calc(84px + env(safe-area-inset-bottom))", zIndex: 40, border: 0, borderRadius: 999, background: "#243B6B", color: "#fff", fontSize: 16, fontWeight: 700, padding: "14px 18px", boxShadow: "0 6px 18px rgba(15,34,56,.35)", cursor: "pointer" }}>
-            {mobil ? "⏱ Stempeln" : "📷 Stempeln"}
+            {mobil ? tx("⏱ Stempeln") : tx("📷 Stempeln")}
           </button>
         )}
         {scanOpen && <ScanStamp org={org} onClose={() => setScanOpen(false)} onOpenTimes={() => setTab("time")} />}

@@ -2,6 +2,7 @@
 
 import React, { useCallback, useEffect, useState } from "react";
 import { absenceMap } from "../lib/absence";
+import { tx } from "../lib/i18n";
 
 // Pop-up in the employee app: "Kommen vergessen?" 30 minutes after the start of a planned shift
 // without any stamp, and "Gehen vergessen?" when a stamp is open for more than 12 hours.
@@ -21,12 +22,12 @@ export default function StampReminder({ org, onOpenTimes }) {
     if (sh.error || se.error) return;
     let seen = []; try { seen = JSON.parse(localStorage.getItem(SEEN) || "[]"); } catch (e) { seen = []; }
     const open = (se.data || []).find((x) => x.check_in && !x.check_out && now - new Date(x.check_in).getTime() > 12 * 3600000);
-    if (open && !seen.includes("out" + open.id)) { setMsg({ key: "out" + open.id, title: "Gehen vergessen?", text: `Du bist seit ${clock(open.check_in)} eingestempelt. Hast du vergessen auszustempeln?` }); return; }
+    if (open && !seen.includes("out" + open.id)) { setMsg({ key: "out" + open.id, title: tx("Gehen vergessen?"), text: tx("Du bist seit {0} eingestempelt. Hast du vergessen auszustempeln?", clock(open.check_in)) }); return; }
     const ab = await org.supabase.from("attendance_absences").select("work_date, kind, voided_at").eq("org_id", org.orgId).eq("staff_id", org.staffId);
     const ap = await org.supabase.from("requests").select("type_key, date_from, date_to, status").eq("org_id", org.orgId).eq("staff_id", org.staffId).eq("status", "approved");
     const am = absenceMap(ab.error ? [] : ab.data, ap.error ? [] : ap.data);
     const missed = (sh.data || []).find((x) => !am[String(x.shift_date || "").slice(0, 10)] && !(se.data || []).some((y) => y.check_in && new Date(y.check_in).getTime() >= new Date(x.planned_start).getTime() - 3 * 3600000));
-    if (missed && !seen.includes("in" + missed.planned_start)) setMsg({ key: "in" + missed.planned_start, title: "Kommen vergessen?", text: `Dein ${missed.shift_label || missed.shift_key} hat um ${clock(missed.planned_start)} begonnen, aber du bist noch nicht eingestempelt.` });
+    if (missed && !seen.includes("in" + missed.planned_start)) setMsg({ key: "in" + missed.planned_start, title: tx("Kommen vergessen?"), text: tx("Dein {0} hat um {1} begonnen, aber du bist noch nicht eingestempelt.", missed.shift_label || missed.shift_key, clock(missed.planned_start)) });
   }, [org]);
   useEffect(() => { check(); const t = setInterval(check, 5 * 60000); window.addEventListener("focus", check); return () => { clearInterval(t); window.removeEventListener("focus", check); }; }, [check]);
 
@@ -37,11 +38,11 @@ export default function StampReminder({ org, onOpenTimes }) {
       <div role="alertdialog" aria-modal="true" aria-labelledby="sr-title" style={{ width: "100%", maxWidth: 440, background: "#fff", borderRadius: 22, padding: 20, marginBottom: "env(safe-area-inset-bottom)", fontFamily: "system-ui, -apple-system, Segoe UI, Roboto, sans-serif", color: "#1B2433" }}>
         <div style={{ fontSize: 34 }}>⏰</div>
         <div id="sr-title" style={{ fontSize: 20, fontWeight: 750, margin: "4px 0 6px" }}>{msg.title}</div>
-        <div style={{ fontSize: 15, color: "#4B5568", marginBottom: 14 }}>{msg.text}</div>
-        <div style={{ fontSize: 13, color: "#6B7588", marginBottom: 14 }}>Bist du schon da? Dann am Terminal stempeln. Sonst unter „Zeiten“ die Zeit bei der Leitung beantragen.</div>
+        <div style={{ fontSize: 15, color: "#4B5568", marginBottom: 14 }}>{tx(msg.text)}</div>
+        <div style={{ fontSize: 13, color: "#6B7588", marginBottom: 14 }}>{tx("Bist du schon da? Dann am Terminal stempeln. Sonst unter „Zeiten“ die Zeit bei der Leitung beantragen.")}</div>
         <div style={{ display: "flex", gap: 8 }}>
-          <button onClick={() => { close(); if (onOpenTimes) onOpenTimes(); }} style={{ flex: 1, border: 0, borderRadius: 14, background: "#243B6B", color: "#fff", fontSize: 16, fontWeight: 650, padding: "12px 0", cursor: "pointer" }}>Zu meinen Zeiten</button>
-          <button onClick={close} style={{ border: "1.5px solid #9AAED0", borderRadius: 14, background: "#fff", fontSize: 15, padding: "12px 16px", cursor: "pointer" }}>Schließen</button>
+          <button onClick={() => { close(); if (onOpenTimes) onOpenTimes(); }} style={{ flex: 1, border: 0, borderRadius: 14, background: "#243B6B", color: "#fff", fontSize: 16, fontWeight: 650, padding: "12px 0", cursor: "pointer" }}>{tx("Zu meinen Zeiten")}</button>
+          <button onClick={close} style={{ border: "1.5px solid #9AAED0", borderRadius: 14, background: "#fff", fontSize: 15, padding: "12px 16px", cursor: "pointer" }}>{tx("Schließen")}</button>
         </div>
       </div>
     </div>
