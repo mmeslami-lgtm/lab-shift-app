@@ -7,7 +7,8 @@ import { loadReview, markSeen, markLater } from "../lib/review";
 import { fetchAll } from "../lib/fetchAll";
 import { useUnsavedWarning } from "../lib/draftGuard";
 import { OVERTIME_MODES, overtimeMode, payoutMinutesByMonth } from "../lib/overtime";
-import { computeDays, buildSheet, buildTimesheetHtml, openHtmlPrint, germanHolidays, isoOf, MONTHS, SURCHARGES } from "../lib/timesheet";
+import { surchargesOn } from "../lib/country";
+import { computeDays, buildSheet, buildTimesheetHtml, openHtmlPrint, holidaysOf as landHolidays, isoOf, MONTHS, SURCHARGES } from "../lib/timesheet";
 
 const pad = (n) => String(n).padStart(2, "0");
 const clock = (ts) => { if (!ts) return "–"; const d = new Date(ts); return `${pad(d.getHours())}:${pad(d.getMinutes())}`; };
@@ -460,7 +461,7 @@ export default function AttendanceDialog({ onClose }) {
       const wl = la.error || !la.data || !la.data.length ? null : await sb.from("work_locations").select("id, name, code").eq("org_id", org.orgId);
       const locName = Object.fromEntries(((wl && !wl.error && wl.data) || []).map((l) => [l.id, l.code ? `${l.name} (${l.code})` : l.name]));
       const placesOf = (sid) => { const m = {}; ((la && !la.error && la.data) || []).filter((r) => r.staff_id === sid && locName[r.location_id]).forEach((r) => { m[String(r.shift_date).slice(0, 10)] = locName[r.location_id]; }); return m; };
-      const hol = {}; const holidaysOf = (yy) => hol[yy] || (hol[yy] = germanHolidays(yy));
+      const hol = {}; const holidaysOf = (yy) => hol[yy] || (hol[yy] = landHolidays(yy));
       const stb = await sb.from("staff_start_balance").select("staff_id, minutes").eq("org_id", org.orgId); // Zeitkonto zum Start (script 42)
       const startOf = Object.fromEntries(((!stb.error && stb.data) || []).map((x) => [x.staff_id, Number(x.minutes) || 0]));
       const sheets = people.map((p) => {
@@ -470,7 +471,7 @@ export default function AttendanceDialog({ onClose }) {
         return buildSheet({ name: p.personnel_no ? `${p.name} (${p.personnel_no})` : p.name, year: y, month, days, startIso, closedRows, overtime, corrected, mobile, mode: sollMode, weeklyHours: p.weekly_hours, covers: coversOf(p.id), places: placesOf(p.id), vacation: (() => { const v = (vac.data || []).find((x) => x.staff_id === p.id); if (!v) return null; const c = elternzeitCut((ap || []).filter((x) => x.staff_id === p.id), y, v.entitlement); return { ...v, entitlement: Number(v.entitlement || 0) - c.cut, cut: c.cut }; })() , startBalance: startOf[p.id] || 0 });
       });
       if (!sheets.length) { setMsg("Keine Personen gefunden."); setBusy(""); return; }
-      const ok = openHtmlPrint(buildTimesheetHtml(sheets, { orgName: org.orgName, year: y, month, mode: sollMode, surcharges: zus }));
+      const ok = openHtmlPrint(buildTimesheetHtml(sheets, { orgName: org.orgName, year: y, month, mode: sollMode, surcharges: surchargesOn(org) ? zus : null, noSurcharges: !surchargesOn(org), country: org.country }));
       setMsg(ok ? `${sheets.length} Stundenzettel für ${MONTHS[month]} ${y} – im Druckfenster „Als PDF speichern“ wählen, um sie per E-Mail an die Personalabteilung zu schicken.` : "Der Browser hat das neue Fenster blockiert.");
     } catch (e) { setMsg("Stundenzettel: " + (e.message || e)); }
     setBusy("");
@@ -703,7 +704,7 @@ export default function AttendanceDialog({ onClose }) {
             ) : (
               <button onClick={() => openVac(Number(tsMonth.slice(0, 4)))} className="mr-2 mt-1.5 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs text-slate-700 hover:bg-slate-50 active:translate-y-px">Urlaubsanspruch eintragen</button>
             )}
-            {zusForm ? (
+            {surchargesOn(org) && (zusForm ? (
               <div className="mt-2 rounded-lg border border-slate-200 bg-slate-50 p-2.5">
                 <div className="text-xs font-semibold text-slate-700">Zuschläge (freiwillig – nur was Ihre Firma zahlt)</div>
                 {SURCHARGES.map((z) => { const c = zusForm[z.key] || { mode: "off" }; const set = (patch) => setZusForm({ ...zusForm, [z.key]: { ...c, ...patch } }); return (
@@ -723,7 +724,7 @@ export default function AttendanceDialog({ onClose }) {
               </div>
             ) : (
               <button onClick={() => setZusForm(zus || {})} className="mt-1.5 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs text-slate-700 hover:bg-slate-50 active:translate-y-px">Zuschläge einstellen{zus ? ` (${SURCHARGES.filter((z) => zus[z.key] && zus[z.key].mode !== "off").length} aktiv)` : " (optional)"}</button>
-            )}
+            ))}
 
             <div className="mt-2">
               {otForm ? (

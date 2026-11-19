@@ -2,7 +2,7 @@
 
 import React, { useState, useMemo, useRef, useEffect } from "react";
 import { OrgContext } from "../lib/orgContext";
-import { germanHolidays } from "../lib/timesheet";
+import { holidaysOf } from "../lib/timesheet";
 import { overtimeMode, payoutMinutesByMonth, planCarryHours } from "../lib/overtime";
 import OrgBar from "./OrgBar";
 import PlannerShell from "./PlannerShell";
@@ -67,7 +67,7 @@ const MONTHLY_HOUR_CAP = 160; // hard ceiling on paid hours per person per month
 const sollCtx = { contract: false, year: 0, monthIdx: 0 };
 function contractMonthTarget(s, total, leaveMap) {
   const credit = leaveMap && leaveMap.__credit && leaveMap.__credit[s.id];
-  const hol = germanHolidays(sollCtx.year);
+  const hol = holidaysOf(sollCtx.year);
   let n = 0;
   for (let d = 1; d <= total; d++) {
     const dt = new Date(sollCtx.year, sollCtx.monthIdx, d, 12), wd = dt.getDay();

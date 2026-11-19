@@ -2,7 +2,7 @@
 
 import React, { useState, useMemo, useRef, useEffect } from "react";
 import { OrgContext } from "../lib/orgContext";
-import { germanHolidays } from "../lib/timesheet";
+import { holidaysOf } from "../lib/timesheet";
 import { overtimeMode, payoutMinutesByMonth, planCarryHours } from "../lib/overtime";
 import OrgBar from "./OrgBar";
 import PublishPanel from "./PublishPanel";
@@ -69,7 +69,7 @@ const MONTHLY_HOUR_CAP = 160; // hard ceiling on paid hours per person per month
 const sollCtx = { contract: false, year: 0, monthIdx: 0 };
 function contractMonthTarget(s, total, leaveMap) {
   const credit = leaveMap && leaveMap.__credit && leaveMap.__credit[s.id];
-  const hol = germanHolidays(sollCtx.year);
+  const hol = holidaysOf(sollCtx.year);
   let n = 0;
   for (let d = 1; d <= total; d++) {
     const dt = new Date(sollCtx.year, sollCtx.monthIdx, d, 12), wd = dt.getDay();
@@ -1527,7 +1527,7 @@ function LabShiftSchedulerInner() {
     const days = [];
     for (let d = 1; d <= total; d++) days.push({ day: d, weekday: new Date(py, pm, d).getDay(), shifts: {} });
     sh.forEach((x) => { const d = days[Number(String(x.shift_date).slice(8, 10)) - 1]; if (d) (d.shifts[x.shift_key] || (d.shifts[x.shift_key] = [])).push(x.staff_id); });
-    const hol = germanHolidays(py);
+    const hol = holidaysOf(py);
     const closedPrev = new Set(), halfPrev = {};
     days.forEach((d) => {
       const iso = `${py}-${pad(pm + 1)}-${pad(d.day)}`;

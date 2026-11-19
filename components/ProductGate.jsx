@@ -7,6 +7,8 @@ import LoginForm from "./LoginForm";
 import LegalConsent from "./LegalConsent";
 import TrialBanner from "./TrialBanner";
 import { legalComplete } from "../lib/legal";
+import { setCountryHolidays } from "../lib/timesheet";
+import { loadCountry } from "../lib/country";
 
 const PAPER = "#E9EEF8";
 const INK = "#1B2433";
@@ -82,9 +84,13 @@ export default function ProductGate({ product, supervisorOnly = false, label, ch
       // Funktionen pro Firma (org_features, Skript 19); fehlt die Tabelle, gibt es einfach keine
       const fr = await supabase.from("org_features").select("feature, enabled").eq("org_id", ok.org_id);
       const features = fr.error ? [] : (fr.data || []).filter((f) => f.enabled).map((f) => f.feature);
+      // Land & Sprache (Skript 45, Paket D1). Fehlt die Spalte: Deutschland wie bisher.
+      const land = await loadCountry(supabase, ok.org_id);
+      if (cancelled) return;
+      setCountryHolidays(land.country, land.holidays);
       setState({
         status: "ok",
-        ctx: { supabase, session, orgId: ok.org_id, orgName: ok.organizations ? ok.organizations.name : "Firma", role: ok.role, staffId: ok.staff_id, products: enabled(ok.org_id), features, requireApproval, retentionYears, shortNoticeDays, trialUntil, trialOver: !!trialUntil && new Date(trialUntil).getTime() < Date.now() },
+        ctx: { supabase, session, orgId: ok.org_id, orgName: ok.organizations ? ok.organizations.name : "Firma", role: ok.role, staffId: ok.staff_id, products: enabled(ok.org_id), features, requireApproval, retentionYears, shortNoticeDays, trialUntil, trialOver: !!trialUntil && new Date(trialUntil).getTime() < Date.now(), country: land.country, language: land.language, timezone: land.timezone, currency: land.currency },
       });
     })();
     return () => { cancelled = true; };
@@ -141,7 +147,7 @@ export default function ProductGate({ product, supervisorOnly = false, label, ch
   }
   return (
     <OrgContext.Provider value={state.ctx}>
-      {supervisorOnly && state.ctx.trialUntil && <TrialBanner supabase={supabase} orgId={state.ctx.orgId} role={state.ctx.role} trialUntil={state.ctx.trialUntil} />}
+      {supervisorOnly && state.ctx.trialUntil && <TrialBanner supabase={supabase} orgId={state.ctx.orgId} role={state.ctx.role} trialUntil={state.ctx.trialUntil} timezone={state.ctx.timezone} />}
       {children}
     </OrgContext.Provider>
   );

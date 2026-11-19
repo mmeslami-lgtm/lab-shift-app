@@ -6,7 +6,7 @@ import React, { useState } from "react";
 //  * läuft:      "Testphase: noch n Tage (bis …)" + für Inhaber/Leitung "Beispiel-Mitarbeiter anlegen"
 //  * abgelaufen: rot "nur Ansicht" – die Datenbank lehnt jedes Speichern ab (Skript 44, trial_guard).
 // Die Mitarbeiter-App zeigt diese Leiste nie (nur ProductGate mit supervisorOnly).
-export default function TrialBanner({ supabase, orgId, role, trialUntil }) {
+export default function TrialBanner({ supabase, orgId, role, trialUntil, timezone }) {
   const [open, setOpen] = useState(false);
   const [count, setCount] = useState("10");
   const [busy, setBusy] = useState(false);
@@ -15,7 +15,7 @@ export default function TrialBanner({ supabase, orgId, role, trialUntil }) {
   const end = new Date(trialUntil);
   const over = end.getTime() < Date.now();
   const left = Math.max(0, Math.ceil((end.getTime() - Date.now()) / 86400000));
-  const day = end.toLocaleDateString("de-DE", { timeZone: "Europe/Berlin" });
+  const day = end.toLocaleDateString("de-DE", { timeZone: timezone === "Asia/Dubai" ? "Asia/Dubai" : "Europe/Berlin" });
   const canSeed = !over && (role === "owner" || role === "supervisor");
 
   async function seed() {

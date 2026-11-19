@@ -5,6 +5,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { supabase, supabaseConfigured } from "../lib/supabaseClient";
 import LoginForm from "./LoginForm";
 import { LEGAL_DOCS } from "../lib/legal";
+import { COUNTRIES, LANGUAGES } from "../lib/country";
 
 const LEGAL_LABEL = { testphase: "Nutzungsbedingungen", avv: "AVV", fiktive_daten: "nur fiktive Daten" };
 const LEGAL_HREF = Object.fromEntries(LEGAL_DOCS.filter((d) => d.href).map((d) => [d.key, d.href]));
@@ -80,7 +81,7 @@ export default function AdminDashboard({ view = "admin" }) {
 
   const load = useCallback(async () => {
     const r = await api("GET");
-    if (r.status === 200) setState({ status: "ok", me: r.me, firms: r.firms, demo: r.demoRequests || [] });
+    if (r.status === 200) setState({ status: "ok", me: r.me, firms: r.firms, demo: r.demoRequests || [], holidays: r.holidays });
     else if (r.status === 403) setState({ status: "forbidden" });
     else if (r.status === 401) setState({ status: "login" });
     else setState({ status: "error", message: r.error || "Fehler" });
@@ -141,7 +142,7 @@ export default function AdminDashboard({ view = "admin" }) {
   if (state.status === "forbidden") return shell(<><h1 style={{ fontSize: 22, fontWeight: 750 }}>Kein Zugriff</h1><div style={card}>Dieses Konto ist kein Plattform-Administrator.<div style={{ marginTop: 12 }}><button style={logoutBtn} onClick={() => supabase.auth.signOut()}>Abmelden</button></div></div></>);
   if (state.status === "error") return shell(<div style={{ ...card, background: "#FCE5EA", color: "#8A2A3E" }}>Fehler: {state.message}</div>);
 
-  const { firms, me, demo = [] } = state;
+  const { firms, me, demo = [], holidays = null } = state;
   const demoOpen = demo.filter((d) => d.status !== "erledigt").length;
   const demoShown = showDone ? demo : demo.filter((d) => d.status !== "erledigt");
   const toggleProducts = (key) => setNf((f) => ({ ...f, products: { ...f.products, [key]: !f.products[key] } }));
@@ -286,6 +287,8 @@ export default function AdminDashboard({ view = "admin" }) {
         {nErr && <div role="alert" style={errBox}>{nErr}</div>}
       </div>
 
+      <HolidaysVAE holidays={holidays} act={act} busy={busy} label={label} />
+
       <div style={{ fontSize: 14, color: MUTED, margin: "6px 2px 8px" }}>{firms.length} Firmen</div>
       {firms.map((f) => (
         <div key={f.id} style={{ ...card, opacity: f.active ? 1 : 0.75 }}>
@@ -311,9 +314,10 @@ export default function AdminDashboard({ view = "admin" }) {
               </button>
             ))}
           </div>
+          <LandBox f={f} act={act} busy={busy} label={label} />
           <div data-trial-actions={f.id} style={{ display: "flex", gap: 8, flexWrap: "wrap", margin: "0 0 10px" }}>
             <button style={ghost} disabled={busy} onClick={() => act({ action: "set_trial", orgId: f.id, mode: "start" }, { key: "ts" + f.id, okText: `Testphase für „${f.name}“: 14 Tage ab heute.` })}>
-              {label("ts" + f.id, f.trialUntil ? "Testphase neu: 14 Tage ab heute" : "Testphase 14 Tage starten")}
+              {label("ts" + f.id, f.trialUntil ? "Testphase erneuern: 14 Tage ab heute" : "Testphase 14 Tage starten")}
             </button>
             {f.trialUntil && (
               <button style={{ ...ghost, background: "#DDF2E8", color: "#1F6347", borderColor: "#B7E1CB" }} disabled={busy} onClick={() => { if (window.confirm(`„${f.name}“ dauerhaft freischalten (keine Testphase mehr)?`)) act({ action: "set_trial", orgId: f.id, mode: "off" }, { key: "to" + f.id, okText: `„${f.name}“ ist dauerhaft freigeschaltet.` }); }}>
@@ -560,5 +564,69 @@ function FinanzenLink({ firms }) {
       Finanzen →
       {over.length > 0 && <span style={{ fontSize: 12, fontWeight: 750, color: "#fff", background: "#C0262D", borderRadius: 999, padding: "1px 8px" }}>{over.length} überfällig</span>}
     </a>
+  );
+}
+
+// Paket D1: Land + Sprache einer Firma (Zeitzone und Währung folgen dem Land)
+function LandBox({ f, act, busy, label }) {
+  const land = f.land || { country: "DE", language: "de", timezone: "Europe/Berlin", currency: "EUR" };
+  const save = (country, language) => {
+    if (country !== land.country && !window.confirm(`„${f.name}“ auf ${COUNTRIES[country].label} umstellen?\n\nZeitzone ${COUNTRIES[country].timezone}, Währung ${COUNTRIES[country].currency}` + (COUNTRIES[country].surcharges ? "" : ", deutsche Zuschläge aus") + ".")) return;
+    act({ action: "set_land", orgId: f.id, country, language }, { key: "land" + f.id, okText: `„${f.name}“: ${COUNTRIES[country].label} · ${LANGUAGES[language]}.` });
+  };
+  const sel = { border: `1px solid ${LINE}`, borderRadius: 10, padding: "6px 8px", fontSize: 14, background: "#fff", color: INK };
+  return (
+    <div data-land={f.id} style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", margin: "0 0 10px", fontSize: 13, color: MUTED }}>
+      <label style={{ display: "flex", gap: 6, alignItems: "center" }}>Land
+        <select aria-label={`Land ${f.name}`} value={land.country} disabled={busy} onChange={(e) => save(e.target.value, land.language)} style={sel}>
+          {Object.keys(COUNTRIES).map((k) => <option key={k} value={k}>{COUNTRIES[k].label}</option>)}
+        </select>
+      </label>
+      <label style={{ display: "flex", gap: 6, alignItems: "center" }}>Sprache
+        <select aria-label={`Sprache ${f.name}`} value={land.language} disabled={busy} onChange={(e) => save(land.country, e.target.value)} style={sel}>
+          {Object.keys(LANGUAGES).map((k) => <option key={k} value={k}>{LANGUAGES[k]}</option>)}
+        </select>
+      </label>
+      <span>{label("land" + f.id, `${land.timezone} · ${land.currency}`)}</span>
+    </div>
+  );
+}
+
+// Paket D1: Feiertage der VAE (gelten für alle Firmen mit Land VAE). Deutschland wird automatisch berechnet.
+function HolidaysVAE({ holidays, act, busy, label }) {
+  const [day, setDay] = useState("");
+  const [name, setName] = useState("");
+  const [err, setErr] = useState("");
+  const list = holidays || [];
+  const years = Array.from(new Set(list.map((h) => String(h.day).slice(0, 4))));
+  const dmy = (iso) => { const [y, m, d] = String(iso).slice(0, 10).split("-"); return `${d}.${m}.${y}`; };
+  const wd = (iso) => ["So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"][new Date(String(iso).slice(0, 10) + "T12:00:00").getDay()];
+  return (
+    <details data-holidays-vae style={{ ...card }}>
+      <summary style={{ cursor: "pointer", fontSize: 16, fontWeight: 700 }}>Feiertage VAE <span style={{ fontSize: 13, fontWeight: 400, color: MUTED }}>({holidays === null ? "Skript 45 fehlt" : `${list.length} eingetragen`})</span></summary>
+      <div style={{ fontSize: 13, color: MUTED, margin: "8px 0" }}>Gelten für alle Firmen mit Land „VAE“. Islamische Feiertage bitte jedes Jahr nach der offiziellen Bekanntgabe eintragen. Gleiches Datum noch einmal = Name wird ersetzt.</div>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-end" }}>
+        <label style={{ fontSize: 12, color: MUTED }}>Datum<input type="date" value={day} onChange={(e) => setDay(e.target.value)} style={{ ...fld, width: 170 }} /></label>
+        <label style={{ fontSize: 12, color: MUTED, flex: "1 1 220px" }}>Name<input value={name} maxLength={80} onChange={(e) => setName(e.target.value)} placeholder="z. B. Eid al-Fitr" style={fld} /></label>
+        <button style={btn} disabled={busy || holidays === null} onClick={async () => {
+          if (!day || !name.trim()) { setErr("Bitte Datum und Name eingeben."); return; }
+          const ok = await act({ action: "holiday_add", country: "AE", day, name: name.trim() }, { key: "hadd", okText: `Feiertag ${dmy(day)} „${name.trim()}“ gespeichert.`, onError: setErr });
+          if (ok) { setDay(""); setName(""); }
+        }}>{label("hadd", "Hinzufügen")}</button>
+      </div>
+      {err && <div role="alert" style={errBox}>{err}</div>}
+      {years.map((y) => (
+        <div key={y} style={{ marginTop: 12 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 4 }}>{y}</div>
+          {list.filter((h) => String(h.day).startsWith(y)).map((h) => (
+            <div key={h.day} style={{ display: "flex", gap: 10, alignItems: "center", borderTop: "1px solid #EEF0F4", padding: "5px 0", fontSize: 14 }}>
+              <span style={{ width: 120 }}>{wd(h.day)} {dmy(h.day)}</span>
+              <span style={{ flex: 1 }}>{h.name}</span>
+              <button style={{ ...ghost, padding: "3px 9px", fontSize: 12, color: "#B3263E" }} disabled={busy} onClick={() => { if (window.confirm(`Feiertag ${dmy(h.day)} „${h.name}“ löschen?`)) act({ action: "holiday_delete", country: "AE", day: String(h.day).slice(0, 10) }, { key: "hdel" + h.day, okText: "Feiertag gelöscht." }); }}>{label("hdel" + h.day, "Löschen")}</button>
+            </div>
+          ))}
+        </div>
+      ))}
+    </details>
   );
 }

@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from "crypto";
 import { supabaseAdmin } from "../../../lib/supabaseAdmin";
 import { trialOver, TRIAL_OVER_MSG } from "../../../lib/trial";
+import { tzOf } from "../../../lib/country";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -60,7 +61,12 @@ async function stamp({ orgId, staffId, direction, device, method, extra }) {
   const open = await supabaseAdmin.from("attendance_sessions").select("check_in").eq("staff_id", staffId).is("check_out", null)
     .gte("check_in", new Date(Date.now() - 16 * 3600000).toISOString()).order("check_in", { ascending: false }).limit(1);
   const o = open.data && open.data[0];
-  const hhmm = (ts) => new Date(ts).toLocaleTimeString("de-DE", { timeZone: "Europe/Berlin", hour: "2-digit", minute: "2-digit" });
+  let tz = "Europe/Berlin";
+  if (direction === "in" && o) {
+    const tzr = await supabaseAdmin.from("organizations").select("timezone").eq("id", orgId);
+    if (!tzr.error && tzr.data && tzr.data[0]) tz = tzOf(tzr.data[0].timezone);
+  }
+  const hhmm = (ts) => new Date(ts).toLocaleTimeString("de-DE", { timeZone: tz, hour: "2-digit", minute: "2-digit" });
   if (direction === "in" && o) return { error: `Du bist schon seit ${hhmm(o.check_in)} Uhr eingestempelt. Wolltest du gehen?`, status: 409, suggest: "out" };
   if (direction === "out" && !o) return { error: "Du bist nicht eingestempelt. Wolltest du kommen?", status: 409, suggest: "in" };
   const ins = await supabaseAdmin.from("attendance_events")
