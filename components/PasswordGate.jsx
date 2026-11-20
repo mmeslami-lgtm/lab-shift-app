@@ -4,6 +4,8 @@ import React, { useCallback, useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import { supabase, supabaseConfigured } from "../lib/supabaseClient";
 import ProfileView from "./ProfileView";
+import { tx, setLang, detectLang } from "../lib/i18n";
+import { useLang } from "../lib/useLang";
 
 const LINE = "#E1E5EC", MUTED = "#6B7588", PRIMARY = "#243B6B";
 
@@ -28,8 +30,17 @@ export default function PasswordGate({ children }) {
     return () => sub.subscription.unsubscribe();
   }, []);
 
+  // Sprache (Paket D2): erst Gerät/Browser, nach der Anmeldung die Sprache der (ersten) Firma
+  useLang();
+  useEffect(() => { setLang(detectLang()); }, []);
+
   const check = useCallback(async (s) => {
     if (!s) { setMustChange(false); return; }
+    try {
+      const lm = await supabase.from("memberships").select("org_id, organizations(language)").eq("user_id", s.user.id);
+      const langs = (lm.data || []).map((m) => m.organizations && m.organizations.language).filter(Boolean);
+      if (!lm.error && langs.length) setLang(langs.includes("de") ? "de" : langs[0], true);
+    } catch (e) { /* Spalte fehlt (Skript 45 nicht ausgeführt): Gerätesprache bleibt */ }
     const r = await supabase.from("first_login_flags").select("must_change").eq("user_id", s.user.id);
     // if the table does not exist yet (script not applied) the feature is simply inactive
     setMustChange(!r.error && r.data && r.data[0] ? r.data[0].must_change === true : false);
@@ -43,7 +54,7 @@ export default function PasswordGate({ children }) {
   }, [session, check]);
 
   if (session === undefined || (session && mustChange === null)) {
-    return <div style={{ minHeight: "100vh", display: "grid", placeItems: "center", color: MUTED, fontFamily: "system-ui, sans-serif" }}>Lädt …</div>;
+    return <div style={{ minHeight: "100vh", display: "grid", placeItems: "center", color: MUTED, fontFamily: "system-ui, sans-serif" }}>{tx("Lädt …")}</div>;
   }
   if (session && mustChange) return <ProfileView forced />;
 
@@ -52,7 +63,7 @@ export default function PasswordGate({ children }) {
       {session && (
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, padding: "6px 12px", background: "#fff", borderBottom: `1px solid ${LINE}`, fontFamily: "system-ui, -apple-system, 'Segoe UI', sans-serif", fontSize: 12, color: MUTED }}>
           <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{session.user.email}</span>
-          {pathname !== "/profil" && <a href="/profil" style={{ color: PRIMARY, fontWeight: 650, textDecoration: "none", whiteSpace: "nowrap" }}>Profil &amp; Passwort</a>}
+          {pathname !== "/profil" && <a href="/profil" style={{ color: PRIMARY, fontWeight: 650, textDecoration: "none", whiteSpace: "nowrap" }}>{tx("Profil & Passwort")}</a>}
         </div>
       )}
       {children}

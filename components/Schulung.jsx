@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
+import { tx } from "../lib/i18n";
 
 // Schulung – kostenlose Einführung ohne KI: Lektionen je Rolle (Mitarbeiter, Leitung, Inhaber), echte Bilder mit
 // hervorgehobenem Bereich, "Zeig mir" öffnet die Stelle im Programm, eine kurze Frage pro Lektion, Fortschritt
@@ -109,8 +110,8 @@ export default function Schulung({ role = "mitarbeiter", who, onShow, onClose })
   const hits = useMemo(() => {
     const s = q.trim().toLowerCase();
     if (s.length < 2) return null;
-    const ls = tracks.flatMap((t) => COURSES[t].lessons).filter((x) => `${x.title} ${x.text} ${x.keys || ""}`.toLowerCase().includes(s));
-    const fs = FAQ.filter(([a, b]) => `${a} ${b}`.toLowerCase().includes(s));
+    const ls = tracks.flatMap((t) => COURSES[t].lessons).filter((x) => `${x.title} ${x.text} ${x.keys || ""} ${tx(x.title)} ${tx(x.text)}`.toLowerCase().includes(s));
+    const fs = FAQ.filter(([a, b]) => `${a} ${b} ${tx(a)} ${tx(b)}`.toLowerCase().includes(s));
     return { ls, fs };
   }, [q]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -125,30 +126,30 @@ export default function Schulung({ role = "mitarbeiter", who, onShow, onClose })
   };
 
   return (
-    <div role="dialog" aria-modal="true" aria-label="Schulung" style={S.wrap} onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+    <div role="dialog" aria-modal="true" aria-label={tx("Schulung")} style={S.wrap} onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <div style={S.box}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
-          <div style={{ fontSize: 20, fontWeight: 800 }}>🎓 Schulung</div>
-          <button style={S.btn} onClick={onClose}>Schließen</button>
+          <div style={{ fontSize: 20, fontWeight: 800 }}>🎓 {tx("Schulung")}</div>
+          <button style={S.btn} onClick={onClose}>{tx("Schließen")}</button>
         </div>
-        <div style={{ fontSize: 13, color: "#56617A", margin: "4px 0 10px" }}>{doneCount} von {total} Lektionen abgeschlossen</div>
+        <div style={{ fontSize: 13, color: "#56617A", margin: "4px 0 10px" }}>{tx("{0} von {1} Lektionen abgeschlossen", doneCount, total)}</div>
         <div style={{ height: 6, background: "#E3E8F1", borderRadius: 6, overflow: "hidden", marginBottom: 12 }}><div style={{ width: `${(doneCount / total) * 100}%`, height: "100%", background: "#1F9D55" }} /></div>
 
         {!lesson && (
           <>
-            <input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Hilfe suchen, z. B. Urlaub, stempeln, Stundenzettel …" aria-label="Hilfe suchen"
+            <input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder={tx("Hilfe suchen, z. B. Urlaub, stempeln, Stundenzettel …")} aria-label={tx("Hilfe suchen")}
               style={{ width: "100%", boxSizing: "border-box", border: "1px solid #CBD3E1", borderRadius: 12, padding: "11px 12px", fontSize: 16, marginBottom: 12 }} />
             {hits ? (
               <div>
-                {hits.ls.map((x) => <button key={x.id} onClick={() => { setOpen(x.id); setAnswer(null); setQ(""); }} style={{ ...S.btn, display: "block", width: "100%", textAlign: "left", marginBottom: 8 }}>📘 {x.title}</button>)}
-                {hits.fs.map(([a, b]) => <div key={a} style={{ border: "1px solid #E3E8F1", borderRadius: 12, padding: 12, marginBottom: 8 }}><b>{a}</b><div style={{ fontSize: 14, color: "#3A465E", marginTop: 4 }}>{b}</div></div>)}
-                {!hits.ls.length && !hits.fs.length && <div style={{ color: "#56617A", fontSize: 14 }}>Nichts gefunden. Fragen Sie bitte Ihre Leitung.</div>}
+                {hits.ls.map((x) => <button key={x.id} onClick={() => { setOpen(x.id); setAnswer(null); setQ(""); }} style={{ ...S.btn, display: "block", width: "100%", textAlign: "left", marginBottom: 8 }}>📘 {tx(x.title)}</button>)}
+                {hits.fs.map(([a, b]) => <div key={a} style={{ border: "1px solid #E3E8F1", borderRadius: 12, padding: 12, marginBottom: 8 }}><b>{tx(a)}</b><div style={{ fontSize: 14, color: "#3A465E", marginTop: 4 }}>{tx(b)}</div></div>)}
+                {!hits.ls.length && !hits.fs.length && <div style={{ color: "#56617A", fontSize: 14 }}>{tx("Nichts gefunden. Fragen Sie bitte Ihre Leitung.")}</div>}
               </div>
             ) : (
               <>
                 {tracks.length > 1 && (
                   <div role="tablist" style={{ display: "flex", gap: 6, marginBottom: 12, flexWrap: "wrap" }}>
-                    {tracks.map((t) => <button key={t} role="tab" aria-selected={t === track} onClick={() => setTrack(t)} style={t === track ? S.pri : S.btn}>{COURSES[t].title}</button>)}
+                    {tracks.map((t) => <button key={t} role="tab" aria-selected={t === track} onClick={() => setTrack(t)} style={t === track ? S.pri : S.btn}>{tx(COURSES[t].title)}</button>)}
                   </div>
                 )}
                 <ol style={{ listStyle: "none", padding: 0, margin: 0 }}>
@@ -156,7 +157,7 @@ export default function Schulung({ role = "mitarbeiter", who, onShow, onClose })
                     <li key={x.id}>
                       <button onClick={() => { setOpen(x.id); setAnswer(null); }} style={{ ...S.btn, display: "flex", width: "100%", alignItems: "center", gap: 10, textAlign: "left", marginBottom: 8, fontWeight: 600 }}>
                         <span style={{ width: 28, height: 28, borderRadius: "50%", flex: "none", display: "inline-flex", alignItems: "center", justifyContent: "center", background: done.includes(x.id) ? "#1F9D55" : "#E3E8F1", color: done.includes(x.id) ? "#fff" : "#243B6B", fontWeight: 800 }}>{done.includes(x.id) ? "✓" : i + 1}</span>
-                        {x.title}
+                        {tx(x.title)}
                       </button>
                     </li>
                   ))}
@@ -168,8 +169,8 @@ export default function Schulung({ role = "mitarbeiter", who, onShow, onClose })
 
         {lesson && (
           <div>
-            <button style={{ ...S.btn, marginBottom: 10 }} onClick={() => setOpen(null)}>‹ Alle Lektionen</button>
-            <div style={{ fontSize: 22, fontWeight: 800, margin: "4px 0 8px" }}>{lesson.title}</div>
+            <button style={{ ...S.btn, marginBottom: 10 }} onClick={() => setOpen(null)}>{tx("‹ Alle Lektionen")}</button>
+            <div style={{ fontSize: 22, fontWeight: 800, margin: "4px 0 8px" }}>{tx(lesson.title)}</div>
             {lesson.img ? (
               <div style={{ background: "#E9EEF6", borderRadius: 16, padding: 10, display: "flex", justifyContent: "center", marginBottom: 12 }}>
                 <div style={{ position: "relative", overflow: "hidden", lineHeight: 0, borderRadius: lesson.phone ? 22 : 10, border: lesson.phone ? "7px solid #1B2433" : 0, maxWidth: lesson.phone ? 240 : "100%" }}>
@@ -178,22 +179,22 @@ export default function Schulung({ role = "mitarbeiter", who, onShow, onClose })
                 </div>
               </div>
             ) : <div style={{ fontSize: 46, textAlign: "center", margin: "6px 0 10px" }} aria-hidden="true">{lesson.icon || "📘"}</div>}
-            <p style={{ fontSize: 16, lineHeight: 1.6, margin: "0 0 14px" }}>{lesson.text}</p>
-            {lesson.show && onShow && <button style={{ ...S.btn, marginBottom: 14 }} onClick={() => { onShow(lesson.show); onClose(); }}>👉 Zeig mir</button>}
+            <p style={{ fontSize: 16, lineHeight: 1.6, margin: "0 0 14px" }}>{tx(lesson.text)}</p>
+            {lesson.show && onShow && <button style={{ ...S.btn, marginBottom: 14 }} onClick={() => { onShow(lesson.show); onClose(); }}>👉 {tx("Zeig mir")}</button>}
             {lesson.q ? (
               <div style={{ border: "1px solid #E3E8F1", borderRadius: 14, padding: 12 }}>
-                <div style={{ fontWeight: 700, marginBottom: 8 }}>Kurze Frage: {lesson.q[0]}</div>
+                <div style={{ fontWeight: 700, marginBottom: 8 }}>{tx("Kurze Frage:")} {tx(lesson.q[0])}</div>
                 {lesson.q[1].map((a, k) => {
                   const chosen = answer === k, right = k === lesson.q[2];
                   const bg = answer == null ? "#fff" : chosen && right ? "#DDF2E8" : chosen ? "#FCE5EA" : "#fff";
-                  return <button key={a} onClick={() => { setAnswer(k); if (right) markDone(lesson.id); }} style={{ ...S.btn, display: "block", width: "100%", textAlign: "left", marginBottom: 6, background: bg }}>{a}{answer != null && chosen ? (right ? "  ✓ Richtig" : "  ✗ Noch einmal") : ""}</button>;
+                  return <button key={a} onClick={() => { setAnswer(k); if (right) markDone(lesson.id); }} style={{ ...S.btn, display: "block", width: "100%", textAlign: "left", marginBottom: 6, background: bg }}>{tx(a)}{answer != null && chosen ? (right ? tx("  ✓ Richtig") : tx("  ✗ Noch einmal")) : ""}</button>;
                 })}
               </div>
             ) : (
-              <button style={S.btn} onClick={() => markDone(lesson.id)}>{done.includes(lesson.id) ? "✓ Erledigt" : "Verstanden ✓"}</button>
+              <button style={S.btn} onClick={() => markDone(lesson.id)}>{done.includes(lesson.id) ? tx("✓ Erledigt") : tx("Verstanden ✓")}</button>
             )}
             <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 14 }}>
-              {next ? <button style={S.pri} onClick={() => { setOpen(next.id); setAnswer(null); }}>Weiter: {next.title}</button> : <button style={S.pri} onClick={() => setOpen(null)}>Fertig</button>}
+              {next ? <button style={S.pri} onClick={() => { setOpen(next.id); setAnswer(null); }}>{tx("Weiter:")} {tx(next.title)}</button> : <button style={S.pri} onClick={() => setOpen(null)}>{tx("Fertig")}</button>}
             </div>
           </div>
         )}

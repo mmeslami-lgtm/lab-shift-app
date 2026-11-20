@@ -2,6 +2,7 @@
 
 import React, { useContext, useEffect, useState } from "react";
 import { OrgContext } from "../lib/orgContext";
+import { tx } from "../lib/i18n";
 
 const INK = "#1B2433", PRIMARY = "#243B6B", MUTED = "#6B7588";
 const pad = (n) => String(n).padStart(2, "0");
@@ -40,9 +41,9 @@ export default function StempelnView() {
       const res = await fetch("/api/zeit", { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${data.session ? data.session.access_token : ""}` }, body: JSON.stringify({ action: "qr", token, direction, switch: !!sw }) });
       const body = await res.json().catch(() => ({}));
       if (res.status === 400 && body.needDirection) { setNeedDirection(true); setBusy(""); return; }
-      if (res.status === 409) { setAlready(body.error || "Schon gestempelt."); setSwitchTo(body.suggest || null); setBusy(""); return; }
+      if (res.status === 409) { setAlready(body.error || tx("Schon gestempelt.")); setSwitchTo(body.suggest || null); setBusy(""); return; }
       setAlready(""); setSwitchTo(null);
-      if (!res.ok) throw new Error(body.error || `Fehler (${res.status})`);
+      if (!res.ok) throw new Error(body.error || tx("Fehler ({0})", res.status));
       setDone({ direction: body.direction, time: new Date(body.time) });
     } catch (e) { setErr(e.message); }
     setBusy("");
@@ -51,7 +52,7 @@ export default function StempelnView() {
   const big = (dir, label, color) => (
     <button className="tbtn" onClick={() => go(dir)} disabled={!!busy || !token}
       style={{ display: "block", width: "100%", border: suggest === dir ? `3px solid ${color}` : "1.5px solid #9AAED0", borderRadius: 22, background: suggest === dir ? color : "#fff", color: suggest === dir ? "#fff" : INK, fontSize: 26, fontWeight: 750, padding: "26px 0", marginBottom: 14, cursor: "pointer", opacity: busy && busy !== dir ? 0.5 : 1 }}>
-      {busy === dir ? "Moment …" : label}
+      {busy === dir ? tx("Moment …") : label}
     </button>
   );
 
@@ -60,31 +61,31 @@ export default function StempelnView() {
       <style>{".tbtn{transition:transform .12s ease}.tbtn:active{transform:scale(.95)}"}</style>
       <div style={{ maxWidth: 440, margin: "0 auto" }}>
         <div style={{ fontSize: 14, color: MUTED }}>{org.orgName}</div>
-        <div style={{ fontSize: 26, fontWeight: 750, marginBottom: 18 }}>Stempeln</div>
+        <div style={{ fontSize: 26, fontWeight: 750, marginBottom: 18 }}>{tx("Stempeln")}</div>
         {done ? (
           <div role="status" style={{ background: done.direction === "in" ? "#1F9D55" : "#D23B3B", color: "#fff", borderRadius: 22, padding: 24, textAlign: "center" }}>
             <div style={{ fontSize: 52 }}>✓</div>
-            <div style={{ fontSize: 22, fontWeight: 750 }}>{done.direction === "in" ? "Eingestempelt" : "Ausgestempelt"}</div>
-            <div style={{ fontSize: 36, fontWeight: 300, margin: "6px 0 14px" }}>{pad(done.time.getHours())}:{pad(done.time.getMinutes())} Uhr</div>
-            <a href="/mitarbeiter" style={{ color: "#fff", fontWeight: 650, textDecoration: "underline" }}>Zu meinen Zeiten ›</a>
+            <div style={{ fontSize: 22, fontWeight: 750 }}>{done.direction === "in" ? tx("Eingestempelt") : tx("Ausgestempelt")}</div>
+            <div style={{ fontSize: 36, fontWeight: 300, margin: "6px 0 14px" }}>{pad(done.time.getHours())}:{pad(done.time.getMinutes())} {tx("Uhr")}</div>
+            <a href="/mitarbeiter" style={{ color: "#fff", fontWeight: 650, textDecoration: "underline" }}>{tx("Zu meinen Zeiten ›")}</a>
           </div>
         ) : !token ? (
-          <div style={{ background: "#fff", borderRadius: 18, padding: 18, fontSize: 15 }}>Bitte den QR-Code am Terminal mit der Handy-Kamera scannen.</div>
+          <div style={{ background: "#fff", borderRadius: 18, padding: 18, fontSize: 15 }}>{tx("Bitte den QR-Code am Terminal mit der Handy-Kamera scannen.")}</div>
         ) : already ? (
           <>
             <div role="status" style={{ background: "#FFF4D6", color: "#7A4E00", borderRadius: 18, padding: 18, fontSize: 16 }}>{already}</div>
-            {switchTo && <button className="tbtn" onClick={() => go(switchTo, true)} disabled={!!busy} style={{ display: "block", width: "100%", border: 0, borderRadius: 22, background: switchTo === "out" ? "#D23B3B" : "#1F9D55", color: "#fff", fontSize: 22, fontWeight: 800, padding: "22px 0", cursor: "pointer" }}>Ja, {switchTo === "out" ? "Gehen" : "Kommen"} stempeln</button>}
+            {switchTo && <button className="tbtn" onClick={() => go(switchTo, true)} disabled={!!busy} style={{ display: "block", width: "100%", border: 0, borderRadius: 22, background: switchTo === "out" ? "#D23B3B" : "#1F9D55", color: "#fff", fontSize: 22, fontWeight: 800, padding: "22px 0", cursor: "pointer" }}>{tx("Ja,")} {switchTo === "out" ? tx("Gehen") : tx("Kommen")} {tx("stempeln")}</button>}
           </>
         ) : !needDirection ? (
-          <div role="status" style={{ background: "#fff", borderRadius: 18, padding: 18, fontSize: 16, textAlign: "center" }}>{err ? "" : "Wird gebucht …"}</div>
+          <div role="status" style={{ background: "#fff", borderRadius: 18, padding: 18, fontSize: 16, textAlign: "center" }}>{err ? "" : tx("Wird gebucht …")}</div>
         ) : (
           <>
-            {big("in", "Kommen", "#1F9D55")}
-            {big("out", "Gehen", "#D23B3B")}
-            <div style={{ fontSize: 13, color: MUTED, textAlign: "center" }}>Die Uhrzeit nimmt der Server, nicht dein Handy.</div>
+            {big("in", tx("Kommen"), "#1F9D55")}
+            {big("out", tx("Gehen"), "#D23B3B")}
+            <div style={{ fontSize: 13, color: MUTED, textAlign: "center" }}>{tx("Die Uhrzeit nimmt der Server, nicht dein Handy.")}</div>
           </>
         )}
-        {err && <div role="alert" style={{ marginTop: 14, background: "#FCE5EA", color: "#8A2A3E", borderRadius: 14, padding: "12px 14px", fontSize: 15 }}>{err}</div>}
+        {err && <div role="alert" style={{ marginTop: 14, background: "#FCE5EA", color: "#8A2A3E", borderRadius: 14, padding: "12px 14px", fontSize: 15 }}>{tx(err)}</div>}
       </div>
     </div>
   );

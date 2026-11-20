@@ -4,10 +4,9 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { ABSENCE, absenceMap, isNeutral } from "../lib/absence";
 import { sollOf } from "../lib/timesheet";
 import { overtimeMode, payoutMinutesByMonth, walkBalance } from "../lib/overtime";
+import { tx, wdLong, dmy, monthName } from "../lib/i18n";
 
 const INK = "#1B2433", PRIMARY = "#243B6B", MUTED = "#6B7588", LINE = "#D9DEE7", PAPER = "#E9EEF8";
-const WD_LONG = ["Sonntag", "Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag"];
-const MONTHS = ["Januar", "Februar", "März", "April", "Mai", "Juni", "Juli", "August", "September", "Oktober", "November", "Dezember"];
 const BAR = { F: "#6CC4E8", M: "#F2B95A", B: "#9AA8F0", S: "#5FD0B0", N: "#B48DE8" };
 const pad = (n) => String(n).padStart(2, "0");
 const isoOf = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
@@ -129,16 +128,16 @@ export default function EmployeeTimes({ org }) {
   const total = balanceBefore(todayIso) + (days[todayIso] && days[todayIso].sessions.length && !days[todayIso].open ? days[todayIso].daily : 0);
 
   if (!hasProduct) {
-    return <div style={card}><div style={{ fontSize: 17, fontWeight: 700, marginBottom: 6 }}>Zeiten</div><div style={{ fontSize: 14, color: MUTED }}>Die Zeiterfassung ist für deine Firma noch nicht freigeschaltet.</div></div>;
+    return <div style={card}><div style={{ fontSize: 17, fontWeight: 700, marginBottom: 6 }}>{tx("Zeiten")}</div><div style={{ fontSize: 14, color: MUTED }}>{tx("Die Zeiterfassung ist für deine Firma noch nicht freigeschaltet.")}</div></div>;
   }
 
   async function savePin() {
     setPinMsg({ text: "", bad: false });
-    if (!/^[0-9]{4,6}$/.test(pinForm.a)) { setPinMsg({ text: "Die PIN muss aus 4 bis 6 Ziffern bestehen.", bad: true }); return; }
-    if (pinForm.a !== pinForm.b) { setPinMsg({ text: "Die beiden Eingaben sind nicht gleich.", bad: true }); return; }
+    if (!/^[0-9]{4,6}$/.test(pinForm.a)) { setPinMsg({ text: tx("Die PIN muss aus 4 bis 6 Ziffern bestehen."), bad: true }); return; }
+    if (pinForm.a !== pinForm.b) { setPinMsg({ text: tx("Die beiden Eingaben sind nicht gleich."), bad: true }); return; }
     const { error } = await sb.rpc("set_my_pin", { p_org: org.orgId, p_pin: pinForm.a });
     if (error) { setPinMsg({ text: error.message, bad: true }); return; }
-    setPinForm(null); setPinSet(true); setPinMsg({ text: "PIN gespeichert ✓", bad: false });
+    setPinForm(null); setPinSet(true); setPinMsg({ text: tx("PIN gespeichert ✓"), bad: false });
   }
 
   // ---------- day detail ----------
@@ -154,15 +153,15 @@ export default function EmployeeTimes({ org }) {
     const s0 = cform.sessionId ? (sessions || []).find((x) => x.id === cform.sessionId) : null;
     const tin = cform.in ? toIso(sel, cform.in) : null;
     const tout = cform.out ? toIso(sel, cform.out, tin || (s0 && s0.check_in ? new Date(s0.check_in) : null)) : null;
-    if (!tin && !tout) return setCmsg({ text: "Bitte Kommen und/oder Gehen angeben (z. B. 16:30).", bad: true });
+    if (!tin && !tout) return setCmsg({ text: tx("Bitte Kommen und/oder Gehen angeben (z. B. 16:30)."), bad: true });
     // 39 (7 Nov 2026): today, still at work -> "Kommen" alone is fine; "Gehen" is stamped normally later
     const onlyKommenToday = !cform.sessionId && tin && !tout && sel === todayIso;
-    if (onlyKommenToday && tin > new Date()) return setCmsg({ text: "„Kommen“ liegt in der Zukunft – bitte prüfen.", bad: true });
-    if (!cform.sessionId && !onlyKommenToday && (!tin || !tout)) return setCmsg({ text: "Für einen ganz vergessenen Tag bitte Kommen und Gehen angeben.", bad: true });
-    if (cform.reason.trim().length < 3) return setCmsg({ text: "Bitte kurz den Grund angeben.", bad: true });
+    if (onlyKommenToday && tin > new Date()) return setCmsg({ text: tx("„Kommen“ liegt in der Zukunft – bitte prüfen."), bad: true });
+    if (!cform.sessionId && !onlyKommenToday && (!tin || !tout)) return setCmsg({ text: tx("Für einen ganz vergessenen Tag bitte Kommen und Gehen angeben."), bad: true });
+    if (cform.reason.trim().length < 3) return setCmsg({ text: tx("Bitte kurz den Grund angeben."), bad: true });
     const { error } = await sb.from("attendance_correction_requests").insert({ org_id: org.orgId, staff_id: org.staffId, session_id: cform.sessionId || null, work_date: sel, check_in: tin ? tin.toISOString() : null, check_out: tout ? tout.toISOString() : null, reason: cform.reason.trim().slice(0, 500), status: "open" });
-    if (error) return setCmsg({ text: /check/i.test(error.message) ? "Gehen muss nach Kommen liegen." : error.message, bad: true });
-    setCform(null); setCmsg({ text: onlyKommenToday ? "„Kommen“ beantragt ✓ Die Leitung entscheidet. Beim Gehen ganz normal stempeln." : "Korrektur beantragt ✓ Die Leitung entscheidet.", bad: false }); load();
+    if (error) return setCmsg({ text: /check/i.test(error.message) ? tx("Gehen muss nach Kommen liegen.") : error.message, bad: true });
+    setCform(null); setCmsg({ text: onlyKommenToday ? tx("„Kommen“ beantragt ✓ Die Leitung entscheidet. Beim Gehen ganz normal stempeln.") : tx("Korrektur beantragt ✓ Die Leitung entscheidet."), bad: false }); load();
   }
 
   if (sel) {
@@ -172,81 +171,81 @@ export default function EmployeeTimes({ org }) {
     const finished = sel < todayIso || (sel === todayIso && !d.open);
     return (
       <div>
-        <button onClick={() => setSel(null)} style={{ border: 0, background: "none", color: PRIMARY, fontSize: 16, fontWeight: 600, padding: "4px 0 10px", cursor: "pointer" }}>‹ Zurück</button>
-        <div style={{ fontSize: 22, fontWeight: 750, marginBottom: 12 }}>{WD_LONG[date.getDay()]}, {pad(date.getDate())}.{pad(date.getMonth() + 1)}.{date.getFullYear()}
+        <button onClick={() => setSel(null)} style={{ border: 0, background: "none", color: PRIMARY, fontSize: 16, fontWeight: 600, padding: "4px 0 10px", cursor: "pointer" }}>{tx("‹ Zurück")}</button>
+        <div style={{ fontSize: 22, fontWeight: 750, marginBottom: 12 }}>{wdLong(date.getDay())}, {dmy(date)}
           {d.shifts.length > 0 && <span style={{ display: "block", fontSize: 16, fontWeight: 600, color: PRIMARY, marginTop: 2 }}>{d.shifts.map((x) => `${x.shift_label || x.shift_key}${x.planned_start && x.planned_end ? ` · ${clock(x.planned_start)}–${clock(x.planned_end)}` : ""}`).join(" + ")}</span>}
         </div>
-        {d.absence && <div style={{ ...card, background: "#EEF3FB", fontSize: 15 }}><b>{ABSENCE[d.absence.kind].label}</b> <span style={{ color: MUTED, fontSize: 13 }}>{d.absence.source === "antrag" ? "(genehmigter Antrag)" : "(eingetragen von der Leitung)"}</span>{d.absence.note ? <div style={{ color: MUTED, fontSize: 13, marginTop: 2 }}>{d.absence.note}</div> : null}</div>}
-        {d.sessions.length === 0 && !d.absence && <div style={{ ...card, color: MUTED, fontSize: 14 }}>An diesem Tag gibt es keine Stempelung.</div>}
+        {d.absence && <div style={{ ...card, background: "#EEF3FB", fontSize: 15 }}><b>{tx(ABSENCE[d.absence.kind].label)}</b> <span style={{ color: MUTED, fontSize: 13 }}>{d.absence.source === "antrag" ? tx("(genehmigter Antrag)") : tx("(eingetragen von der Leitung)")}</span>{d.absence.note ? <div style={{ color: MUTED, fontSize: 13, marginTop: 2 }}>{d.absence.note}</div> : null}</div>}
+        {d.sessions.length === 0 && !d.absence && <div style={{ ...card, color: MUTED, fontSize: 14 }}>{tx("An diesem Tag gibt es keine Stempelung.")}</div>}
         {d.sessions.map((s) => (
           <div key={s.id}>
             <div style={{ ...card, display: "flex", alignItems: "center", gap: 12, background: "#F4F6FA" }}>
-              <span style={{ color: "#3B9B5A", fontSize: 20 }}>→</span><span style={{ flex: 1, fontSize: 16 }}>Kommen</span>
-              <span style={{ color: s.check_in ? MUTED : "#B45309", fontSize: 16 }}>{s.check_in ? clock(s.check_in) : "fehlt"}{corrected(s.id, "check_in") ? " ✎" : ""}</span><span aria-label="gesperrt">🔒</span>
+              <span style={{ color: "#3B9B5A", fontSize: 20 }}>→</span><span style={{ flex: 1, fontSize: 16 }}>{tx("Kommen")}</span>
+              <span style={{ color: s.check_in ? MUTED : "#B45309", fontSize: 16 }}>{s.check_in ? clock(s.check_in) : tx("fehlt")}{corrected(s.id, "check_in") ? " ✎" : ""}</span><span aria-label="gesperrt">🔒</span>
             </div>
             <div style={{ ...card, display: "flex", alignItems: "center", gap: 12, background: "#F4F6FA" }}>
-              <span style={{ color: "#E0A050", fontSize: 20 }}>←</span><span style={{ flex: 1, fontSize: 16 }}>Gehen</span>
-              <span style={{ color: !s.check_out && Date.now() - new Date(s.check_in).getTime() > 12 * 3600000 ? "#B45309" : MUTED, fontSize: 16 }}>{s.check_out ? clock(s.check_out) : Date.now() - new Date(s.check_in).getTime() > 12 * 3600000 ? "fehlt" : "läuft"}{corrected(s.id, "check_out") ? " ✎" : ""}</span><span aria-label="gesperrt">🔒</span>
+              <span style={{ color: "#E0A050", fontSize: 20 }}>←</span><span style={{ flex: 1, fontSize: 16 }}>{tx("Gehen")}</span>
+              <span style={{ color: !s.check_out && Date.now() - new Date(s.check_in).getTime() > 12 * 3600000 ? "#B45309" : MUTED, fontSize: 16 }}>{s.check_out ? clock(s.check_out) : Date.now() - new Date(s.check_in).getTime() > 12 * 3600000 ? tx("fehlt") : tx("läuft")}{corrected(s.id, "check_out") ? " ✎" : ""}</span><span aria-label="gesperrt">🔒</span>
             </div>
           </div>
         ))}
         <div style={card}>
-          <div style={{ fontSize: 18, fontWeight: 700 }}>Arbeitszeit</div>
-          <div style={{ fontSize: 13, color: MUTED, marginBottom: 6 }}>Alle Werte in Stunden:Minuten.</div>
-          <div style={row}><span>Anwesenheit</span><span>{hm(d.gross)}</span></div>
-          <div style={row}><span>− Pause <span style={{ fontSize: 12, color: MUTED }}>(gesetzlich)</span></span><span>{d.pause} min</span></div>
-          <div style={{ ...row, borderTop: `1px solid ${LINE}`, fontWeight: 700 }}><span>= Gearbeitet</span><span>{hm(d.worked)}</span></div>
-          <div style={row}><span>{sollMode === "vertrag" ? "− Soll (Vertrag)" : "− Geplant"}</span><span>{hm(d.planned)}</span></div>
-          <div style={{ ...row, borderTop: `1px solid ${LINE}`, fontWeight: 700 }}><span>= Tagessaldo</span><span>{finished ? hm(d.daily, true) : "–"}</span></div>
+          <div style={{ fontSize: 18, fontWeight: 700 }}>{tx("Arbeitszeit")}</div>
+          <div style={{ fontSize: 13, color: MUTED, marginBottom: 6 }}>{tx("Alle Werte in Stunden:Minuten.")}</div>
+          <div style={row}><span>{tx("Anwesenheit")}</span><span>{hm(d.gross)}</span></div>
+          <div style={row}><span>{tx("− Pause")} <span style={{ fontSize: 12, color: MUTED }}>{tx("(gesetzlich)")}</span></span><span>{d.pause} {tx("min")}</span></div>
+          <div style={{ ...row, borderTop: `1px solid ${LINE}`, fontWeight: 700 }}><span>{tx("= Gearbeitet")}</span><span>{hm(d.worked)}</span></div>
+          <div style={row}><span>{sollMode === "vertrag" ? tx("− Soll (Vertrag)") : tx("− Geplant")}</span><span>{hm(d.planned)}</span></div>
+          <div style={{ ...row, borderTop: `1px solid ${LINE}`, fontWeight: 700 }}><span>{tx("= Tagessaldo")}</span><span>{finished ? hm(d.daily, true) : "–"}</span></div>
         </div>
         <div style={card}>
-          <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 6 }}>Zeitkonto</div>
-          <div style={row}><span>Vorher</span><span>{hm(before, true)}</span></div>
-          <div style={row}><span>+ Tagessaldo</span><span>{finished && firstIso && sel >= firstIso ? hm(d.daily, true) : "0:00"}</span></div>
-          <div style={{ ...row, borderTop: `1px solid ${LINE}`, fontWeight: 700 }}><span>= Neu</span><span>{hm(before + (finished && firstIso && sel >= firstIso ? d.daily : 0), true)}</span></div>
+          <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 6 }}>{tx("Zeitkonto")}</div>
+          <div style={row}><span>{tx("Vorher")}</span><span>{hm(before, true)}</span></div>
+          <div style={row}><span>{tx("+ Tagessaldo")}</span><span>{finished && firstIso && sel >= firstIso ? hm(d.daily, true) : "0:00"}</span></div>
+          <div style={{ ...row, borderTop: `1px solid ${LINE}`, fontWeight: 700 }}><span>{tx("= Neu")}</span><span>{hm(before + (finished && firstIso && sel >= firstIso ? d.daily : 0), true)}</span></div>
         </div>
         {(() => {
           const dayReqs = reqs.filter((q) => q.work_date === sel);
           const monthClosed = closed.some((c) => c.year === date.getFullYear() && c.month === date.getMonth() + 1);
-          const STAT = { open: ["Offen – die Leitung entscheidet", "#7A4E00", "#FFF4D6"], approved: ["Übernommen ✓", "#1F6347", "#DDF2E8"], denied: ["Abgelehnt", "#8A2A3E", "#FCE5EA"] };
+          const STAT = { open: [tx("Offen – die Leitung entscheidet"), "#7A4E00", "#FFF4D6"], approved: [tx("Übernommen ✓"), "#1F6347", "#DDF2E8"], denied: [tx("Abgelehnt"), "#8A2A3E", "#FCE5EA"] };
           return (
             <div style={card}>
-              <div style={{ fontSize: 17, fontWeight: 700, marginBottom: 6 }}>Korrektur</div>
+              <div style={{ fontSize: 17, fontWeight: 700, marginBottom: 6 }}>{tx("Korrektur")}</div>
               {dayReqs.map((q) => (
                 <div key={q.id} style={{ fontSize: 14, padding: "6px 0", borderBottom: `1px solid ${LINE}` }}>
                   <span style={{ fontSize: 12, fontWeight: 650, color: STAT[q.status][1], background: STAT[q.status][2], borderRadius: 8, padding: "2px 7px", marginRight: 6 }}>{STAT[q.status][0]}</span>
-                  {q.check_in ? `Kommen ${clock(q.check_in)} ` : ""}{q.check_out ? `Gehen ${clock(q.check_out)}` : !q.session_id ? "(Gehen später normal stempeln)" : ""} · „{q.reason}“
-                  {q.decision_note && <div style={{ color: MUTED, marginTop: 2 }}>Antwort der Leitung: {q.decision_note}</div>}
+                  {q.check_in ? tx("Kommen {0} ", clock(q.check_in)) : ""}{q.check_out ? tx("Gehen {0}", clock(q.check_out)) : !q.session_id ? tx("(Gehen später normal stempeln)") : ""} · „{q.reason}“
+                  {q.decision_note && <div style={{ color: MUTED, marginTop: 2 }}>{tx("Antwort der Leitung:")} {q.decision_note}</div>}
                 </div>
               ))}
-              {cmsg.text && <div role={cmsg.bad ? "alert" : "status"} style={{ fontSize: 13, margin: "8px 0", color: cmsg.bad ? "#B3263E" : "#1F6347" }}>{cmsg.text}</div>}
+              {cmsg.text && <div role={cmsg.bad ? "alert" : "status"} style={{ fontSize: 13, margin: "8px 0", color: cmsg.bad ? "#B3263E" : "#1F6347" }}>{tx(cmsg.text)}</div>}
               {sel > todayIso ? null : cform ? (
                 <div style={{ marginTop: 8 }}>
                   {d.sessions.length > 1 && (
                     <select value={cform.sessionId || ""} onChange={(e) => setCform({ ...cform, sessionId: e.target.value ? Number(e.target.value) : null })} style={{ width: "100%", padding: 10, borderRadius: 12, border: `1px solid ${LINE}`, fontSize: 15, marginBottom: 8 }}>
                       {d.sessions.map((x) => <option key={x.id} value={x.id}>{x.check_in ? clock(x.check_in) : "?"} – {x.check_out ? clock(x.check_out) : "?"}</option>)}
-                      <option value="">Ganz vergessen (neuer Eintrag)</option>
+                      <option value="">{tx("Ganz vergessen (neuer Eintrag)")}</option>
                     </select>
                   )}
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                    <label style={{ fontSize: 13, color: MUTED }}>Kommen<input type="time" value={cform.in} onChange={(e) => setCform({ ...cform, in: e.target.value })} style={{ display: "block", width: "100%", boxSizing: "border-box", marginTop: 4, border: `1px solid ${LINE}`, borderRadius: 12, padding: "9px 10px", fontSize: 16 }} /></label>
-                    <label style={{ fontSize: 13, color: MUTED }}>Gehen<input type="time" value={cform.out} onChange={(e) => setCform({ ...cform, out: e.target.value })} style={{ display: "block", width: "100%", boxSizing: "border-box", marginTop: 4, border: `1px solid ${LINE}`, borderRadius: 12, padding: "9px 10px", fontSize: 16 }} /></label>
+                    <label style={{ fontSize: 13, color: MUTED }}>{tx("Kommen")}<input type="time" value={cform.in} onChange={(e) => setCform({ ...cform, in: e.target.value })} style={{ display: "block", width: "100%", boxSizing: "border-box", marginTop: 4, border: `1px solid ${LINE}`, borderRadius: 12, padding: "9px 10px", fontSize: 16 }} /></label>
+                    <label style={{ fontSize: 13, color: MUTED }}>{tx("Gehen")}<input type="time" value={cform.out} onChange={(e) => setCform({ ...cform, out: e.target.value })} style={{ display: "block", width: "100%", boxSizing: "border-box", marginTop: 4, border: `1px solid ${LINE}`, borderRadius: 12, padding: "9px 10px", fontSize: 16 }} /></label>
                   </div>
-                  <label style={{ display: "block", fontSize: 13, color: MUTED, marginTop: 8 }}>Grund
-                    <input value={cform.reason} maxLength={500} placeholder="z. B. Ausstempeln vergessen" onChange={(e) => setCform({ ...cform, reason: e.target.value })} style={{ display: "block", width: "100%", boxSizing: "border-box", marginTop: 4, border: `1px solid ${LINE}`, borderRadius: 12, padding: "9px 10px", fontSize: 16 }} />
+                  <label style={{ display: "block", fontSize: 13, color: MUTED, marginTop: 8 }}>{tx("Grund")}
+                    <input value={cform.reason} maxLength={500} placeholder={tx("z. B. Ausstempeln vergessen")} onChange={(e) => setCform({ ...cform, reason: e.target.value })} style={{ display: "block", width: "100%", boxSizing: "border-box", marginTop: 4, border: `1px solid ${LINE}`, borderRadius: 12, padding: "9px 10px", fontSize: 16 }} />
                   </label>
-                  {sel === todayIso && !cform.sessionId && <div style={{ fontSize: 13, color: MUTED, marginTop: 6 }}>Noch bei der Arbeit? Nur „Kommen“ eintragen – „Gehen“ später ganz normal stempeln.</div>}
-                  {monthClosed && <div style={{ fontSize: 13, color: "#7A4E00", marginTop: 6 }}>Dieser Monat ist schon abgeschlossen – die Leitung entscheidet trotzdem.</div>}
+                  {sel === todayIso && !cform.sessionId && <div style={{ fontSize: 13, color: MUTED, marginTop: 6 }}>{tx("Noch bei der Arbeit? Nur „Kommen“ eintragen – „Gehen“ später ganz normal stempeln.")}</div>}
+                  {monthClosed && <div style={{ fontSize: 13, color: "#7A4E00", marginTop: 6 }}>{tx("Dieser Monat ist schon abgeschlossen – die Leitung entscheidet trotzdem.")}</div>}
                   <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
-                    <button onClick={sendCorrection} style={{ flex: 1, border: 0, borderRadius: 14, background: PRIMARY, color: "#fff", fontSize: 15, fontWeight: 650, padding: "11px 0", cursor: "pointer" }}>An die Leitung senden</button>
-                    <button onClick={() => { setCform(null); setCmsg({ text: "", bad: false }); }} style={{ border: "1.5px solid #9AAED0", borderRadius: 14, background: "#fff", fontSize: 14, padding: "11px 14px", cursor: "pointer" }}>Abbrechen</button>
+                    <button onClick={sendCorrection} style={{ flex: 1, border: 0, borderRadius: 14, background: PRIMARY, color: "#fff", fontSize: 15, fontWeight: 650, padding: "11px 0", cursor: "pointer" }}>{tx("An die Leitung senden")}</button>
+                    <button onClick={() => { setCform(null); setCmsg({ text: "", bad: false }); }} style={{ border: "1.5px solid #9AAED0", borderRadius: 14, background: "#fff", fontSize: 14, padding: "11px 14px", cursor: "pointer" }}>{tx("Abbrechen")}</button>
                   </div>
                 </div>
               ) : (
                 <button onClick={() => { setCmsg({ text: "", bad: false }); const s0 = d.sessions[0]; setCform({ sessionId: s0 ? s0.id : null, in: "", out: "", reason: "" }); }}
-                  style={{ marginTop: 6, border: "1.5px solid #9AAED0", borderRadius: 12, background: "#fff", fontSize: 15, fontWeight: 600, padding: "10px 14px", cursor: "pointer" }}>{d.sessions.length ? "Korrektur beantragen" : "Vergessen zu stempeln? Zeit beantragen"}</button>
+                  style={{ marginTop: 6, border: "1.5px solid #9AAED0", borderRadius: 12, background: "#fff", fontSize: 15, fontWeight: 600, padding: "10px 14px", cursor: "pointer" }}>{d.sessions.length ? tx("Korrektur beantragen") : tx("Vergessen zu stempeln? Zeit beantragen")}</button>
               )}
-              <div style={{ fontSize: 12, color: MUTED, marginTop: 8 }}>🔒 Stempelzeiten ändert niemand still: Die Leitung entscheidet, alles wird mit Grund gespeichert. ✎ = von der Leitung korrigiert.</div>
+              <div style={{ fontSize: 12, color: MUTED, marginTop: 8 }}>{tx("🔒 Stempelzeiten ändert niemand still: Die Leitung entscheidet, alles wird mit Grund gespeichert. ✎ = von der Leitung korrigiert.")}</div>
             </div>
           );
         })()}
@@ -267,48 +266,48 @@ export default function EmployeeTimes({ org }) {
   return (
     <div>
       <div style={{ padding: "4px 4px 14px" }}>
-        <div style={{ fontSize: 22, fontWeight: 750 }}>Dein Zeitkonto</div>
+        <div style={{ fontSize: 22, fontWeight: 750 }}>{tx("Dein Zeitkonto")}</div>
         <div style={{ fontSize: 44, fontWeight: 300, letterSpacing: -1, color: total < 0 ? "#B3263E" : INK }}>{sessions === null ? "…" : hm(total, true)}</div>
       </div>
-      {err && <div role="alert" style={{ ...card, background: "#FCE5EA", color: "#8A2A3E", fontSize: 14 }}>{err}</div>}
+      {err && <div role="alert" style={{ ...card, background: "#FCE5EA", color: "#8A2A3E", fontSize: 14 }}>{tx(err)}</div>}
 
       {needPin && <div style={card}>
-        <div style={{ fontSize: 15, fontWeight: 650 }}>Stempel-PIN fürs Terminal</div>
-        <div style={{ fontSize: 13, color: MUTED, margin: "2px 0 8px" }}>Deine Firma verlangt am Terminal Karte + PIN.</div>
+        <div style={{ fontSize: 15, fontWeight: 650 }}>{tx("Stempel-PIN fürs Terminal")}</div>
+        <div style={{ fontSize: 13, color: MUTED, margin: "2px 0 8px" }}>{tx("Deine Firma verlangt am Terminal Karte + PIN.")}</div>
         {pinForm ? (
           <div>
             {["a", "b"].map((k) => (
-              <input key={k} type="password" inputMode="numeric" autoComplete="off" maxLength={6} placeholder={k === "a" ? "Neue PIN (4–6 Ziffern)" : "PIN wiederholen"} value={pinForm[k]}
+              <input key={k} type="password" inputMode="numeric" autoComplete="off" maxLength={6} placeholder={k === "a" ? tx("Neue PIN (4–6 Ziffern)") : tx("PIN wiederholen")} value={pinForm[k]}
                 onChange={(e) => setPinForm((f) => ({ ...f, [k]: e.target.value.replace(/\D/g, "") }))}
                 style={{ display: "block", width: "100%", boxSizing: "border-box", marginBottom: 8, border: `1px solid ${LINE}`, borderRadius: 12, padding: "10px 12px", fontSize: 18, letterSpacing: 4 }} />
             ))}
             <div style={{ display: "flex", gap: 8 }}>
-              <button onClick={savePin} style={{ flex: 1, border: 0, borderRadius: 12, background: PRIMARY, color: "#fff", fontSize: 15, fontWeight: 650, padding: "10px 0", cursor: "pointer" }}>Speichern</button>
-              <button onClick={() => { setPinForm(null); setPinMsg({ text: "", bad: false }); }} style={{ border: "1.5px solid #9AAED0", borderRadius: 12, background: "#fff", fontSize: 14, padding: "10px 14px", cursor: "pointer" }}>Abbrechen</button>
+              <button onClick={savePin} style={{ flex: 1, border: 0, borderRadius: 12, background: PRIMARY, color: "#fff", fontSize: 15, fontWeight: 650, padding: "10px 0", cursor: "pointer" }}>{tx("Speichern")}</button>
+              <button onClick={() => { setPinForm(null); setPinMsg({ text: "", bad: false }); }} style={{ border: "1.5px solid #9AAED0", borderRadius: 12, background: "#fff", fontSize: 14, padding: "10px 14px", cursor: "pointer" }}>{tx("Abbrechen")}</button>
             </div>
           </div>
         ) : (
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-            <span style={{ fontSize: 14, color: pinSet ? "#1F6347" : MUTED }}>{pinSet === null ? "…" : pinSet ? "PIN ist gesetzt ✓" : "Noch keine PIN"}</span>
-            <button onClick={() => setPinForm({ a: "", b: "" })} style={{ border: "1.5px solid #9AAED0", borderRadius: 12, background: "#fff", fontSize: 14, fontWeight: 600, padding: "8px 12px", cursor: "pointer" }}>{pinSet ? "PIN ändern" : "PIN festlegen"}</button>
+            <span style={{ fontSize: 14, color: pinSet ? "#1F6347" : MUTED }}>{pinSet === null ? "…" : pinSet ? tx("PIN ist gesetzt ✓") : tx("Noch keine PIN")}</span>
+            <button onClick={() => setPinForm({ a: "", b: "" })} style={{ border: "1.5px solid #9AAED0", borderRadius: 12, background: "#fff", fontSize: 14, fontWeight: 600, padding: "8px 12px", cursor: "pointer" }}>{pinSet ? tx("PIN ändern") : tx("PIN festlegen")}</button>
           </div>
         )}
-        {pinMsg.text && <div role={pinMsg.bad ? "alert" : "status"} style={{ fontSize: 13, marginTop: 8, color: pinMsg.bad ? "#B3263E" : "#1F6347" }}>{pinMsg.text}</div>}
+        {pinMsg.text && <div role={pinMsg.bad ? "alert" : "status"} style={{ fontSize: 13, marginTop: 8, color: pinMsg.bad ? "#B3263E" : "#1F6347" }}>{tx(pinMsg.text)}</div>}
       </div>}
 
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", margin: "6px 4px 4px" }}>
-        <button onClick={() => shift(-1)} aria-label="Vormonat" style={{ border: "1.5px solid #9AAED0", borderRadius: 12, background: "#fff", width: 40, height: 36, cursor: "pointer" }}>‹</button>
+        <button onClick={() => shift(-1)} aria-label={tx("Vormonat")} style={{ border: "1.5px solid #9AAED0", borderRadius: 12, background: "#fff", width: 40, height: 36, cursor: "pointer" }}>‹</button>
         <div style={{ textAlign: "center" }}>
-          <div style={{ fontSize: 20, fontWeight: 700, color: "#4B5568" }}>{MONTHS[view.m]} {view.y}</div>
-          <div style={{ fontSize: 13, color: MUTED }}>{monthClosed ? "🔒 Monat abgeschlossen · " : ""}Monatssaldo: {hm(monthSum, true)} h</div>
+          <div style={{ fontSize: 20, fontWeight: 700, color: "#4B5568" }}>{monthName(view.m)} {view.y}</div>
+          <div style={{ fontSize: 13, color: MUTED }}>{monthClosed ? tx("🔒 Monat abgeschlossen · ") : ""}{tx("Monatssaldo:")} {hm(monthSum, true)} h</div>
         </div>
-        <button onClick={() => shift(1)} disabled={isCurrent} aria-label="Nächster Monat" style={{ border: "1.5px solid #9AAED0", borderRadius: 12, background: "#fff", width: 40, height: 36, cursor: "pointer", opacity: isCurrent ? 0.4 : 1 }}>›</button>
+        <button onClick={() => shift(1)} disabled={isCurrent} aria-label={tx("Nächster Monat")} style={{ border: "1.5px solid #9AAED0", borderRadius: 12, background: "#fff", width: 40, height: 36, cursor: "pointer", opacity: isCurrent ? 0.4 : 1 }}>›</button>
       </div>
 
       <div style={{ ...card, padding: "4px 12px" }}>
         {list.map((iso) => {
           const d = days[iso]; const dt = new Date(iso + "T12:00:00");
-          const label = iso === todayIso ? "Heute" : iso === isoOf(new Date(now.getTime() - 86400000)) ? "Gestern" : `${WD_LONG[dt.getDay()]}, ${pad(dt.getDate())}.${pad(dt.getMonth() + 1)}.${dt.getFullYear()}`;
+          const label = iso === todayIso ? tx("Heute") : iso === isoOf(new Date(now.getTime() - 86400000)) ? tx("Gestern") : `${wdLong(dt.getDay())}, ${dmy(dt)}`;
           const sh = d && d.shifts[0];
           const openS = d && d.sessions.find((x) => x.check_in && !x.check_out);
           // planned but nothing stamped: today 30 minutes after the shift start, earlier days always (since Zeiterfassung started)
@@ -316,11 +315,11 @@ export default function EmployeeTimes({ org }) {
           const noStamp = d && d.shifts.length > 0 && d.sessions.length === 0 && ttStart && iso >= ttStart && !d.absence;
           const kommenFehlt = noStamp && (iso < todayIso || (iso === todayIso && Date.now() > firstStart + 30 * 60000));
           const forgot = openS && Date.now() - new Date(openS.check_in).getTime() > 12 * 3600000;
-          const absTxt = d && d.absence ? `${ABSENCE[d.absence.kind].label}${!ABSENCE[d.absence.kind].credit && d.planned ? ` (−${hm(d.planned)} h)` : ""}` : null;
+          const absTxt = d && d.absence ? `${tx(ABSENCE[d.absence.kind].label)}${!ABSENCE[d.absence.kind].credit && d.planned ? ` (−${hm(d.planned)} h)` : ""}` : null;
           const shiftName = d && d.shifts.length ? d.shifts.map((x) => x.shift_label || x.shift_key).join(" + ") : ""; // e.g. "Frühdienst" (7 Nov 2026)
-          const sub0 = !d ? "frei" : absTxt && !d.sessions.length ? absTxt : forgot ? "Gehen fehlt – bitte Korrektur beantragen" : kommenFehlt ? (iso === todayIso ? "Kommen fehlt" : "Kommen fehlt – bitte Korrektur beantragen") : d.open ? `läuft seit ${clock(openS.check_in)}`
-            : d.sessions.length ? `gearbeitet ${hm(d.worked)} h${d.missing ? " · Kommen fehlt" : ""}`
-            : d.shifts.length ? (iso < todayIso ? "geplant, kein Stempel" : `${sh.shift_label || sh.shift_key} geplant`) : sollMode === "vertrag" && d.planned > 0 && iso <= todayIso ? `frei · Soll ${hm(d.planned)} (Zeitausgleich)` : "frei";
+          const sub0 = !d ? tx("frei") : absTxt && !d.sessions.length ? absTxt : forgot ? tx("Gehen fehlt – bitte Korrektur beantragen") : kommenFehlt ? (iso === todayIso ? tx("Kommen fehlt") : tx("Kommen fehlt – bitte Korrektur beantragen")) : d.open ? tx("läuft seit {0}", clock(openS.check_in))
+            : d.sessions.length ? tx("gearbeitet {0} h{1}", hm(d.worked), d.missing ? tx(" · Kommen fehlt") : "")
+            : d.shifts.length ? (iso < todayIso ? tx("geplant, kein Stempel") : tx("{0} geplant", sh.shift_label || sh.shift_key)) : sollMode === "vertrag" && d.planned > 0 && iso <= todayIso ? tx("frei · Soll {0} (Zeitausgleich)", hm(d.planned)) : tx("frei");
           // name of the planned shift in front (Früh / Mittel / Spät / Nacht …), unless it is already in the text
           const sub = shiftName && !sub0.includes(shiftName) ? `${shiftName} · ${sub0}` : sub0;
           return (

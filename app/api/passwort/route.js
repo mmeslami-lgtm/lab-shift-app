@@ -57,11 +57,32 @@ export async function POST(request) {
 
     const password = tempPassword();
     const site = (process.env.NEXT_PUBLIC_SITE_URL || "https://www.dienstigo.de").replace(/\/$/, "");
+    // Sprache (Paket D2): Sprache der Firma(en) der Person; nur Englisch, wenn keine deutsche Firma dabei ist.
+    // Ohne Firma: Sprache der Anmeldeseite.
+    let en = body.lang === "en";
+    try {
+      const lm = await supabaseAdmin.from("memberships").select("org_id, organizations(language)").eq("user_id", user.id);
+      const langs = (lm.data || []).map((m) => m.organizations && m.organizations.language).filter(Boolean);
+      if (!lm.error && langs.length) en = !langs.includes("de") && langs.includes("en");
+    } catch (e) { /* Spalte fehlt: Sprache der Anmeldeseite */ }
     await sendMail({
       to: email,
       fromName: "Dienstigo",
-      subject: "Dienstigo – vorläufiges Passwort",
-      text: [
+      subject: en ? "Dienstigo – temporary password" : "Dienstigo – vorläufiges Passwort",
+      text: (en ? [
+        "Hello,",
+        "",
+        "A new password was requested for your Dienstigo account.",
+        "",
+        `Temporary password:  ${password}`,
+        "",
+        `Please sign in now: ${site}/login`,
+        "After signing in you will set your own new password straight away. The old password no longer works.",
+        "",
+        "You did not request this? Then please inform your manager.",
+        "",
+        "Dienstigo",
+      ] : [
         "Hallo,",
         "",
         "für Ihr Dienstigo-Konto wurde ein neues Passwort angefordert.",
@@ -74,7 +95,7 @@ export async function POST(request) {
         "Sie haben das nicht angefordert? Dann bitte Ihre Leitung informieren.",
         "",
         "Dienstigo",
-      ].join("\n"),
+      ]).join("\n"),
     });
     // only now: the mail is out -> it becomes the password; own password at the next sign-in
     const up = await supabaseAdmin.auth.admin.updateUserById(user.id, { password });
@@ -94,7 +115,8 @@ export async function POST(request) {
         for (const id of ids.slice(0, 10)) {
           const u = await supabaseAdmin.auth.admin.getUserById(id);
           const to = u.data && u.data.user && u.data.user.email;
-          if (to) await sendMail({ to, fromName: "Dienstigo", subject: `Dienstigo – ${who} hat ein vorläufiges Passwort angefordert`,
+          if (to) await sendMail(en ? { to, fromName: "Dienstigo", subject: `Dienstigo – ${who} requested a temporary password`,
+            text: `Hello,\n\n${who} (${email}) requested a temporary password via “Forgot password?” and must set a new one at the next sign-in.\n\nIf this was not the person themselves, please contact them.\n\nDienstigo` } : { to, fromName: "Dienstigo", subject: `Dienstigo – ${who} hat ein vorläufiges Passwort angefordert`,
             text: `Hallo,\n\n${who} (${email}) hat über „Passwort vergessen?“ ein vorläufiges Passwort angefordert und muss bei der nächsten Anmeldung ein neues festlegen.\n\nWar das nicht die Person selbst, melden Sie sich bitte bei ihr.\n\nDienstigo` }).catch(() => {});
         }
       }

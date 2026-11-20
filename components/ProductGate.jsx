@@ -9,6 +9,7 @@ import TrialBanner from "./TrialBanner";
 import { legalComplete } from "../lib/legal";
 import { setCountryHolidays } from "../lib/timesheet";
 import { loadCountry } from "../lib/country";
+import { tx, setLang, getLang } from "../lib/i18n";
 
 const PAPER = "#E9EEF8";
 const INK = "#1B2433";
@@ -55,6 +56,12 @@ export default function ProductGate({ product, supervisorOnly = false, label, ch
       const enabled = (orgId) => prod.data.filter((p) => p.org_id === orgId && p.enabled).map((p) => p.product);
       const ok = own.find((m) => enabled(m.org_id).some((p) => wanted.includes(p)) && (!supervisorOnly || m.role !== "employee"));
       if (!ok) { setState({ status: "denied", own: own.map((m) => ({ name: m.organizations ? m.organizations.name : "Firma", role: m.role, products: enabled(m.org_id) })) }); return; }
+      // Land & Sprache (Skript 45, Paket D1/D2). Fehlt die Spalte: Deutschland wie bisher.
+      // Sprache der Firma gilt ab jetzt (und wird auf diesem Gerät für die Anmeldeseite gemerkt).
+      const land = await loadCountry(supabase, ok.org_id);
+      if (cancelled) return;
+      setLang(land.language, true);
+      setCountryHolidays(land.country, land.holidays);
       // Testphase (Skript 34): planner pages stay closed until the owner has accepted the current texts.
       // Only the planner pages (supervisorOnly); the employee app is not touched. Missing column = no test phase.
       let trialUntil = null;
@@ -64,7 +71,9 @@ export default function ProductGate({ product, supervisorOnly = false, label, ch
           trialUntil = tr.data[0].trial_until;
           const la = await supabase.from("legal_acceptances").select("doc, version").eq("org_id", ok.org_id);
           if (cancelled) return;
-          if (la.error || !legalComplete(la.data)) {
+          // UAE (Entscheidung Nutzer 20.11.2026): vorerst keine Zustimmungsseite (deutsche AVV gilt dort nicht);
+          // Wiedervorlage 20.12.2026 – englische Texte nach Prüfung durch einen Anwalt.
+          if (land.country === "DE" && (la.error || !legalComplete(la.data))) {
             setState({ status: "consent", orgId: ok.org_id, orgName: ok.organizations ? ok.organizations.name : "Firma", isOwner: ok.role === "owner" });
             return;
           }
@@ -84,10 +93,6 @@ export default function ProductGate({ product, supervisorOnly = false, label, ch
       // Funktionen pro Firma (org_features, Skript 19); fehlt die Tabelle, gibt es einfach keine
       const fr = await supabase.from("org_features").select("feature, enabled").eq("org_id", ok.org_id);
       const features = fr.error ? [] : (fr.data || []).filter((f) => f.enabled).map((f) => f.feature);
-      // Land & Sprache (Skript 45, Paket D1). Fehlt die Spalte: Deutschland wie bisher.
-      const land = await loadCountry(supabase, ok.org_id);
-      if (cancelled) return;
-      setCountryHolidays(land.country, land.holidays);
       setState({
         status: "ok",
         ctx: { supabase, session, orgId: ok.org_id, orgName: ok.organizations ? ok.organizations.name : "Firma", role: ok.role, staffId: ok.staff_id, products: enabled(ok.org_id), features, requireApproval, retentionYears, shortNoticeDays, trialUntil, trialOver: !!trialUntil && new Date(trialUntil).getTime() < Date.now(), country: land.country, language: land.language, timezone: land.timezone, currency: land.currency },
@@ -96,17 +101,17 @@ export default function ProductGate({ product, supervisorOnly = false, label, ch
     return () => { cancelled = true; };
   }, [session, wantedKey, supervisorOnly, reload]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const what = label || wanted.map((p) => PRODUCT_LABEL[p] || p).join(" / ");
+  const what = tx(label) || wanted.map((p) => tx(PRODUCT_LABEL[p] || p)).join(" / ");
 
   if (!supabaseConfigured) {
-    return <div style={shell}><div style={{ maxWidth: 520, margin: "0 auto", ...card, background: "#FFF1D2", color: "#7A4E00" }}>Supabase ist hier nicht eingerichtet (NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_ANON_KEY fehlen).</div></div>;
+    return <div style={shell}><div style={{ maxWidth: 520, margin: "0 auto", ...card, background: "#FFF1D2", color: "#7A4E00" }}>{tx("Supabase ist hier nicht eingerichtet (NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_ANON_KEY fehlen).")}</div></div>;
   }
-  if (state.status === "loading") return <div style={shell}><div style={{ maxWidth: 520, margin: "0 auto", color: MUTED }}>Lädt …</div></div>;
+  if (state.status === "loading") return <div style={shell}><div style={{ maxWidth: 520, margin: "0 auto", color: MUTED }}>{tx("Lädt …")}</div></div>;
   if (state.status === "login") {
     return (
       <div style={shell}><div style={{ maxWidth: 520, margin: "0 auto" }}>
         <h1 style={{ fontSize: 24, fontWeight: 750, letterSpacing: -0.4, margin: "4px 0 14px" }}>{what}</h1>
-        <LoginForm title="Anmelden" />
+        <LoginForm title={tx("Anmelden")} />
       </div></div>
     );
   }
@@ -114,32 +119,32 @@ export default function ProductGate({ product, supervisorOnly = false, label, ch
     return <LegalConsent supabase={supabase} orgId={state.orgId} orgName={state.orgName} isOwner={state.isOwner} email={session.user.email} onDone={() => setReload((n) => n + 1)} />;
   }
   if (state.status === "error") {
-    return <div style={shell}><div style={{ maxWidth: 520, margin: "0 auto", ...card, background: "#FCE5EA", color: "#8A2A3E" }}>Fehler beim Laden: {state.message}</div></div>;
+    return <div style={shell}><div style={{ maxWidth: 520, margin: "0 auto", ...card, background: "#FCE5EA", color: "#8A2A3E" }}>{tx("Fehler beim Laden:")} {tx(state.message)}</div></div>;
   }
   if (state.status === "denied") {
     return (
       <div style={shell}><div style={{ maxWidth: 520, margin: "0 auto" }}>
-        <h1 style={{ fontSize: 22, fontWeight: 750, letterSpacing: -0.4, margin: "4px 0 12px" }}>Kein Zugriff</h1>
+        <h1 style={{ fontSize: 22, fontWeight: 750, letterSpacing: -0.4, margin: "4px 0 12px" }}>{tx("Kein Zugriff")}</h1>
         <div style={card}>
           <div style={{ fontSize: 15, marginBottom: 8 }}>
-            Dein Konto <b>{session.user.email}</b> darf <b>{what}</b> nicht öffnen.
+            {getLang() === "en" ? <>Your account <b>{session.user.email}</b> may not open <b>{what}</b>.</> : <>Dein Konto <b>{session.user.email}</b> darf <b>{what}</b> nicht öffnen.</>}
           </div>
           <div style={{ fontSize: 13, color: MUTED }}>
-            {supervisorOnly ? "Dafür braucht deine Firma das Produkt und du brauchst die Rolle Schichtplaner, Leitung oder Inhaber." : "Dafür muss deine Firma das Produkt gebucht haben."}
+            {supervisorOnly ? tx("Dafür braucht deine Firma das Produkt und du brauchst die Rolle Schichtplaner, Leitung oder Inhaber.") : tx("Dafür muss deine Firma das Produkt gebucht haben.")}
           </div>
           {state.own.length > 0 && (
             <div style={{ marginTop: 12, fontSize: 13 }}>
               {state.own.map((o, i) => (
                 <div key={i} style={{ padding: "6px 0", borderTop: i ? "1px solid #EEF0F4" : "none" }}>
-                  <b>{o.name}</b> · {ROLE_LABEL[o.role] || o.role}<br />
-                  <span style={{ color: MUTED }}>Produkte: {o.products.length ? o.products.map((p) => PRODUCT_LABEL[p] || p).join(", ") : "keine"}</span>
+                  <b>{o.name}</b> · {tx(ROLE_LABEL[o.role] || o.role)}<br />
+                  <span style={{ color: MUTED }}>{tx("Produkte:")} {o.products.length ? o.products.map((p) => tx(PRODUCT_LABEL[p] || p)).join(", ") : tx("keine")}</span>
                 </div>
               ))}
             </div>
           )}
           <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
-            <button onClick={() => supabase.auth.signOut()} style={{ border: "1.5px solid #9AAED0", borderRadius: 12, background: "#fff", color: INK, fontSize: 15, fontWeight: 600, padding: "10px 14px", cursor: "pointer" }}>Abmelden</button>
-            <a href="/konto" style={{ border: 0, borderRadius: 12, background: PRIMARY, color: "#fff", fontSize: 14, fontWeight: 600, padding: "10px 14px", textDecoration: "none" }}>Zum Konto</a>
+            <button onClick={() => supabase.auth.signOut()} style={{ border: "1.5px solid #9AAED0", borderRadius: 12, background: "#fff", color: INK, fontSize: 15, fontWeight: 600, padding: "10px 14px", cursor: "pointer" }}>{tx("Abmelden")}</button>
+            <a href="/konto" style={{ border: 0, borderRadius: 12, background: PRIMARY, color: "#fff", fontSize: 14, fontWeight: 600, padding: "10px 14px", textDecoration: "none" }}>{tx("Zum Konto")}</a>
           </div>
         </div>
       </div></div>

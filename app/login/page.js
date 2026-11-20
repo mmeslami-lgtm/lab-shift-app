@@ -5,6 +5,8 @@ import { supabase, supabaseConfigured } from "../../lib/supabaseClient";
 import { homeRoute } from "../../lib/homeRoute";
 import LoginForm from "../../components/LoginForm";
 import DemoButton from "../../components/DemoRequest";
+import { tx, setLang } from "../../lib/i18n";
+import { useLang } from "../../lib/useLang";
 
 // /login – eine Anmeldung für alle. Oben wählt man, als wer man sich anmeldet (Mitarbeiter, Leitung, Inhaber);
 // danach geht es direkt in den passenden Bereich. Wer schon angemeldet ist, wird sofort weitergeleitet.
@@ -14,6 +16,7 @@ export default function LoginPage() {
   const [state, setState] = useState("checking"); // checking | form | forwarding
   const [role, setRole] = useState("mitarbeiter");
   const [note, setNote] = useState("");
+  const lang = useLang(); // neu zeichnen, wenn DE/EN gewechselt wird
 
   useEffect(() => {
     try {
@@ -34,8 +37,8 @@ export default function LoginPage() {
       try { pref = window.localStorage.getItem("dg-login-role") || role; } catch (e) { /* ignore */ }
       const to = await homeRoute(supabase, session.user.id, pref);
       let n = "";
-      if (pref !== "mitarbeiter" && to === "/mitarbeiter") n = "Für dieses Konto gibt es keinen Leitungszugang – Sie kommen in die Mitarbeiter-App.";
-      if (pref === "mitarbeiter" && to !== "/mitarbeiter" && to !== "/profil") n = "Dieses Konto ist kein Mitarbeiter-Konto – Sie kommen in Ihren Bereich.";
+      if (pref !== "mitarbeiter" && to === "/mitarbeiter") n = tx("Für dieses Konto gibt es keinen Leitungszugang – Sie kommen in die Mitarbeiter-App.");
+      if (pref === "mitarbeiter" && to !== "/mitarbeiter" && to !== "/profil") n = tx("Dieses Konto ist kein Mitarbeiter-Konto – Sie kommen in Ihren Bereich.");
       setNote(n);
       setTimeout(() => window.location.replace(to), n ? 1800 : 0);
     };
@@ -49,22 +52,30 @@ export default function LoginPage() {
   return (
     <div style={{ background: "#F3F5F9", color: "#18233A", minHeight: "100vh", fontFamily: "system-ui, -apple-system, 'Segoe UI', sans-serif", padding: "28px 16px 40px" }}>
       <div style={{ maxWidth: 440, margin: "0 auto" }}>
-        <a href="/" style={{ display: "inline-block", fontSize: 24, fontWeight: 750, letterSpacing: -0.4, color: "#243B6B", textDecoration: "none", marginBottom: 20 }}>Dienstigo</a>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 20 }}>
+          <a href="/" style={{ display: "inline-block", fontSize: 24, fontWeight: 750, letterSpacing: -0.4, color: "#243B6B", textDecoration: "none" }}>Dienstigo</a>
+          <div role="group" aria-label="Sprache / Language" data-lang-switch style={{ display: "flex", background: "#E3E8F1", borderRadius: 10, padding: 3, gap: 2 }}>
+            {[["de", "DE"], ["en", "EN"]].map(([k, l]) => (
+              <button key={k} type="button" aria-pressed={lang === k} onClick={() => setLang(k, true)}
+                style={{ border: 0, borderRadius: 8, padding: "5px 10px", fontSize: 13, fontWeight: 700, cursor: "pointer", background: lang === k ? "#fff" : "transparent", color: lang === k ? "#243B6B" : "#56617A" }}>{l}</button>
+            ))}
+          </div>
+        </div>
         {state === "form" ? (
           <>
-            <div role="radiogroup" aria-label="Ich melde mich an als" style={{ display: "flex", background: "#E3E8F1", borderRadius: 14, padding: 4, gap: 4, marginBottom: 16 }}>
+            <div role="radiogroup" aria-label={tx("Ich melde mich an als")} style={{ display: "flex", background: "#E3E8F1", borderRadius: 14, padding: 4, gap: 4, marginBottom: 16 }}>
               {ROLES.map(([k, l]) => (
                 <button key={k} role="radio" aria-checked={role === k} onClick={() => pick(k)}
-                  style={{ flex: 1, border: 0, borderRadius: 11, padding: "11px 6px", fontSize: 15, fontWeight: 700, cursor: "pointer", background: role === k ? "#fff" : "transparent", color: role === k ? "#243B6B" : "#56617A", boxShadow: role === k ? "0 2px 8px -3px rgba(24,35,58,.35)" : "none", transition: "background .15s" }}>{l}</button>
+                  style={{ flex: 1, border: 0, borderRadius: 11, padding: "11px 6px", fontSize: 15, fontWeight: 700, cursor: "pointer", background: role === k ? "#fff" : "transparent", color: role === k ? "#243B6B" : "#56617A", boxShadow: role === k ? "0 2px 8px -3px rgba(24,35,58,.35)" : "none", transition: "background .15s" }}>{tx(l)}</button>
               ))}
             </div>
-            <LoginForm title={role === "mitarbeiter" ? "Anmelden – Mitarbeiter-App" : role === "leitung" ? "Anmelden – Leitung" : "Anmelden – Inhaber"} />
+            <LoginForm title={role === "mitarbeiter" ? tx("Anmelden – Mitarbeiter-App") : role === "leitung" ? tx("Anmelden – Leitung") : tx("Anmelden – Inhaber")} />
           </>
         ) : (
-          <div style={{ color: "#56617A", fontSize: 15 }}>{note || (state === "forwarding" ? "Angemeldet, einen Moment …" : "Lädt …")}</div>
+          <div style={{ color: "#56617A", fontSize: 15 }}>{note || (state === "forwarding" ? tx("Angemeldet, einen Moment …") : tx("Lädt …"))}</div>
         )}
         <p style={{ marginTop: 22, fontSize: 14, color: "#5B6578" }}>
-          Noch kein Zugang? Die Leitung Ihrer Firma richtet ihn ein. Neu bei Dienstigo? <DemoButton style={{ color: "#243B6B", fontWeight: 600 }}>Demo anfragen</DemoButton>
+          {tx("Noch kein Zugang? Die Leitung Ihrer Firma richtet ihn ein. Neu bei Dienstigo?")} <DemoButton style={{ color: "#243B6B", fontWeight: 600 }}>{tx("Demo anfragen")}</DemoButton>
         </p>
       </div>
     </div>
