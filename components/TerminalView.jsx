@@ -2,6 +2,8 @@
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { qrSvg } from "../lib/qr";
+import { tx, loc, setLang } from "../lib/i18n";
+import { useLang } from "../lib/useLang";
 
 const KEY = "zeit-terminal"; // device credentials in THIS browser only (serial + key, set up by the Leitung)
 const pad = (n) => String(n).padStart(2, "0");
@@ -14,6 +16,7 @@ const PRESS_CSS = ".tbtn{transition:transform .12s ease, box-shadow .2s ease, op
 function readCreds() { try { return JSON.parse(localStorage.getItem(KEY) || "null"); } catch (e) { return null; } }
 
 export default function TerminalView() {
+  useLang(); // Sprache der Firma (kommt mit dem Token vom Server) – neu zeichnen bei Wechsel
   const [creds, setCreds] = useState(null);
   const [ready, setReady] = useState(false);
   useEffect(() => { setCreds(readCreds()); setReady(true); }, []);
@@ -34,7 +37,7 @@ function Setup({ onDone }) {
     try {
       const res = await fetch("/api/zeit", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "pair", code }) });
       const body = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(body.error || `Fehler (${res.status})`);
+      if (!res.ok) throw new Error(body.error || tx("Fehler ({0})", res.status));
       onDone({ serial: body.serial, key: body.key, name: body.name });
     } catch (e) { setErr(e.message); }
     setBusy(false);
@@ -43,15 +46,14 @@ function Setup({ onDone }) {
   return (
     <div style={{ minHeight: "100vh", background: "#E9EEF8", padding: "28px 16px", fontFamily: "system-ui, -apple-system, Segoe UI, Roboto, sans-serif" }}>
       <div style={{ maxWidth: 480, margin: "0 auto" }}>
-        <h1 style={{ fontSize: 24, margin: "0 0 6px" }}>Terminal einrichten</h1>
-        <p style={{ fontSize: 15, color: "#5B6578", margin: "0 0 16px" }}>Die Leitung erstellt im Dienstplaner unter <b>Anwesenheit → Neues Terminal einrichten</b> einen Code. Diesen Code hier eingeben – niemand muss sich auf diesem Gerät anmelden.</p>
+        <h1 style={{ fontSize: 24, margin: "0 0 6px" }}>{tx("Terminal einrichten")}</h1>
+        <p style={{ fontSize: 15, color: "#5B6578", margin: "0 0 16px" }}>{tx("Die Leitung erstellt im Dienstplaner unter ")}<b>{tx("Anwesenheit → Neues Terminal einrichten")}</b>{tx(" einen Code. Diesen Code hier eingeben – niemand muss sich auf diesem Gerät anmelden.")}</p>
         <div style={{ background: "#fff", border: "1px solid #CBD8EE", borderRadius: 18, padding: 16 }}>
-          <label style={{ display: "block", fontSize: 13, color: "#5B6578" }}>Einrichtungs-Code
-            <input value={code} onChange={(e) => setCode(fmt(e.target.value))} onKeyDown={(e) => { if (e.key === "Enter") pair(); }} autoFocus autoComplete="off" autoCapitalize="characters" spellCheck={false}
-              placeholder="XXXX-XXXX" style={{ display: "block", width: "100%", boxSizing: "border-box", marginTop: 6, padding: "14px 12px", borderRadius: 12, border: "1.5px solid #9AAED0", fontSize: 28, letterSpacing: 4, textAlign: "center", fontFamily: "ui-monospace, Menlo, monospace" }} />
+          <label style={{ display: "block", fontSize: 13, color: "#5B6578" }}>{tx("Einrichtungs-Code")}<input value={code} onChange={(e) => setCode(fmt(e.target.value))} onKeyDown={(e) => { if (e.key === "Enter") pair(); }} autoFocus autoComplete="off" autoCapitalize="characters" spellCheck={false}
+              placeholder={tx("XXXX-XXXX")} style={{ display: "block", width: "100%", boxSizing: "border-box", marginTop: 6, padding: "14px 12px", borderRadius: 12, border: "1.5px solid #9AAED0", fontSize: 28, letterSpacing: 4, textAlign: "center", fontFamily: "ui-monospace, Menlo, monospace" }} />
           </label>
-          <button onClick={pair} disabled={busy || code.replace("-", "").length !== 8} style={{ width: "100%", marginTop: 12, border: 0, borderRadius: 14, background: "#243B6B", color: "#fff", fontSize: 17, fontWeight: 650, padding: "14px 0", cursor: "pointer", opacity: busy || code.replace("-", "").length !== 8 ? 0.6 : 1 }}>{busy ? "Moment …" : "Terminal einrichten"}</button>
-          {err && <div role="alert" style={{ marginTop: 12, background: "#FCE5EA", color: "#8A2A3E", borderRadius: 10, padding: "9px 12px", fontSize: 14 }}>{err}</div>}
+          <button onClick={pair} disabled={busy || code.replace("-", "").length !== 8} style={{ width: "100%", marginTop: 12, border: 0, borderRadius: 14, background: "#243B6B", color: "#fff", fontSize: 17, fontWeight: 650, padding: "14px 0", cursor: "pointer", opacity: busy || code.replace("-", "").length !== 8 ? 0.6 : 1 }}>{busy ? tx("Moment …") : tx("Terminal einrichten")}</button>
+          {err && <div role="alert" style={{ marginTop: 12, background: "#FCE5EA", color: "#8A2A3E", borderRadius: 10, padding: "9px 12px", fontSize: 14 }}>{tx(err)}</div>}
         </div>
       </div>
     </div>
@@ -79,7 +81,7 @@ function Terminal({ creds, onReset }) {
     const res = await fetch("/api/zeit", { method: "POST", headers: { "content-type": "application/json", "x-device-serial": creds.serial, "x-device-key": creds.key }, body: JSON.stringify(payload) });
     const body = await res.json().catch(() => ({}));
     if (res.status === 401 && payload.action !== "pin") setFatal(true);
-    if (!res.ok) { const er = new Error(body.error || `Fehler (${res.status})`); er.suggest = body.suggest; throw er; }
+    if (!res.ok) { const er = new Error(body.error || tx("Fehler ({0})", res.status)); er.suggest = body.suggest; throw er; }
     return body;
   }, [creds]);
 
@@ -87,7 +89,7 @@ function Terminal({ creds, onReset }) {
   const refresh = useCallback(async (dir) => {
     try {
       const b = await call({ action: "token", direction: dir || undefined });
-      setToken(dir ? { token: b.token, dir } : null); setOffset(new Date(b.serverTime).getTime() - Date.now()); setErr(""); if (b.orgName) setOrgName(b.orgName); if (Array.isArray(b.features)) setFeatures(b.features);
+      setToken(dir ? { token: b.token, dir } : null); setOffset(new Date(b.serverTime).getTime() - Date.now()); setErr(""); if (b.orgName) setOrgName(b.orgName); if (Array.isArray(b.features)) setFeatures(b.features); if (b.language) setLang(b.language, true);
     } catch (e) { setErr(e.message); }
   }, [call]);
 
@@ -171,9 +173,9 @@ function Terminal({ creds, onReset }) {
 
   if (fatal) return (
     <div style={shell}><div style={{ maxWidth: 460, textAlign: "center", marginTop: "20vh" }}>
-      <div style={{ fontSize: 22, fontWeight: 700, marginBottom: 10 }}>Dieses Terminal ist gesperrt oder nicht mehr eingerichtet.</div>
-      <div style={{ fontSize: 15, color: SUB, marginBottom: 16 }}>Die Leitung kann es unter „Anwesenheit“ wieder entsperren – oder einen neuen Code erstellen.</div>
-      <button onClick={onReset} style={{ ...bigBtn, background: "#2F6FB8", padding: "14px 22px", fontSize: 17 }}>Neu einrichten</button>
+      <div style={{ fontSize: 22, fontWeight: 700, marginBottom: 10 }}>{tx("Dieses Terminal ist gesperrt oder nicht mehr eingerichtet.")}</div>
+      <div style={{ fontSize: 15, color: SUB, marginBottom: 16 }}>{tx("Die Leitung kann es unter „Anwesenheit“ wieder entsperren – oder einen neuen Code erstellen.")}</div>
+      <button onClick={onReset} style={{ ...bigBtn, background: "#2F6FB8", padding: "14px 22px", fontSize: 17 }}>{tx("Neu einrichten")}</button>
     </div></div>
   );
 
@@ -183,7 +185,7 @@ function Terminal({ creds, onReset }) {
       <div style={{ width: "100%", maxWidth: 560, background: "#fff", color: "#16304F", borderRadius: 16, padding: "12px 16px", textAlign: "center", fontSize: 24, fontWeight: 800, marginBottom: 12, minHeight: 32 }}>{orgName || " "}</div>
       <div style={{ fontSize: 15, color: SUB }}>{creds.name}</div>
       <div style={{ fontSize: 64, fontWeight: 300, letterSpacing: -2, lineHeight: 1.1 }}>{pad(t.getHours())}:{pad(t.getMinutes())}<span style={{ fontSize: 30, color: SUB }}>:{pad(t.getSeconds())}</span></div>
-      <div style={{ fontSize: 16, color: SUB, marginBottom: 18 }}>{t.toLocaleDateString("de-DE", { weekday: "long", day: "2-digit", month: "long", year: "numeric" })}</div>
+      <div style={{ fontSize: 16, color: SUB, marginBottom: 18 }}>{t.toLocaleDateString(loc(), { weekday: "long", day: "2-digit", month: "long", year: "numeric" })}</div>
 
       {card && (
         <div style={{ width: "100%", maxWidth: 420, textAlign: "center" }}>
@@ -191,10 +193,10 @@ function Terminal({ creds, onReset }) {
             <div role="alert" style={{ fontSize: 22, color: "#FFB4B4", marginTop: 30 }}>{card.err}</div>
           ) : (
             <>
-              <div style={{ fontSize: 26, fontWeight: 750, marginBottom: 6 }}>Hallo, {card.name}</div>
+              <div style={{ fontSize: 26, fontWeight: 750, marginBottom: 6 }}>{tx("Hallo, ")}{card.name}</div>
               {card.needPin && (
                 <>
-                  <div style={{ fontSize: 16, color: SUB }}>Bitte PIN eingeben</div>
+                  <div style={{ fontSize: 16, color: SUB }}>{tx("Bitte PIN eingeben")}</div>
                   <div style={{ fontSize: 34, letterSpacing: 12, margin: "8px 0", minHeight: 44 }}>{"●".repeat(card.pin.length)}</div>
                   <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, marginBottom: 12 }}>
                     {["1", "2", "3", "4", "5", "6", "7", "8", "9", "⌫", "0", ""].map((k, i) => k === "" ? <span key={i} /> : (
@@ -205,17 +207,17 @@ function Terminal({ creds, onReset }) {
                 </>
               )}
               {card.err && <div role="alert" style={{ color: "#FFB4B4", marginBottom: 8 }}>{card.err}</div>}
-              {!card.needPin && !card.dir && <div style={{ fontSize: 17, color: SUB, marginBottom: 10 }}>Bitte wählen:</div>}
+              {!card.needPin && !card.dir && <div style={{ fontSize: 17, color: SUB, marginBottom: 10 }}>{tx("Bitte wählen:")}</div>}
               {card.needPin && card.dir ? (
                 <button className="tbtn" disabled={card.pin.length < 4} onClick={() => bookCard(card.code, card.dir, card.pin)}
-                  style={{ ...bigBtn, width: "100%", background: card.dir === "in" ? GREEN : RED, opacity: card.pin.length < 4 ? 0.5 : 1 }}>{card.dir === "in" ? "Kommen bestätigen" : "Gehen bestätigen"}</button>
+                  style={{ ...bigBtn, width: "100%", background: card.dir === "in" ? GREEN : RED, opacity: card.pin.length < 4 ? 0.5 : 1 }}>{card.dir === "in" ? tx("Kommen bestätigen") : tx("Gehen bestätigen")}</button>
               ) : (
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                  <button className="tbtn" disabled={card.needPin && card.pin.length < 4} onClick={() => bookCard(card.code, "in", card.needPin ? card.pin : undefined)} style={{ ...bigBtn, background: GREEN, opacity: card.needPin && card.pin.length < 4 ? 0.5 : 1 }}>Kommen</button>
-                  <button className="tbtn" disabled={card.needPin && card.pin.length < 4} onClick={() => bookCard(card.code, "out", card.needPin ? card.pin : undefined)} style={{ ...bigBtn, background: RED, opacity: card.needPin && card.pin.length < 4 ? 0.5 : 1 }}>Gehen</button>
+                  <button className="tbtn" disabled={card.needPin && card.pin.length < 4} onClick={() => bookCard(card.code, "in", card.needPin ? card.pin : undefined)} style={{ ...bigBtn, background: GREEN, opacity: card.needPin && card.pin.length < 4 ? 0.5 : 1 }}>{tx("Kommen")}</button>
+                  <button className="tbtn" disabled={card.needPin && card.pin.length < 4} onClick={() => bookCard(card.code, "out", card.needPin ? card.pin : undefined)} style={{ ...bigBtn, background: RED, opacity: card.needPin && card.pin.length < 4 ? 0.5 : 1 }}>{tx("Gehen")}</button>
                 </div>
               )}
-              <button onClick={back} style={{ marginTop: 16, background: "none", border: "1.5px solid #5E7FA8", color: TXT, borderRadius: 14, padding: "12px 20px", fontSize: 16, cursor: "pointer" }}>Abbrechen</button>
+              <button onClick={back} style={{ marginTop: 16, background: "none", border: "1.5px solid #5E7FA8", color: TXT, borderRadius: 14, padding: "12px 20px", fontSize: 16, cursor: "pointer" }}>{tx("Abbrechen")}</button>
             </>
           )}
         </div>
@@ -224,7 +226,7 @@ function Terminal({ creds, onReset }) {
       {!pinMode && !card && (
         <>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, width: "100%", maxWidth: 560, marginBottom: 14 }}>
-            {[["in", "Kommen", GREEN], ["out", "Gehen", RED]].map(([dir, label, col]) => {
+            {[["in", tx("Kommen"), GREEN], ["out", tx("Gehen"), RED]].map(([dir, label, col]) => {
               const on = choice && choice.dir === dir && choice.until > now;
               return (
                 <button key={dir + (on ? choice.until : "")} className={`tbtn${on ? " sel" : ""}`} onClick={() => choose(dir)} aria-pressed={!!on}
@@ -234,31 +236,31 @@ function Terminal({ creds, onReset }) {
               );
             })}
           </div>
-          <div style={{ fontSize: 15, color: SUB, marginBottom: 14 }}>1. Kommen oder Gehen wählen · 2. Karte oder Chip an das Kartenlesegerät halten</div>
-          <div style={{ fontSize: 18, fontWeight: 650, margin: "6px 0 8px", visibility: url ? "visible" : "hidden" }}>Oder mit dem Handy scannen</div>
+          <div style={{ fontSize: 15, color: SUB, marginBottom: 14 }}>{tx("1. Kommen oder Gehen wählen · 2. Karte oder Chip an das Kartenlesegerät halten")}</div>
+          <div style={{ fontSize: 18, fontWeight: 650, margin: "6px 0 8px", visibility: url ? "visible" : "hidden" }}>{tx("Oder mit dem Handy scannen")}</div>
           {url ? (
             <div style={{ background: "#fff", borderRadius: 20, padding: 14, minWidth: 300, minHeight: 300, display: "flex", alignItems: "center", justifyContent: "center" }}
-              aria-label="QR-Code zum Stempeln" dangerouslySetInnerHTML={{ __html: qrSvg(url, 300) }} />
+              aria-label={tx("QR-Code zum Stempeln")} dangerouslySetInnerHTML={{ __html: qrSvg(url, 300) }} />
           ) : (
             <div style={{ border: "2px dashed #34557F", borderRadius: 20, minWidth: 300, minHeight: 300, display: "flex", alignItems: "center", justifyContent: "center", color: "#5E7FA8", fontSize: 15, textAlign: "center", padding: 20, boxSizing: "border-box" }}>
-              {activeDir ? "Lädt …" : "Der QR-Code fürs Handy erscheint nach Kommen oder Gehen"}
+              {activeDir ? tx("Lädt …") : tx("Der QR-Code fürs Handy erscheint nach Kommen oder Gehen")}
             </div>
           )}
 
-          {features.includes("terminal_pin_only") && <button onClick={openPin} style={{ border: "1.5px solid #5E7FA8", background: CARD, color: TXT, borderRadius: 16, fontSize: 18, fontWeight: 650, padding: "14px 22px", cursor: "pointer" }}>Ohne Handy: mit PIN stempeln</button>}
-          {err && <div role="alert" style={{ marginTop: 14, color: "#FFB4B4" }}>{err}</div>}
+          {features.includes("terminal_pin_only") && <button onClick={openPin} style={{ border: "1.5px solid #5E7FA8", background: CARD, color: TXT, borderRadius: 16, fontSize: 18, fontWeight: 650, padding: "14px 22px", cursor: "pointer" }}>{tx("Ohne Handy: mit PIN stempeln")}</button>}
+          {err && <div role="alert" style={{ marginTop: 14, color: "#FFB4B4" }}>{tx(err)}</div>}
         </>
       )}
 
       {pinMode && pinMode.step === "name" && (
         <div style={{ width: "100%", maxWidth: 520 }}>
-          <div style={{ fontSize: 20, fontWeight: 650, marginBottom: 10 }}>Wer bist du?</div>
+          <div style={{ fontSize: 20, fontWeight: 650, marginBottom: 10 }}>{tx("Wer bist du?")}</div>
           {pinMode.err && <div role="alert" style={{ color: "#FFB4B4", marginBottom: 8 }}>{pinMode.err}</div>}
-          {staff.length === 0 && !pinMode.err && <div style={{ color: SUB }}>Niemand hat bisher eine Stempel-PIN festgelegt (in der App unter „Zeiten“).</div>}
+          {staff.length === 0 && !pinMode.err && <div style={{ color: SUB }}>{tx("Niemand hat bisher eine Stempel-PIN festgelegt (in der App unter „Zeiten“).")}</div>}
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))", gap: 10 }}>
             {staff.map((p) => <button key={p.id} onClick={() => { touch(); setPinMode({ step: "pin", person: p, pin: "" }); }} style={{ background: CARD, color: TXT, border: "1.5px solid #34557F", borderRadius: 14, padding: "16px 8px", fontSize: 17, fontWeight: 600, cursor: "pointer" }}>{p.name}</button>)}
           </div>
-          <button onClick={back} style={{ marginTop: 18, background: "none", border: "1.5px solid #5E7FA8", color: TXT, borderRadius: 14, padding: "12px 20px", fontSize: 16, cursor: "pointer" }}>‹ Zurück zum QR-Code</button>
+          <button onClick={back} style={{ marginTop: 18, background: "none", border: "1.5px solid #5E7FA8", color: TXT, borderRadius: 14, padding: "12px 20px", fontSize: 16, cursor: "pointer" }}>{tx("‹ Zurück zum QR-Code")}</button>
         </div>
       )}
 
@@ -274,18 +276,18 @@ function Terminal({ creds, onReset }) {
             ))}
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-            <button disabled={pinMode.pin.length < 4} onClick={() => stampPin("in")} style={{ ...bigBtn, background: GREEN, opacity: pinMode.pin.length < 4 ? 0.5 : 1 }}>Kommen</button>
-            <button disabled={pinMode.pin.length < 4} onClick={() => stampPin("out")} style={{ ...bigBtn, background: RED, opacity: pinMode.pin.length < 4 ? 0.5 : 1 }}>Gehen</button>
+            <button disabled={pinMode.pin.length < 4} onClick={() => stampPin("in")} style={{ ...bigBtn, background: GREEN, opacity: pinMode.pin.length < 4 ? 0.5 : 1 }}>{tx("Kommen")}</button>
+            <button disabled={pinMode.pin.length < 4} onClick={() => stampPin("out")} style={{ ...bigBtn, background: RED, opacity: pinMode.pin.length < 4 ? 0.5 : 1 }}>{tx("Gehen")}</button>
           </div>
-          <button onClick={back} style={{ marginTop: 16, background: "none", border: "1.5px solid #5E7FA8", color: TXT, borderRadius: 14, padding: "12px 20px", fontSize: 16, cursor: "pointer" }}>Abbrechen</button>
+          <button onClick={back} style={{ marginTop: 16, background: "none", border: "1.5px solid #5E7FA8", color: TXT, borderRadius: 14, padding: "12px 20px", fontSize: 16, cursor: "pointer" }}>{tx("Abbrechen")}</button>
         </div>
       )}
 
       {pinMode && pinMode.step === "done" && (
         <div role="status" style={{ textAlign: "center", marginTop: 30 }}>
           <div style={{ fontSize: 70 }}>✓</div>
-          <div style={{ fontSize: 26, fontWeight: 750 }}>{pinMode.direction === "in" ? "Hallo" : "Tschüss"}, {pinMode.name}</div>
-          <div style={{ fontSize: 20, color: SUB }}>{pinMode.direction === "in" ? "Eingestempelt" : "Ausgestempelt"} um {pad(pinMode.time.getHours())}:{pad(pinMode.time.getMinutes())} Uhr</div>
+          <div style={{ fontSize: 26, fontWeight: 750 }}>{pinMode.direction === "in" ? tx("Hallo") : tx("Tschüss")}, {pinMode.name}</div>
+          <div style={{ fontSize: 20, color: SUB }}>{pinMode.direction === "in" ? tx("Eingestempelt") : tx("Ausgestempelt")}{tx(" um ")}{pad(pinMode.time.getHours())}:{pad(pinMode.time.getMinutes())}{tx(" Uhr")}</div>
         </div>
       )}
     </div>
