@@ -410,7 +410,7 @@ export default function EmployeeLive() {
                     <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
                       <i style={{ width: 5, alignSelf: "stretch", minHeight: 38, borderRadius: 3, background: st.solid }} />
                       <div style={{ flex: 1 }}><div style={{ fontSize: 15, fontWeight: 650 }}>{d.label}</div><div className="tn" style={{ fontSize: 13, color: MUTED }}>{hhmm(d.start_time)} – {hhmm(d.end_time)}</div></div>
-                      <span style={{ fontSize: 13, color: MUTED }}>{list.length} {list.length === 1 ? tx("Person") : tx("Personen")}</span>
+                      <span style={{ fontSize: 13, color: MUTED }}>{list.length === 1 ? tx("{0} Person", list.length) : tx("{0} Personen", list.length)}</span>
                     </div>
                     {list.map((w) => <div key={w.id} style={{ fontSize: 14, padding: "4px 0 0 17px", fontWeight: w.id === my ? 700 : 400 }}>{nameOf(w.id)}{w.id === my ? tx(" (du)") : ""}</div>)}
                   </div>

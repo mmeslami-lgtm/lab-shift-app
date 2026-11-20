@@ -2,9 +2,10 @@
 
 import React, { useCallback, useContext, useEffect, useRef, useState } from "react";
 import { OrgContext } from "../lib/orgContext";
+import { tx, isoDmy } from "../lib/i18n";
 
 const pad = (n) => String(n).padStart(2, "0");
-const de = (iso) => { const [y, m, d] = String(iso).split("-"); return `${d}.${m}.${y}`; };
+const de = (iso) => isoDmy(iso);
 const STATUS = { open: ["offen", "bg-amber-50 text-amber-800 border-amber-200"], approved: ["genehmigt", "bg-emerald-50 text-emerald-800 border-emerald-200"], denied: ["abgelehnt", "bg-rose-50 text-rose-800 border-rose-200"] };
 
 // Popup "Anträge" (Leitung / Inhaber decide, Schichtplaner only reads): Urlaub, Fortbildung,
@@ -61,7 +62,7 @@ export default function RequestsDialog({ year, monthIdx, onImport, onChanged, on
     });
     if (!onImport) return;
     const res = onImport(list);
-    setMsg(list.length === 0 ? "In diesem Monat gibt es keine genehmigten Anträge." : `${res.added} übernommen${res.already ? `, ${res.already} waren schon im Plan` : ""}${res.noPerson ? `, ${res.noPerson} Person(en) nicht im Plan` : ""}. Wirkt beim nächsten „Generieren“ – im veröffentlichten Monat besser „Urlaub/Krank einarbeiten“.`);
+    setMsg(list.length === 0 ? tx("In diesem Monat gibt es keine genehmigten Anträge.") : tx("{0} übernommen{1}{2}. Wirkt beim nächsten „Generieren“ – im veröffentlichten Monat besser „Urlaub/Krank einarbeiten“.", res.added, res.already ? tx(", {0} waren schon im Plan", res.already) : "", res.noPerson ? tx(", {0} Person(en) nicht im Plan", res.noPerson) : ""));
   }
 
   const shown = (rows || []).filter((r) => filter === "all" || r.status === filter);
@@ -72,51 +73,49 @@ export default function RequestsDialog({ year, monthIdx, onImport, onChanged, on
       <div role="dialog" aria-modal="true" aria-labelledby="req-title" className="w-full max-w-2xl rounded-2xl bg-white p-4 text-sm text-slate-800 shadow-xl">
         <div className="flex items-start justify-between gap-3">
           <div>
-            <h2 id="req-title" className="text-base font-semibold">Anträge</h2>
-            <div className="mt-0.5 text-xs text-slate-500">Urlaub, Fortbildung und Krankmeldungen aus der Mitarbeiter-App. Krankmeldungen sehen nur Leitung und Inhaber.</div>
+            <h2 id="req-title" className="text-base font-semibold">{tx("Anträge")}</h2>
+            <div className="mt-0.5 text-xs text-slate-500">{tx("Urlaub, Fortbildung und Krankmeldungen aus der Mitarbeiter-App. Krankmeldungen sehen nur Leitung und Inhaber.")}</div>
           </div>
-          <button onClick={onClose} className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs text-slate-600 hover:bg-slate-50 active:translate-y-px">Schließen</button>
+          <button onClick={onClose} className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs text-slate-600 hover:bg-slate-50 active:translate-y-px">{tx("Schließen")}</button>
         </div>
         <div className="mt-3 flex flex-wrap items-center gap-2">
-          {[["open", `Offen (${openCount})`], ["approved", "Genehmigt"], ["denied", "Abgelehnt"], ["all", "Alle"]].map(([k, l]) => (
+          {[["open", tx("Offen ({0})", openCount)], ["approved", tx("Genehmigt")], ["denied", tx("Abgelehnt")], ["all", tx("Alle")]].map(([k, l]) => (
             <button key={k} onClick={() => setFilter(k)} aria-pressed={filter === k} className={`rounded-lg border px-2.5 py-1.5 text-xs active:translate-y-px ${filter === k ? "border-teal-600 bg-teal-600 text-white" : "border-slate-200 text-slate-700 hover:bg-slate-50"}`}>{l}</button>
           ))}
-          {onImport && <button onClick={importToPlan} className="ml-auto rounded-lg border border-teal-200 bg-teal-50 px-2.5 py-1.5 text-xs text-teal-800 hover:bg-teal-100 active:translate-y-px">Genehmigte in den Plan übernehmen</button>}
+          {onImport && <button onClick={importToPlan} className="ml-auto rounded-lg border border-teal-200 bg-teal-50 px-2.5 py-1.5 text-xs text-teal-800 hover:bg-teal-100 active:translate-y-px">{tx("Genehmigte in den Plan übernehmen")}</button>}
         </div>
-        {msg && <div role="status" className="mt-2 rounded-lg bg-teal-50 p-2.5 text-xs text-teal-900">{msg}</div>}
-        {rows === null ? <div className="mt-4 text-xs text-slate-500">Lädt …</div> : shown.length === 0 ? <div className="mt-4 text-xs text-slate-500">Keine Anträge.</div> : (
+        {msg && <div role="status" className="mt-2 rounded-lg bg-teal-50 p-2.5 text-xs text-teal-900">{tx(msg)}</div>}
+        {rows === null ? <div className="mt-4 text-xs text-slate-500">{tx("Lädt …")}</div> : shown.length === 0 ? <div className="mt-4 text-xs text-slate-500">{tx("Keine Anträge.")}</div> : (
           <ul className="mt-3 space-y-2">
             {shown.map((r) => (
               <li key={r.id} className="rounded-xl border border-slate-200 p-3">
                 <div className="flex flex-wrap items-start justify-between gap-2">
                   <div>
-                    <div className="font-semibold">{names[r.staff_id] || "?"} · {types[r.type_key] || r.type_key}</div>
-                    <div className="text-xs text-slate-600">{de(r.date_from)}{r.date_to !== r.date_from ? ` – ${de(r.date_to)}` : ""}{Number(r.days) ? ` · ${Number(r.days)} Arbeitstag(e)` : ""}</div>
+                    <div className="font-semibold">{names[r.staff_id] || "?"} · {tx(types[r.type_key] || r.type_key)}</div>
+                    <div className="text-xs text-slate-600">{de(r.date_from)}{r.date_to !== r.date_from ? ` – ${de(r.date_to)}` : ""}{Number(r.days) ? tx(" · {0} Arbeitstag(e)", Number(r.days)) : ""}</div>
                     {r.note && <div className="mt-1 text-xs text-slate-700">„{r.note}“</div>}
-                    {r.decision_note && <div className="mt-1 text-xs text-slate-500">Antwort: {r.decision_note}</div>}
+                    {r.decision_note && <div className="mt-1 text-xs text-slate-500">{tx("Antwort: ")}{r.decision_note}</div>}
                   </div>
-                  <span className={`rounded-md border px-2 py-0.5 text-xs ${STATUS[r.status][1]}`}>{STATUS[r.status][0]}</span>
+                  <span className={`rounded-md border px-2 py-0.5 text-xs ${STATUS[r.status][1]}`}>{tx(STATUS[r.status][0])}</span>
                 </div>
                 {isLeader && (
                   <div className="mt-2 flex flex-wrap gap-2">
                     {r.type_key === "elternzeit" && (
-                      <label className="flex items-center gap-1.5 text-xs text-slate-700" title="Nur für volle Kalendermonate; muss dem Mitarbeiter erklärt werden">
-                        <input type="checkbox" checked={!!r.cut_vacation} disabled={busy === r.id} onChange={(e) => setCut(r.id, e.target.checked)} />
-                        Urlaub kürzen (§ 17 BEEG, 1/12 je vollem Monat)
-                      </label>
+                      <label className="flex items-center gap-1.5 text-xs text-slate-700" title={tx("Nur für volle Kalendermonate; muss dem Mitarbeiter erklärt werden")}>
+                        <input type="checkbox" checked={!!r.cut_vacation} disabled={busy === r.id} onChange={(e) => setCut(r.id, e.target.checked)} />{tx("Urlaub kürzen (§ 17 BEEG, 1/12 je vollem Monat)")}</label>
                     )}
-                    {r.status !== "approved" && <button onClick={() => decide(r.id, "approved", r.decision_note)} disabled={busy === r.id} className="rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 active:translate-y-px">Genehmigen</button>}
-                    {r.status !== "denied" && <button onClick={() => setDeny({ id: r.id, note: "", cancel: r.status === "approved" })} disabled={busy === r.id} className="rounded-md border border-rose-200 px-3 py-1.5 text-xs text-rose-700 hover:bg-rose-50 active:translate-y-px">{r.status === "approved" ? "Stornieren" : "Ablehnen"}</button>}
-                    {r.status !== "open" && <button onClick={() => decide(r.id, "open", null)} disabled={busy === r.id} className="rounded-md border border-slate-200 px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-50 active:translate-y-px">Wieder öffnen</button>}
+                    {r.status !== "approved" && <button onClick={() => decide(r.id, "approved", r.decision_note)} disabled={busy === r.id} className="rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 active:translate-y-px">{tx("Genehmigen")}</button>}
+                    {r.status !== "denied" && <button onClick={() => setDeny({ id: r.id, note: "", cancel: r.status === "approved" })} disabled={busy === r.id} className="rounded-md border border-rose-200 px-3 py-1.5 text-xs text-rose-700 hover:bg-rose-50 active:translate-y-px">{r.status === "approved" ? tx("Stornieren") : tx("Ablehnen")}</button>}
+                    {r.status !== "open" && <button onClick={() => decide(r.id, "open", null)} disabled={busy === r.id} className="rounded-md border border-slate-200 px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-50 active:translate-y-px">{tx("Wieder öffnen")}</button>}
                   </div>
                 )}
                 {deny && deny.id === r.id && (
                   <div className="mt-2 flex flex-wrap items-end gap-2 rounded-lg bg-slate-50 p-2">
-                    <label className="text-xs text-slate-600">{deny.cancel ? "Grund der Stornierung (Pflicht, sieht die Person)" : "Grund (optional, sieht die Person)"}
+                    <label className="text-xs text-slate-600">{deny.cancel ? tx("Grund der Stornierung (Pflicht, sieht die Person)") : tx("Grund (optional, sieht die Person)")}
                       <input autoFocus value={deny.note} maxLength={500} onChange={(e) => setDeny({ ...deny, note: e.target.value })} className="mt-1 block w-64 rounded-md border border-slate-300 px-2 py-1.5 text-sm" />
                     </label>
-                    <button onClick={() => { if (deny.cancel && !String(deny.note || "").trim()) { setMsg("Bitte einen Grund für die Stornierung angeben."); return; } decide(r.id, "denied", deny.cancel ? `Storniert: ${deny.note.trim()}` : deny.note); }} className="rounded-md bg-rose-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-rose-700 active:translate-y-px">{deny.cancel ? "Stornieren" : "Ablehnen"}</button>
-                    <button onClick={() => setDeny(null)} className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-600">Abbrechen</button>
+                    <button onClick={() => { if (deny.cancel && !String(deny.note || "").trim()) { setMsg(tx("Bitte einen Grund für die Stornierung angeben.")); return; } decide(r.id, "denied", deny.cancel ? tx("Storniert: {0}", deny.note.trim()) : deny.note); }} className="rounded-md bg-rose-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-rose-700 active:translate-y-px">{deny.cancel ? tx("Stornieren") : tx("Ablehnen")}</button>
+                    <button onClick={() => setDeny(null)} className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-600">{tx("Abbrechen")}</button>
                   </div>
                 )}
               </li>

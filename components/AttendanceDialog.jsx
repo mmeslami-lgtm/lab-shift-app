@@ -9,6 +9,7 @@ import { useUnsavedWarning } from "../lib/draftGuard";
 import { OVERTIME_MODES, overtimeMode, payoutMinutesByMonth } from "../lib/overtime";
 import { surchargesOn } from "../lib/country";
 import { computeDays, buildSheet, buildTimesheetHtml, openHtmlPrint, holidaysOf as landHolidays, isoOf, MONTHS, SURCHARGES } from "../lib/timesheet";
+import { tx, loc, monthName, wdShort, dm } from "../lib/i18n";
 
 const pad = (n) => String(n).padStart(2, "0");
 const clock = (ts) => { if (!ts) return "–"; const d = new Date(ts); return `${pad(d.getHours())}:${pad(d.getMinutes())}`; };
@@ -19,9 +20,9 @@ const dur = (a, b) => { if (!a || !b) return "–"; const m = Math.round((new Da
 // "📱 mobil" next to a time that was stamped in the app without a terminal; with a location: link to the map
 function MobilMark({ ev }) {
   if (!ev) return null;
-  if (ev.lat == null) return <span className="ml-1 text-xs text-sky-700" title="Mobil gestempelt (ohne Terminal)">📱</span>;
+  if (ev.lat == null) return <span className="ml-1 text-xs text-sky-700" title={tx("Mobil gestempelt (ohne Terminal)")}>📱</span>;
   const url = `https://www.openstreetmap.org/?mlat=${ev.lat}&mlon=${ev.lng}#map=17/${ev.lat}/${ev.lng}`;
-  return <a className="ml-1 text-xs text-sky-700 underline" href={url} target="_blank" rel="noopener noreferrer" title={`Mobil gestempelt, Standort ±${ev.acc || "?"} m`}>📍 Karte</a>;
+  return <a className="ml-1 text-xs text-sky-700 underline" href={url} target="_blank" rel="noopener noreferrer" title={tx("Mobil gestempelt, Standort ±{0} m", ev.acc || "?")}>{tx("📍 Karte")}</a>;
 }
 
 export default function AttendanceDialog({ onClose }) {
@@ -51,7 +52,7 @@ export default function AttendanceDialog({ onClose }) {
   useUnsavedWarning(pending.length > 0);
   const pendMonth = pending.length ? pending[0].date.slice(0, 7) : null;
   const tryClose = () => {
-    if (pending.length && !window.confirm(`${pending.length} vorgemerkte ${pending.length === 1 ? "Änderung wird" : "Änderungen werden"} nicht gespeichert und verworfen. Trotzdem schließen?`)) return;
+    if (pending.length && !window.confirm(tx("{0} vorgemerkte {1} nicht gespeichert und verworfen. Trotzdem schließen?", pending.length, pending.length === 1 ? tx("Änderung wird") : tx("Änderungen werden")))) return;
     onClose();
   };
   const [tsMonth, setTsMonth] = useState(() => { const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`; });
@@ -94,7 +95,7 @@ export default function AttendanceDialog({ onClose }) {
     setBusy("erl");
     const { error } = await org.supabase.rpc("set_absence", { p_org: org.orgId, p_staff: it.staffId, p_date: it.date, p_kind: erl.kind, p_note: erl.note.trim() || null });
     setBusy(""); if (error) { setMsg(error.message); return; }
-    showFlash(`✓ ${it.name}: ${ABSENCE[erl.kind].label} eingetragen${ABSENCE[erl.kind].sick ? " – Ersatz finden: im Dienstplan „Krankmeldung / Ausfall“." : ""}`);
+    showFlash(tx("✓ {0}: {1} eingetragen{2}", it.name, tx(ABSENCE[erl.kind].label), ABSENCE[erl.kind].sick ? tx(" – Ersatz finden: im Dienstplan „Krankmeldung / Ausfall“.") : ""));
     doneReload();
   }
   // "Gehen fehlt" that is really a double stamp (e.g. time entered by hand AND a request approved): remove it (script 36)
@@ -102,39 +103,39 @@ export default function AttendanceDialog({ onClose }) {
   async function quickRemove(it) {
     setBusy(`q${it.key}`);
     const { error } = await org.supabase.rpc("save_attendance_edits", { p_org: org.orgId, p_edits: [{ op: "remove", session_id: it.sessionId }], p_reason: "doppelt gestempelt (sehr kurze Stempelung)" });
-    setBusy(""); if (error) { setMsg(`Nicht gespeichert: ${String(error.message || "").replace(/^Änderung \d+: /, "")}`); return; }
-    showFlash(`✓ ${it.name}: kurze Stempelung entfernt`);
+    setBusy(""); if (error) { setMsg(tx("Nicht gespeichert: {0}", tx(String(error.message || "").replace(/^Änderung \d+: /, "")))); return; }
+    showFlash(tx("✓ {0}: kurze Stempelung entfernt", it.name));
     doneReload();
   }
   async function erlRemove(it) {
-    if (erl.reason.trim().length < 3) { setMsg("Bitte einen Grund angeben."); return; }
+    if (erl.reason.trim().length < 3) { setMsg(tx("Bitte einen Grund angeben.")); return; }
     setBusy("erl");
     const { error } = await org.supabase.rpc("save_attendance_edits", { p_org: org.orgId, p_edits: [{ op: "remove", session_id: it.sessionId }], p_reason: erl.reason.trim() });
-    setBusy(""); if (error) { setMsg(`Nicht gespeichert: ${String(error.message || "").replace(/^Änderung \d+: /, "")}`); return; }
-    showFlash(`✓ ${it.name}: doppelte Stempelung entfernt`);
+    setBusy(""); if (error) { setMsg(tx("Nicht gespeichert: {0}", tx(String(error.message || "").replace(/^Änderung \d+: /, "")))); return; }
+    showFlash(tx("✓ {0}: doppelte Stempelung entfernt", it.name));
     doneReload();
   }
   async function erlSaveTime(it) {
-    if (erl.reason.trim().length < 3) { setMsg("Bitte einen Grund angeben."); return; }
+    if (erl.reason.trim().length < 3) { setMsg(tx("Bitte einen Grund angeben.")); return; }
     let edits;
     if (it.kind === "gehen") {
       const dIso = localIso(it.checkIn);
       const tout = atTime(dIso, erl.out, new Date(it.checkIn));
-      if (!tout) { setMsg("Bitte „Gehen“ als Uhrzeit eintragen (z. B. 16:30)."); return; }
-      if (tout - new Date(it.checkIn) > 16 * 3600000) { setMsg("Mehr als 16 Stunden – bitte prüfen."); return; }
+      if (!tout) { setMsg(tx("Bitte „Gehen“ als Uhrzeit eintragen (z. B. 16:30).")); return; }
+      if (tout - new Date(it.checkIn) > 16 * 3600000) { setMsg(tx("Mehr als 16 Stunden – bitte prüfen.")); return; }
       edits = [{ op: "fix", session_id: it.sessionId, check_in: null, check_out: tout.toISOString() }];
     } else {
       const tin = atTime(it.date, erl.in), tout = atTime(it.date, erl.out, tin);
-      if (!tin || !tout) { setMsg("Bitte Kommen und Gehen als Uhrzeit eintragen (z. B. 07:00)."); return; }
-      if (tout - tin > 16 * 3600000) { setMsg("Mehr als 16 Stunden – bitte prüfen."); return; }
+      if (!tin || !tout) { setMsg(tx("Bitte Kommen und Gehen als Uhrzeit eintragen (z. B. 07:00).")); return; }
+      if (tout - tin > 16 * 3600000) { setMsg(tx("Mehr als 16 Stunden – bitte prüfen.")); return; }
       edits = [{ op: "add", staff_id: it.staffId, check_in: tin.toISOString(), check_out: tout.toISOString() }];
     }
     const day = it.kind === "gehen" ? localIso(it.checkIn) : it.date;
-    if ((await monthClosed(it.staffId, day)) && !window.confirm("Dieser Monat ist für die Person schon abgeschlossen (Saldo). Trotzdem speichern?")) return;
+    if ((await monthClosed(it.staffId, day)) && !window.confirm(tx("Dieser Monat ist für die Person schon abgeschlossen (Saldo). Trotzdem speichern?"))) return;
     setBusy("erl");
     const { error } = await org.supabase.rpc("save_attendance_edits", { p_org: org.orgId, p_edits: edits, p_reason: erl.reason.trim() });
-    setBusy(""); if (error) { setMsg(`Nicht gespeichert: ${String(error.message || "").replace(/^Änderung \d+: /, "")}`); return; }
-    showFlash(`✓ ${it.name}: Zeit eingetragen`);
+    setBusy(""); if (error) { setMsg(tx("Nicht gespeichert: {0}", tx(String(error.message || "").replace(/^Änderung \d+: /, "")))); return; }
+    showFlash(tx("✓ {0}: Zeit eingetragen", it.name));
     doneReload();
   }
   useEffect(() => { reloadReview(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -184,7 +185,7 @@ export default function AttendanceDialog({ onClose }) {
   // ---- "Zu prüfen" rows (6f) ----
   const missItem = (x) => ({ key: `miss:${x.staff_id}:${String(x.shift_date).slice(0, 10)}`, kind: "fehlt", staffId: x.staff_id, name: names[x.staff_id] || "?", date: String(x.shift_date).slice(0, 10), plannedStart: x.planned_start, plannedEnd: x.planned_end });
   const erlButton = (id, it) => (
-    <button onClick={() => openErl(id, it)} aria-expanded={!!(erl && erl.id === id)} className={`shrink-0 rounded-md border px-2.5 py-1 text-xs font-semibold ${erl && erl.id === id ? "border-teal-600 bg-teal-600 text-white" : "border-amber-400 bg-white text-amber-900 hover:bg-amber-100"}`}>Erledigen {erl && erl.id === id ? "▴" : "▾"}</button>
+    <button onClick={() => openErl(id, it)} aria-expanded={!!(erl && erl.id === id)} className={`shrink-0 rounded-md border px-2.5 py-1 text-xs font-semibold ${erl && erl.id === id ? "border-teal-600 bg-teal-600 text-white" : "border-amber-400 bg-white text-amber-900 hover:bg-amber-100"}`}>{tx("Erledigen ")}{erl && erl.id === id ? "▴" : "▾"}</button>
   );
   const inp = "mt-1 block rounded-md border border-slate-300 px-2 py-1.5 text-sm";
   const optBtn = (on) => `rounded-md border px-3 py-1.5 text-xs font-semibold ${on ? "border-teal-600 bg-teal-50 text-teal-800" : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"}`;
@@ -194,46 +195,45 @@ export default function AttendanceDialog({ onClose }) {
       <div className="mt-2 rounded-lg border border-slate-200 bg-white p-2.5">
         {it.kind === "fehlt" && (
           <div className="flex flex-wrap gap-2">
-            <button onClick={() => setErl({ ...e, mode: "abs" })} className={optBtn(e.mode === "abs")}>Nicht gekommen …</button>
-            <button onClick={() => setErl({ ...e, mode: "zeit" })} className={optBtn(e.mode === "zeit")}>Hat gearbeitet – Zeit eintragen</button>
-            {withLater && <button disabled={busy === "later"} onClick={() => later([it.key])} className={optBtn(false)}>Später klären</button>}
+            <button onClick={() => setErl({ ...e, mode: "abs" })} className={optBtn(e.mode === "abs")}>{tx("Nicht gekommen …")}</button>
+            <button onClick={() => setErl({ ...e, mode: "zeit" })} className={optBtn(e.mode === "zeit")}>{tx("Hat gearbeitet – Zeit eintragen")}</button>
+            {withLater && <button disabled={busy === "later"} onClick={() => later([it.key])} className={optBtn(false)}>{tx("Später klären")}</button>}
           </div>
         )}
         {it.kind === "gehen" && (
           <div className="mb-2 flex flex-wrap gap-2">
-            <button onClick={() => setErl({ ...e, mode: "gehen" })} className={optBtn(e.mode === "gehen")}>„Gehen“ eintragen</button>
-            <button onClick={() => setErl({ ...e, mode: "remove" })} className={optBtn(e.mode === "remove")}>Doppelt – Stempelung entfernen</button>
-            {withLater && <button disabled={busy === "later"} onClick={() => later([it.key])} className={optBtn(false)}>Später klären</button>}
+            <button onClick={() => setErl({ ...e, mode: "gehen" })} className={optBtn(e.mode === "gehen")}>{tx("„Gehen“ eintragen")}</button>
+            <button onClick={() => setErl({ ...e, mode: "remove" })} className={optBtn(e.mode === "remove")}>{tx("Doppelt – Stempelung entfernen")}</button>
+            {withLater && <button disabled={busy === "later"} onClick={() => later([it.key])} className={optBtn(false)}>{tx("Später klären")}</button>}
           </div>
         )}
         {e.mode === "remove" && (
           <div className="mt-2 flex flex-wrap items-end gap-2">
-            <span className="pb-2 text-xs text-slate-600">Stempelung Kommen {clock(it.checkIn)} · Gehen fehlt – wird entfernt (bleibt im Protokoll)</span>
-            <label className="text-xs text-slate-600">Grund (Pflicht)<input value={e.reason} maxLength={300} onChange={(ev) => setErl({ ...e, reason: ev.target.value })} placeholder="z. B. doppelt gestempelt" className={`${inp} w-56`} /></label>
-            <button onClick={() => erlRemove(it)} disabled={busy === "erl"} className="rounded-md bg-rose-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-rose-700 active:translate-y-px">{busy === "erl" ? "Moment …" : "Entfernen"}</button>
+            <span className="pb-2 text-xs text-slate-600">{tx("Stempelung Kommen ")}{clock(it.checkIn)}{tx(" · Gehen fehlt – wird entfernt (bleibt im Protokoll)")}</span>
+            <label className="text-xs text-slate-600">{tx("Grund (Pflicht)")}<input value={e.reason} maxLength={300} onChange={(ev) => setErl({ ...e, reason: ev.target.value })} placeholder={tx("z. B. doppelt gestempelt")} className={`${inp} w-56`} /></label>
+            <button onClick={() => erlRemove(it)} disabled={busy === "erl"} className="rounded-md bg-rose-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-rose-700 active:translate-y-px">{busy === "erl" ? tx("Moment …") : tx("Entfernen")}</button>
           </div>
         )}
         {e.mode === "abs" && (
           <div className="mt-2 flex flex-wrap items-end gap-2">
-            <label className="text-xs text-slate-600">Grund
-              <select value={e.kind} onChange={(ev) => setErl({ ...e, kind: ev.target.value })} className={inp}>
-                {Object.keys(ABSENCE).map((k) => <option key={k} value={k}>{ABSENCE[k].label}{ABSENCE[k].credit ? "" : ABSENCE[k].neutral ? " (kein Soll – keine Minusstunden)" : " (Stunden fehlen)"}</option>)}
+            <label className="text-xs text-slate-600">{tx("Grund")}<select value={e.kind} onChange={(ev) => setErl({ ...e, kind: ev.target.value })} className={inp}>
+                {Object.keys(ABSENCE).map((k) => <option key={k} value={k}>{tx(ABSENCE[k].label)}{ABSENCE[k].credit ? "" : ABSENCE[k].neutral ? tx(" (kein Soll – keine Minusstunden)") : tx(" (Stunden fehlen)")}</option>)}
               </select>
             </label>
-            <label className="text-xs text-slate-600">Notiz (optional)<input value={e.note} maxLength={500} onChange={(ev) => setErl({ ...e, note: ev.target.value })} className={`${inp} w-52`} /></label>
-            <button onClick={() => erlSaveAbsence(it)} disabled={busy === "erl"} className="rounded-md bg-teal-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-teal-700 active:translate-y-px">{busy === "erl" ? "Moment …" : "Speichern"}</button>
+            <label className="text-xs text-slate-600">{tx("Notiz (optional)")}<input value={e.note} maxLength={500} onChange={(ev) => setErl({ ...e, note: ev.target.value })} className={`${inp} w-52`} /></label>
+            <button onClick={() => erlSaveAbsence(it)} disabled={busy === "erl"} className="rounded-md bg-teal-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-teal-700 active:translate-y-px">{busy === "erl" ? tx("Moment …") : tx("Speichern")}</button>
           </div>
         )}
         {(e.mode === "zeit" || e.mode === "gehen") && (
           <div className="mt-2 flex flex-wrap items-end gap-2">
-            {e.mode === "zeit" && <label className="text-xs text-slate-600">Kommen<input value={e.in} onChange={(ev) => setErl({ ...e, in: ev.target.value })} placeholder="07:00" inputMode="numeric" className={`${inp} w-20`} /></label>}
-            {e.mode === "gehen" && <span className="pb-2 text-xs text-slate-600">Kommen {clock(it.checkIn)} ·</span>}
-            <label className="text-xs text-slate-600">Gehen<input value={e.out} onChange={(ev) => setErl({ ...e, out: ev.target.value })} placeholder="15:30" inputMode="numeric" className={`${inp} w-20`} /></label>
-            <label className="text-xs text-slate-600">Grund (Pflicht)<input value={e.reason} maxLength={300} onChange={(ev) => setErl({ ...e, reason: ev.target.value })} placeholder="z. B. Stempeln vergessen" className={`${inp} w-56`} /></label>
-            <button onClick={() => erlSaveTime(it)} disabled={busy === "erl"} className="rounded-md bg-teal-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-teal-700 active:translate-y-px">{busy === "erl" ? "Moment …" : "Speichern"}</button>
+            {e.mode === "zeit" && <label className="text-xs text-slate-600">{tx("Kommen")}<input value={e.in} onChange={(ev) => setErl({ ...e, in: ev.target.value })} placeholder="07:00" inputMode="numeric" className={`${inp} w-20`} /></label>}
+            {e.mode === "gehen" && <span className="pb-2 text-xs text-slate-600">{tx("Kommen ")}{clock(it.checkIn)} ·</span>}
+            <label className="text-xs text-slate-600">{tx("Gehen")}<input value={e.out} onChange={(ev) => setErl({ ...e, out: ev.target.value })} placeholder="15:30" inputMode="numeric" className={`${inp} w-20`} /></label>
+            <label className="text-xs text-slate-600">{tx("Grund (Pflicht)")}<input value={e.reason} maxLength={300} onChange={(ev) => setErl({ ...e, reason: ev.target.value })} placeholder={tx("z. B. Stempeln vergessen")} className={`${inp} w-56`} /></label>
+            <button onClick={() => erlSaveTime(it)} disabled={busy === "erl"} className="rounded-md bg-teal-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-teal-700 active:translate-y-px">{busy === "erl" ? tx("Moment …") : tx("Speichern")}</button>
           </div>
         )}
-        {e.mode === "zeit" && (it.plannedStart || it.plannedEnd) && <div className="mt-1 text-[11px] text-slate-500">Vorausgefüllt mit der geplanten Schicht – bitte prüfen.</div>}
+        {e.mode === "zeit" && (it.plannedStart || it.plannedEnd) && <div className="mt-1 text-[11px] text-slate-500">{tx("Vorausgefüllt mit der geplanten Schicht – bitte prüfen.")}</div>}
       </div>
     );
   }
@@ -245,15 +245,15 @@ export default function AttendanceDialog({ onClose }) {
           <span aria-hidden="true">{it.kind === "mobil" ? (it.loc ? "📍" : "📱") : it.kind === "manuell" ? "✎" : it.kind === "kurz" ? "⏱" : "⚠️"}</span>
           <span className="min-w-0 flex-1">
             <span className="font-semibold text-slate-800">{it.name}</span>
-            <span className="text-slate-500"> · {new Date(it.at).toLocaleString("de-DE", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}</span>
-            <span className={`block text-xs ${problem ? "font-semibold text-rose-700" : "text-slate-600"}`}>{it.text}{it.loc ? <> · <a className="text-sky-700 underline" target="_blank" rel="noopener noreferrer" href={`https://www.openstreetmap.org/?mlat=${it.loc.lat}&mlon=${it.loc.lng}#map=17/${it.loc.lat}/${it.loc.lng}`}>Karte</a></> : null}</span>
+            <span className="text-slate-500"> · {new Date(it.at).toLocaleString(loc(), { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}</span>
+            <span className={`block text-xs ${problem ? "font-semibold text-rose-700" : "text-slate-600"}`}>{it.text}{it.loc ? <> · <a className="text-sky-700 underline" target="_blank" rel="noopener noreferrer" href={`https://www.openstreetmap.org/?mlat=${it.loc.lat}&mlon=${it.loc.lng}#map=17/${it.loc.lat}/${it.loc.lng}`}>{tx("Karte")}</a></> : null}</span>
           </span>
           {it.kind === "kurz" ? (
             <>
-              <button disabled={busy === `q${it.key}`} onClick={() => quickRemove(it)} className="shrink-0 rounded-md bg-rose-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-rose-700 active:translate-y-px">{busy === `q${it.key}` ? "…" : "Entfernen"}</button>
-              <button disabled={busy === "seen"} onClick={() => seen([it.key])} className="shrink-0 rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50">Behalten ✓</button>
+              <button disabled={busy === `q${it.key}`} onClick={() => quickRemove(it)} className="shrink-0 rounded-md bg-rose-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-rose-700 active:translate-y-px">{busy === `q${it.key}` ? "…" : tx("Entfernen")}</button>
+              <button disabled={busy === "seen"} onClick={() => seen([it.key])} className="shrink-0 rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50">{tx("Behalten ✓")}</button>
             </>
-          ) : problem ? erlButton(id, it) : <button disabled={busy === "seen"} onClick={() => seen([it.key])} className="shrink-0 rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50">Gesehen ✓</button>}
+          ) : problem ? erlButton(id, it) : <button disabled={busy === "seen"} onClick={() => seen([it.key])} className="shrink-0 rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50">{tx("Gesehen ✓")}</button>}
         </div>
         {problem && erl && erl.id === id && erlPanel(it, withLater)}
       </li>
@@ -268,31 +268,31 @@ export default function AttendanceDialog({ onClose }) {
   const today = (rows || []).filter((r) => new Date(r.check_in || r.check_out) >= todayStart || !r.check_out);
 
   async function resetPin(id) {
-    if (!window.confirm(`Stempel-PIN von ${names[id] || "?"} löschen? Die Person legt danach in der App eine neue fest.`)) return;
+    if (!window.confirm(tx("Stempel-PIN von {0} löschen? Die Person legt danach in der App eine neue fest.", names[id] || "?"))) return;
     setBusy("pin" + id);
     const { error } = await org.supabase.rpc("reset_staff_pin", { p_org: org.orgId, p_staff: id });
-    setBusy(""); setMsg(error ? error.message : `PIN von ${names[id]} gelöscht ✓`);
+    setBusy(""); setMsg(error ? error.message : tx("PIN von {0} gelöscht ✓", names[id]));
   }
   async function addCard() {
     const code = String(newCard.code || "").trim();
-    if (!newCard.staffId || code.length < 4) { setMsg("Bitte Person wählen und die Karte an das Kartenlesegerät halten."); return; }
+    if (!newCard.staffId || code.length < 4) { setMsg(tx("Bitte Person wählen und die Karte an das Kartenlesegerät halten.")); return; }
     setBusy("card");
     const { error } = await org.supabase.from("badges").insert({ org_id: org.orgId, staff_id: newCard.staffId, badge_code: code });
     setBusy("");
-    if (error) { setMsg(/duplicate|unique/i.test(error.message) ? "Diese Karte gehört schon einer anderen Person." : error.message); return; }
-    setMsg(`Karte für ${names[newCard.staffId]} gespeichert ✓`); setNewCard(null); load();
+    if (error) { setMsg(/duplicate|unique/i.test(error.message) ? tx("Diese Karte gehört schon einer anderen Person.") : error.message); return; }
+    setMsg(tx("Karte für {0} gespeichert ✓", names[newCard.staffId])); setNewCard(null); load();
   }
   async function revokeCard(b) {
-    if (!window.confirm(`Karte von ${names[b.staff_id] || "?"} entziehen? Sie funktioniert danach nicht mehr (z. B. bei Verlust).`)) return;
+    if (!window.confirm(tx("Karte von {0} entziehen? Sie funktioniert danach nicht mehr (z. B. bei Verlust).", names[b.staff_id] || "?"))) return;
     setBusy("rv" + b.id);
     const { error } = await org.supabase.from("badges").update({ revoked_at: new Date().toISOString() }).eq("id", b.id);
-    setBusy(""); setMsg(error ? error.message : "Karte entzogen ✓"); load();
+    setBusy(""); setMsg(error ? error.message : tx("Karte entzogen ✓")); load();
   }
   async function toggleNeedPin(on) {
     setBusy("np");
     const { error } = await org.supabase.rpc("set_card_requires_pin", { p_org: org.orgId, p_on: on });
     setBusy(""); if (error) { setMsg(error.message); return; }
-    setNeedPin(on); setMsg(on ? "Ab jetzt: Karte + PIN ✓" : "Ab jetzt: Karte allein genügt ✓");
+    setNeedPin(on); setMsg(on ? tx("Ab jetzt: Karte + PIN ✓") : tx("Ab jetzt: Karte allein genügt ✓"));
   }
   // ---- corrections ----
   const monthClosed = async (staffId, dateIso) => {
@@ -301,21 +301,21 @@ export default function AttendanceDialog({ onClose }) {
     return !r.error && r.data && r.data.length > 0;
   };
   async function decideReq(q, approve, note) {
-    if (approve && (await monthClosed(q.staff_id, q.work_date)) && !window.confirm("Dieser Monat ist für die Person schon abgeschlossen (Saldo). Trotzdem übernehmen?")) return;
+    if (approve && (await monthClosed(q.staff_id, q.work_date)) && !window.confirm(tx("Dieser Monat ist für die Person schon abgeschlossen (Saldo). Trotzdem übernehmen?"))) return;
     setBusy("rq" + q.id);
     const { error } = await org.supabase.rpc("decide_correction_request", { p_id: q.id, p_approve: approve, p_note: note || null });
     setBusy(""); setDenyReq(null);
-    setMsg(error ? error.message : approve ? `Korrektur für ${names[q.staff_id]} übernommen ✓` : "Antrag abgelehnt ✓"); load();
+    setMsg(error ? error.message : approve ? tx("Korrektur für {0} übernommen ✓", names[q.staff_id]) : tx("Antrag abgelehnt ✓")); load();
   }
   async function voidAbsence(a) {
-    const reason = window.prompt("Abwesenheit aufheben – Grund:", "falsch eingetragen");
+    const reason = window.prompt(tx("Abwesenheit aufheben – Grund:"), "falsch eingetragen");
     if (reason === null) return;
     const { error } = await org.supabase.rpc("void_absence", { p_id: a.id, p_reason: reason });
     setMsg(error ? error.message : "Abwesenheit aufgehoben ✓"); load(); loadDay(edit.staffId, edit.date);
   }
   async function loadDay(staffId, date) {
     if (pending.length && date && date.slice(0, 7) !== pendMonth) {
-      if (!window.confirm(`Für ${ymLabel(pendMonth)} sind ${pending.length} Änderungen vorgemerkt, aber noch nicht gespeichert.\n\nOK = verwerfen und zu ${ymLabel(date.slice(0, 7))} wechseln\nAbbrechen = zurück (dann unten „Speichern“)`)) return;
+      if (!window.confirm(tx("Für {0} sind {1} Änderungen vorgemerkt, aber noch nicht gespeichert.\n\nOK = verwerfen und zu {2} wechseln\nAbbrechen = zurück (dann unten „Speichern“)", ymLabel(pendMonth), pending.length, ymLabel(date.slice(0, 7))))) return;
       setPending([]); setPendReason("");
     }
     setEdit({ staffId, date }); setFix(null); setDayAbsence(null); setDayRemoved([]);
@@ -330,8 +330,8 @@ export default function AttendanceDialog({ onClose }) {
     setDayRemoved(rm.error ? [] : rm.data || []);
   }
   const atTime = (date, hhmm, after) => { if (!/^\d{1,2}:\d{2}$/.test(hhmm || "")) return null; const t = new Date(`${date}T${hhmm.padStart(5, "0")}:00`); if (after && t <= after) t.setDate(t.getDate() + 1); return t; };
-  const ymLabel = (ym) => { if (!ym) return ""; const [y, mo] = ym.split("-"); return `${MONTHS[Number(mo) - 1]} ${y}`; };
-  const dayLabel = (iso) => { const d = new Date(`${iso}T12:00:00`); return `${["So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"][d.getDay()]} ${iso.slice(8, 10)}.${iso.slice(5, 7)}.`; };
+  const ymLabel = (ym) => { if (!ym) return ""; const [y, mo] = ym.split("-"); return `${monthName(Number(mo) - 1)} ${y}`; };
+  const dayLabel = (iso) => { const d = new Date(`${iso}T12:00:00`); return `${wdShort(d.getDay())} ${dm(d)}`; };
   const localIso = (ts) => { const d = new Date(ts); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; };
   const clockOn = (ts, date) => (ts ? clock(ts) + (localIso(ts) !== date ? " (+1)" : "") : "fehlt");
   const addPending = (item) => { setPending((p) => [...p.filter((x) => x.key !== item.key), item]); setMsg(""); };
@@ -346,15 +346,15 @@ export default function AttendanceDialog({ onClose }) {
       const effIn = new Date(nin || s0.check_in);
       const tout = fix.out ? atTime(date, fix.out, effIn) : null;
       const nout = tout ? tout.toISOString() : (prev ? prev.out : null);
-      if (!nin && !nout) { setMsg("Bitte Kommen und/oder Gehen eintragen."); return; }
+      if (!nin && !nout) { setMsg(tx("Bitte Kommen und/oder Gehen eintragen.")); return; }
       const effOut = nout ? new Date(nout) : (s0.check_out ? new Date(s0.check_out) : null);
-      if (effOut && effOut <= effIn) { setMsg("Gehen muss nach Kommen liegen."); return; }
-      if (effOut && effOut - effIn > 16 * 3600000) { setMsg("Mehr als 16 Stunden – bitte prüfen."); return; }
+      if (effOut && effOut <= effIn) { setMsg(tx("Gehen muss nach Kommen liegen.")); return; }
+      if (effOut && effOut - effIn > 16 * 3600000) { setMsg(tx("Mehr als 16 Stunden – bitte prüfen.")); return; }
       addPending({ key: `s${fix.sessionId}`, op: "fix", staffId, date, sessionId: fix.sessionId, oldIn: s0.check_in, oldOut: s0.check_out, in: nin, out: nout });
     } else {
       const tin = atTime(date, fix.in), tout = atTime(date, fix.out, tin);
-      if (!tin || !tout) { setMsg("Bitte Kommen und Gehen eintragen."); return; }
-      if (tout - tin > 16 * 3600000) { setMsg("Mehr als 16 Stunden – bitte prüfen."); return; }
+      if (!tin || !tout) { setMsg(tx("Bitte Kommen und Gehen eintragen.")); return; }
+      if (tout - tin > 16 * 3600000) { setMsg(tx("Mehr als 16 Stunden – bitte prüfen.")); return; }
       addPending({ key: `a${Date.now()}`, op: "add", staffId, date, in: tin.toISOString(), out: tout.toISOString() });
     }
     setFix(null);
@@ -374,19 +374,19 @@ export default function AttendanceDialog({ onClose }) {
     addPending({ key: `s${s.id}`, op: "remove", staffId: edit.staffId, date: edit.date, sessionId: s.id, oldIn: s.check_in, oldOut: s.check_out });
   }
   function describe(p) {
-    if (p.op === "fix") return [p.in && `Kommen ${clock(p.oldIn)} → ${clockOn(p.in, p.date)}`, p.out && `Gehen ${clockOn(p.oldOut, p.date)} → ${clockOn(p.out, p.date)}`].filter(Boolean).join(" · ");
-    if (p.op === "remove") return `Stempelung entfernen (Kommen ${clock(p.oldIn)} · Gehen ${p.oldOut ? clockOn(p.oldOut, p.date) : "fehlt"})`;
-    if (p.op === "add") return `Zeit nachgetragen ${clock(p.in)} – ${clockOn(p.out, p.date)}`;
-    if (p.op === "absence") return `Abwesenheit: ${(ABSENCE[p.kind] || {}).label || p.kind}${p.note ? ` („${p.note}“)` : ""}`;
-    return `Abwesenheit aufheben (${(ABSENCE[p.kind] || {}).label || p.kind})`;
+    if (p.op === "fix") return [p.in && tx("Kommen {0} → {1}", clock(p.oldIn), clockOn(p.in, p.date)), p.out && tx("Gehen {0} → {1}", clockOn(p.oldOut, p.date), clockOn(p.out, p.date))].filter(Boolean).join(" · ");
+    if (p.op === "remove") return tx("Stempelung entfernen (Kommen {0} · Gehen {1})", clock(p.oldIn), p.oldOut ? clockOn(p.oldOut, p.date) : "fehlt");
+    if (p.op === "add") return tx("Zeit nachgetragen {0} – {1}", clock(p.in), clockOn(p.out, p.date));
+    if (p.op === "absence") return tx("Abwesenheit: {0}{1}", tx((ABSENCE[p.kind] || {}).label || p.kind), p.note ? ` („${p.note}“)` : "");
+    return tx("Abwesenheit aufheben ({0})", tx((ABSENCE[p.kind] || {}).label || p.kind));
   }
   const sortedPending = [...pending].sort((a, b) => a.date.localeCompare(b.date) || String(names[a.staffId] || "").localeCompare(String(names[b.staffId] || "")));
   async function savePending() {
-    if (pendReason.trim().length < 3) { setMsg("Bitte einen Grund für die Änderungen angeben (gilt für alle)."); return; }
+    if (pendReason.trim().length < 3) { setMsg(tx("Bitte einen Grund für die Änderungen angeben (gilt für alle).")); return; }
     const people = [...new Set(pending.map((p) => p.staffId))];
     const closed = [];
     for (const id of people) if (await monthClosed(id, pending.find((p) => p.staffId === id).date)) closed.push(names[id] || "?");
-    if (closed.length && !window.confirm(`${ymLabel(pendMonth)} ist für ${closed.join(", ")} schon abgeschlossen (Saldo). Trotzdem speichern?`)) return;
+    if (closed.length && !window.confirm(tx("{0} ist für {1} schon abgeschlossen (Saldo). Trotzdem speichern?", ymLabel(pendMonth), closed.join(", ")))) return;
     const list = pending; // same order as sent, to name the entry in an error
     const edits = list.map((p) => (p.op === "fix" ? { op: "fix", session_id: p.sessionId, check_in: p.in || null, check_out: p.out || null }
       : p.op === "add" ? { op: "add", staff_id: p.staffId, check_in: p.in, check_out: p.out }
@@ -399,16 +399,16 @@ export default function AttendanceDialog({ onClose }) {
     if (error) {
       const m = String(error.message || "").match(/^Änderung (\d+): (.*)$/);
       const bad = m ? list[Number(m[1]) - 1] : null;
-      setMsg(`Nicht gespeichert – keine der Änderungen wurde übernommen. ${bad ? `${dayLabel(bad.date)} · ${names[bad.staffId] || "?"}: ${m[2]}` : error.message}`);
+      setMsg(tx("Nicht gespeichert – keine der Änderungen wurde übernommen. {0}", bad ? `${dayLabel(bad.date)} · ${names[bad.staffId] || "?"}: ${tx(m[2])}` : tx(error.message)));
       return;
     }
-    setMsg(`${list.length} ${list.length === 1 ? "Änderung" : "Änderungen"} gespeichert ✓ (mit Grund protokolliert)`);
+    setMsg(tx("{0} {1} gespeichert ✓ (mit Grund protokolliert)", list.length, list.length === 1 ? tx("Änderung") : tx("Änderungen")));
     setPending([]); setPendReason(""); load();
     if (edit.staffId && edit.date) loadDay(edit.staffId, edit.date);
   }
   function cancelPending() {
-    if (!window.confirm(`Alle ${pending.length} vorgemerkten Änderungen verwerfen? Es wird nichts gespeichert.`)) return;
-    setPending([]); setPendReason(""); setFix(null); setMsg("Abgebrochen – nichts geändert.");
+    if (!window.confirm(tx("Alle {0} vorgemerkten Änderungen verwerfen? Es wird nichts gespeichert.", pending.length))) return;
+    setPending([]); setPendReason(""); setFix(null); setMsg(tx("Abgebrochen – nichts geändert."));
   }
 
   // ---- Stundenzettel (monthly time sheet for the payroll office) ----
@@ -423,7 +423,7 @@ export default function AttendanceDialog({ onClose }) {
     setBusy("");
     if (error) { setMsg(error.message); return; }
     setMode(nextMode); setStandort(nextStandort);
-    setMsg("Gespeichert ✓ – die Mitarbeitenden sehen die Änderung nach dem nächsten Öffnen der App.");
+    setMsg(tx("Gespeichert ✓ – die Mitarbeitenden sehen die Änderung nach dem nächsten Öffnen der App."));
   }
   async function printTimesheets() {
     const [y, m] = tsMonth.split("-").map(Number); const month = m - 1;
@@ -470,9 +470,9 @@ export default function AttendanceDialog({ onClose }) {
         const overtime = { mode: overtimeMode(ot), code: ot && ot.code, stored: payoutMinutesByMonth(pays, p.id) };
         return buildSheet({ name: p.personnel_no ? `${p.name} (${p.personnel_no})` : p.name, year: y, month, days, startIso, closedRows, overtime, corrected, mobile, mode: sollMode, weeklyHours: p.weekly_hours, covers: coversOf(p.id), places: placesOf(p.id), vacation: (() => { const v = (vac.data || []).find((x) => x.staff_id === p.id); if (!v) return null; const c = elternzeitCut((ap || []).filter((x) => x.staff_id === p.id), y, v.entitlement); return { ...v, entitlement: Number(v.entitlement || 0) - c.cut, cut: c.cut }; })() , startBalance: startOf[p.id] || 0 });
       });
-      if (!sheets.length) { setMsg("Keine Personen gefunden."); setBusy(""); return; }
+      if (!sheets.length) { setMsg(tx("Keine Personen gefunden.")); setBusy(""); return; }
       const ok = openHtmlPrint(buildTimesheetHtml(sheets, { orgName: org.orgName, year: y, month, mode: sollMode, surcharges: surchargesOn(org) ? zus : null, noSurcharges: !surchargesOn(org), country: org.country }));
-      setMsg(ok ? `${sheets.length} Stundenzettel für ${MONTHS[month]} ${y} – im Druckfenster „Als PDF speichern“ wählen, um sie per E-Mail an die Personalabteilung zu schicken.` : "Der Browser hat das neue Fenster blockiert.");
+      setMsg(ok ? tx("{0} Stundenzettel für {1} {2} – im Druckfenster „Als PDF speichern“ wählen, um sie per E-Mail an die Personalabteilung zu schicken.", sheets.length, monthName(month), y) : tx("Der Browser hat das neue Fenster blockiert."));
     } catch (e) { setMsg("Stundenzettel: " + (e.message || e)); }
     setBusy("");
   }
@@ -489,13 +489,13 @@ export default function AttendanceDialog({ onClose }) {
       .map((x) => ({ org_id: org.orgId, staff_id: x.id, year: vacForm.year, entitlement: num(vacForm.rows[x.id].entitlement), carryover: num(vacForm.rows[x.id].carryover), updated_at: new Date().toISOString() }));
     const { error } = up.length ? await org.supabase.from("staff_vacation").upsert(up, { onConflict: "staff_id,year" }) : { error: null };
     setBusy(""); if (error) { setMsg(error.message); return; }
-    setVacForm(null); setMsg(`Urlaubsanspruch ${vacForm.year} gespeichert ✓`);
+    setVacForm(null); setMsg(tx("Urlaubsanspruch {0} gespeichert ✓", vacForm.year));
   }
   async function saveOt() {
     setBusy("ot");
     const { error } = await org.supabase.rpc("set_overtime_settings", { p_org: org.orgId, p_settings: { mode: otForm.mode || "konto", code: String(otForm.code || "").slice(0, 20) } });
     setBusy(""); if (error) { setMsg(error.message); return; }
-    setOt({ mode: otForm.mode || "konto", code: String(otForm.code || "").slice(0, 20) }); setOtForm(null); setMsg("Überstunden-Regel gespeichert ✓");
+    setOt({ mode: otForm.mode || "konto", code: String(otForm.code || "").slice(0, 20) }); setOtForm(null); setMsg(tx("Überstunden-Regel gespeichert ✓"));
   }
   async function loadPayouts() {
     const [y, m] = tsMonth.split("-").map(Number);
@@ -505,14 +505,14 @@ export default function AttendanceDialog({ onClose }) {
   async function addPayout() {
     const [y, m] = tsMonth.split("-").map(Number);
     const h = Number(String(payForm.hours || "").replace(",", "."));
-    if (!payForm.staffId || !(h > 0)) { setMsg("Bitte Person und Stunden angeben."); return; }
+    if (!payForm.staffId || !(h > 0)) { setMsg(tx("Bitte Person und Stunden angeben.")); return; }
     setBusy("pay");
     const { error } = await org.supabase.rpc("add_overtime_payout", { p_org: org.orgId, p_staff: payForm.staffId, p_year: y, p_month: m, p_hours: h, p_note: payForm.note || "" });
     setBusy(""); if (error) { setMsg(error.message); return; }
-    setPayForm({ staffId: "", hours: "", note: "" }); setMsg(`${String(h).replace(".", ",")} Std. zur Auszahlung eingetragen ✓`); loadPayouts();
+    setPayForm({ staffId: "", hours: "", note: "" }); setMsg(tx("{0} Std. zur Auszahlung eingetragen ✓", String(h).replace(".", ","))); loadPayouts();
   }
   async function voidPayout(id) {
-    const reason = window.prompt("Grund für die Stornierung:");
+    const reason = window.prompt(tx("Grund für die Stornierung:"));
     if (!reason || !reason.trim()) return;
     const { error } = await org.supabase.rpc("void_overtime_payout", { p_id: id, p_reason: reason.trim() });
     if (error) { setMsg(error.message); return; }
@@ -524,7 +524,7 @@ export default function AttendanceDialog({ onClose }) {
     SURCHARGES.forEach((z) => { const c = zusForm[z.key] || {}; clean[z.key] = { mode: c.mode || "off", value: c.mode === "off" ? null : Math.max(0, Number(String(c.value || "0").replace(",", ".")) || 0), code: String(c.code || "").slice(0, 20) }; });
     const { error } = await org.supabase.rpc("set_surcharge_settings", { p_org: org.orgId, p_settings: clean });
     setBusy(""); if (error) { setMsg(error.message); return; }
-    setZus(clean); setZusForm(null); setMsg("Zuschläge gespeichert ✓");
+    setZus(clean); setZusForm(null); setMsg(tx("Zuschläge gespeichert ✓"));
   }
 
   async function createPairCode() {
@@ -533,16 +533,16 @@ export default function AttendanceDialog({ onClose }) {
       const { data } = await org.supabase.auth.getSession();
       const res = await fetch("/api/zeit", { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${data.session ? data.session.access_token : ""}` }, body: JSON.stringify({ action: "pair-create", org_id: org.orgId, name: pairName || "Terminal" }) });
       const body = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(body.error || `Fehler (${res.status})`);
+      if (!res.ok) throw new Error(body.error || tx("Fehler ({0})", res.status));
       setPairCode(body); setPairName(null);
     } catch (e) { setMsg(e.message); }
     setBusy("");
   }
   async function toggleDevice(d) {
-    if (d.active && !window.confirm(`Terminal „${d.name}“ sperren? Es zeigt dann keinen QR-Code mehr.`)) return;
+    if (d.active && !window.confirm(tx("Terminal „{0}“ sperren? Es zeigt dann keinen QR-Code mehr.", d.name))) return;
     setBusy("dev" + d.id);
     const { error } = await org.supabase.from("devices").update({ active: !d.active }).eq("id", d.id);
-    setBusy(""); setMsg(error ? error.message : d.active ? "Terminal gesperrt ✓" : "Terminal wieder aktiv ✓"); load();
+    setBusy(""); setMsg(error ? error.message : d.active ? tx("Terminal gesperrt ✓") : tx("Terminal wieder aktiv ✓")); load();
   }
 
   return (
@@ -550,30 +550,30 @@ export default function AttendanceDialog({ onClose }) {
       <div role="dialog" aria-modal="true" aria-labelledby="att-title" className="w-full max-w-2xl rounded-2xl bg-white p-4 text-sm text-slate-800 shadow-xl">
         <div className="flex items-start justify-between gap-3">
           <div>
-            <h2 id="att-title" className="text-base font-semibold">Anwesenheit</h2>
-            <div className="mt-0.5 text-xs text-slate-500">Stempelzeiten nimmt der Server; sie lassen sich nicht nachträglich ändern. Aktualisiert sich alle 30 Sekunden.</div>
+            <h2 id="att-title" className="text-base font-semibold">{tx("Anwesenheit")}</h2>
+            <div className="mt-0.5 text-xs text-slate-500">{tx("Stempelzeiten nimmt der Server; sie lassen sich nicht nachträglich ändern. Aktualisiert sich alle 30 Sekunden.")}</div>
           </div>
-          <button onClick={tryClose} className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs text-slate-600 hover:bg-slate-50 active:translate-y-px">Schließen</button>
+          <button onClick={tryClose} className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs text-slate-600 hover:bg-slate-50 active:translate-y-px">{tx("Schließen")}</button>
         </div>
-        {msg && <div role="status" className="mt-3 rounded-lg bg-teal-50 p-2.5 text-xs text-teal-900">{msg}</div>}
-        {rows === null ? <div className="mt-4 text-xs text-slate-500">Lädt …</div> : (
+        {msg && <div role="status" className="mt-3 rounded-lg bg-teal-50 p-2.5 text-xs text-teal-900">{tx(msg)}</div>}
+        {rows === null ? <div className="mt-4 text-xs text-slate-500">{tx("Lädt …")}</div> : (
           <>
             {reqs.length > 0 && (
               <div className="mt-3 rounded-xl border-2 border-amber-300 bg-amber-50 p-3">
-                <h3 className="text-xs font-semibold uppercase tracking-wide text-amber-900">Korrekturanträge ({reqs.length})</h3>
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-amber-900">{tx("Korrekturanträge (")}{reqs.length})</h3>
                 <ul className="mt-1 space-y-2">
                   {reqs.map((q) => (
                     <li key={q.id} className="rounded-lg bg-white p-2">
                       <div className="font-medium">{names[q.staff_id] || "?"} · {q.work_date.split("-").reverse().join(".")}</div>
-                      <div className="text-xs text-slate-700">{q.check_in ? `Kommen ${clock(q.check_in)} ` : ""}{q.check_out ? `Gehen ${clock(q.check_out)}` : ""}{q.session_id ? "" : q.check_out ? " (ganz vergessen)" : " (Kommen vergessen – noch da; „Gehen“ stempelt die Person selbst)"} · „{q.reason}“</div>
+                      <div className="text-xs text-slate-700">{q.check_in ? tx("Kommen {0} ", clock(q.check_in)) : ""}{q.check_out ? tx("Gehen {0}", clock(q.check_out)) : ""}{q.session_id ? "" : q.check_out ? tx(" (ganz vergessen)") : tx(" (Kommen vergessen – noch da; „Gehen“ stempelt die Person selbst)")} · „{q.reason}“</div>
                       <div className="mt-1.5 flex flex-wrap gap-2">
-                        <button onClick={() => decideReq(q, true)} disabled={!!busy} className="rounded-md bg-emerald-600 px-3 py-1 text-xs font-semibold text-white hover:bg-emerald-700 active:translate-y-px">Übernehmen</button>
-                        <button onClick={() => setDenyReq({ id: q.id, note: "" })} disabled={!!busy} className="rounded-md border border-rose-200 px-3 py-1 text-xs text-rose-700 hover:bg-rose-50 active:translate-y-px">Ablehnen</button>
+                        <button onClick={() => decideReq(q, true)} disabled={!!busy} className="rounded-md bg-emerald-600 px-3 py-1 text-xs font-semibold text-white hover:bg-emerald-700 active:translate-y-px">{tx("Übernehmen")}</button>
+                        <button onClick={() => setDenyReq({ id: q.id, note: "" })} disabled={!!busy} className="rounded-md border border-rose-200 px-3 py-1 text-xs text-rose-700 hover:bg-rose-50 active:translate-y-px">{tx("Ablehnen")}</button>
                       </div>
                       {denyReq && denyReq.id === q.id && (
                         <div className="mt-1.5 flex flex-wrap items-end gap-2">
-                          <input autoFocus value={denyReq.note} maxLength={500} onChange={(e) => setDenyReq({ ...denyReq, note: e.target.value })} placeholder="Grund (sieht die Person)" className="w-56 rounded-md border border-slate-300 px-2 py-1 text-sm" />
-                          <button onClick={() => decideReq(q, false, denyReq.note)} className="rounded-md bg-rose-600 px-3 py-1 text-xs font-semibold text-white">Ablehnen</button>
+                          <input autoFocus value={denyReq.note} maxLength={500} onChange={(e) => setDenyReq({ ...denyReq, note: e.target.value })} placeholder={tx("Grund (sieht die Person)")} className="w-56 rounded-md border border-slate-300 px-2 py-1 text-sm" />
+                          <button onClick={() => decideReq(q, false, denyReq.note)} className="rounded-md bg-rose-600 px-3 py-1 text-xs font-semibold text-white">{tx("Ablehnen")}</button>
                         </div>
                       )}
                     </li>
@@ -583,14 +583,14 @@ export default function AttendanceDialog({ onClose }) {
             )}
             {topMissing.length > 0 && (
               <>
-                <h3 className="mt-4 text-xs font-semibold uppercase tracking-wide text-amber-800">Noch nicht eingestempelt ({topMissing.length})</h3>
+                <h3 className="mt-4 text-xs font-semibold uppercase tracking-wide text-amber-800">{tx("Noch nicht eingestempelt (")}{topMissing.length})</h3>
                 <div className="mt-1 rounded-xl border border-amber-300 bg-amber-50/60">
                   <ul className="divide-y divide-amber-100">{topMissing.map((x) => {
                     const it = missItem(x); const id = `top:${it.key}`;
                     return (
                       <li key={id} className="px-3 py-2 text-sm">
                         <div className="flex items-center gap-2">
-                          <span className="min-w-0 flex-1 text-amber-900">● <span className="font-semibold">{it.name}</span> <span className="text-amber-700">{x.shift_label || x.shift_key} seit {clock(x.planned_start)}</span></span>
+                          <span className="min-w-0 flex-1 text-amber-900">● <span className="font-semibold">{it.name}</span> <span className="text-amber-700">{x.shift_label || x.shift_key}{tx(" seit ")}{clock(x.planned_start)}</span></span>
                           {erlButton(id, it)}
                         </div>
                         {erl && erl.id === id && erlPanel(it, true)}
@@ -598,19 +598,19 @@ export default function AttendanceDialog({ onClose }) {
                     );
                   })}</ul>
                 </div>
-                <div className="mt-1 text-[11px] text-slate-500">Schicht hat vor mehr als 3 Stunden begonnen, aber kein Kommen. → „Erledigen ▾“.</div>
+                <div className="mt-1 text-[11px] text-slate-500">{tx("Schicht hat vor mehr als 3 Stunden begonnen, aber kein Kommen. → „Erledigen ▾“.")}</div>
               </>
             )}
-            <h3 className="mt-4 text-xs font-semibold uppercase tracking-wide text-slate-500">Zu prüfen {review ? `(${review.items.length})` : ""}</h3>
-            {flash.map((f) => <div key={f.id} role="status" className="mt-1 rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-800">{f.text}</div>)}
-            {!review ? <div className="mt-1 text-xs text-slate-500">Lädt …</div> : review.items.length === 0 ? (
-              <div className="mt-1 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-900">Nichts zu prüfen ✓</div>
+            <h3 className="mt-4 text-xs font-semibold uppercase tracking-wide text-slate-500">{tx("Zu prüfen ")}{review ? `(${review.items.length})` : ""}</h3>
+            {flash.map((f) => <div key={f.id} role="status" className="mt-1 rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-800">{tx(f.text)}</div>)}
+            {!review ? <div className="mt-1 text-xs text-slate-500">{tx("Lädt …")}</div> : review.items.length === 0 ? (
+              <div className="mt-1 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-900">{tx("Nichts zu prüfen ✓")}</div>
             ) : (
               <div className="mt-1 rounded-xl border border-amber-200 bg-amber-50/50">
                 <div className="flex flex-wrap items-center justify-between gap-2 border-b border-amber-200 px-3 py-2 text-xs text-amber-900">
-                  <span className="min-w-0 flex-1">Probleme direkt hier lösen: „Erledigen ▾“. Hinweise (📱 ✎) mit „Gesehen ✓“ abhaken.</span>
-                  {review.items.some((x) => !isProblem(x)) && <button disabled={busy === "seen"} onClick={() => seen(review.items.filter((x) => !isProblem(x)).map((x) => x.key))} className="shrink-0 rounded-md border border-amber-300 bg-white px-2.5 py-1 font-semibold text-amber-900 hover:bg-amber-100">Alle gesehen ✓</button>}
-                  {review.items.some(isProblem) && <button disabled={busy === "later"} onClick={() => later(review.items.filter(isProblem).map((x) => x.key))} className="shrink-0 rounded-md border border-amber-300 bg-white px-2.5 py-1 font-semibold text-amber-900 hover:bg-amber-100">Alle später klären</button>}
+                  <span className="min-w-0 flex-1">{tx("Probleme direkt hier lösen: „Erledigen ▾“. Hinweise (📱 ✎) mit „Gesehen ✓“ abhaken.")}</span>
+                  {review.items.some((x) => !isProblem(x)) && <button disabled={busy === "seen"} onClick={() => seen(review.items.filter((x) => !isProblem(x)).map((x) => x.key))} className="shrink-0 rounded-md border border-amber-300 bg-white px-2.5 py-1 font-semibold text-amber-900 hover:bg-amber-100">{tx("Alle gesehen ✓")}</button>}
+                  {review.items.some(isProblem) && <button disabled={busy === "later"} onClick={() => later(review.items.filter(isProblem).map((x) => x.key))} className="shrink-0 rounded-md border border-amber-300 bg-white px-2.5 py-1 font-semibold text-amber-900 hover:bg-amber-100">{tx("Alle später klären")}</button>}
                 </div>
                 <ul className="max-h-96 divide-y divide-amber-100 overflow-y-auto">
                   {review.items.map((it) => reviewRow(it, `r:${it.key}`, true))}
@@ -620,11 +620,11 @@ export default function AttendanceDialog({ onClose }) {
             {review && review.later.length > 0 && (
               <div className="mt-2 rounded-xl border border-orange-300 bg-orange-50/60">
                 <button onClick={() => setLaterOpen(!laterOpen)} aria-expanded={laterOpen} className="flex w-full items-center justify-between px-3 py-2 text-left text-xs font-semibold text-orange-900">
-                  <span>Später klären ({review.later.length})</span><span aria-hidden="true">{laterOpen ? "▾" : "▸"}</span>
+                  <span>{tx("Später klären (")}{review.later.length})</span><span aria-hidden="true">{laterOpen ? "▾" : "▸"}</span>
                 </button>
                 {laterOpen && (
                   <>
-                    <div className="border-t border-orange-200 px-3 py-1.5 text-[11px] text-orange-900">Bleibt hier, bis ein Grund (Abwesenheit) oder eine Zeit eingetragen ist.</div>
+                    <div className="border-t border-orange-200 px-3 py-1.5 text-[11px] text-orange-900">{tx("Bleibt hier, bis ein Grund (Abwesenheit) oder eine Zeit eingetragen ist.")}</div>
                     <ul className="max-h-72 divide-y divide-orange-100 overflow-y-auto">
                       {review.later.map((it) => reviewRow(it, `l:${it.key}`, false))}
                     </ul>
@@ -632,33 +632,33 @@ export default function AttendanceDialog({ onClose }) {
                 )}
               </div>
             )}
-            <h3 className="mt-4 text-xs font-semibold uppercase tracking-wide text-slate-500">Jetzt da ({present.length})</h3>
-            {present.length === 0 ? <div className="mt-1 text-xs text-slate-500">Im Moment ist niemand eingestempelt.</div> : (
-              <div className="mt-1 flex flex-wrap gap-2">{present.map((r) => <span key={r.id} className="rounded-lg border border-emerald-300 bg-emerald-50 px-2.5 py-1.5 text-emerald-900">● {names[r.staff_id] || "?"} <span className="text-emerald-700">seit {clock(r.check_in)}</span></span>)}</div>
+            <h3 className="mt-4 text-xs font-semibold uppercase tracking-wide text-slate-500">{tx("Jetzt da (")}{present.length})</h3>
+            {present.length === 0 ? <div className="mt-1 text-xs text-slate-500">{tx("Im Moment ist niemand eingestempelt.")}</div> : (
+              <div className="mt-1 flex flex-wrap gap-2">{present.map((r) => <span key={r.id} className="rounded-lg border border-emerald-300 bg-emerald-50 px-2.5 py-1.5 text-emerald-900">● {names[r.staff_id] || "?"} <span className="text-emerald-700">{tx("seit ")}{clock(r.check_in)}</span></span>)}</div>
             )}
             <details className="mt-4">
-            <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wide text-slate-500">Alle Stempelungen heute ({today.length})</summary>
+            <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wide text-slate-500">{tx("Alle Stempelungen heute (")}{today.length})</summary>
             <div className="mt-1 overflow-x-auto">
               <table className="w-full text-left text-sm">
-                <thead><tr className="text-xs text-slate-500"><th className="py-1.5 pr-2">Name</th><th className="py-1.5 pr-2">Kommen</th><th className="py-1.5 pr-2">Gehen</th><th className="py-1.5 pr-2">Dauer</th><th /></tr></thead>
+                <thead><tr className="text-xs text-slate-500"><th className="py-1.5 pr-2">{tx("Name")}</th><th className="py-1.5 pr-2">{tx("Kommen")}</th><th className="py-1.5 pr-2">{tx("Gehen")}</th><th className="py-1.5 pr-2">{tx("Dauer")}</th><th /></tr></thead>
                 <tbody>
-                  {today.length === 0 && <tr><td colSpan={5} className="py-2 text-xs text-slate-500">Heute noch keine Stempelungen.</td></tr>}
+                  {today.length === 0 && <tr><td colSpan={5} className="py-2 text-xs text-slate-500">{tx("Heute noch keine Stempelungen.")}</td></tr>}
                   {today.map((r) => (
                     <tr key={r.id} className="border-t border-slate-100">
                       <td className="py-1.5 pr-2 font-medium">{names[r.staff_id] || "?"}</td>
-                      <td className={`py-1.5 pr-2 ${r.check_in ? "" : "text-amber-700"}`}>{r.check_in ? clock(r.check_in) : "fehlt"}<MobilMark ev={mobilEv[r.in_event_id]} /></td>
-                      <td className="py-1.5 pr-2">{r.check_out ? <>{clock(r.check_out)}<MobilMark ev={mobilEv[r.out_event_id]} /></> : Date.now() - new Date(r.check_in).getTime() > 12 * 3600000 ? <span className="font-semibold text-amber-700">Gehen fehlt</span> : <span className="text-emerald-700">läuft</span>}</td>
+                      <td className={`py-1.5 pr-2 ${r.check_in ? "" : "text-amber-700"}`}>{r.check_in ? clock(r.check_in) : tx("fehlt")}<MobilMark ev={mobilEv[r.in_event_id]} /></td>
+                      <td className="py-1.5 pr-2">{r.check_out ? <>{clock(r.check_out)}<MobilMark ev={mobilEv[r.out_event_id]} /></> : Date.now() - new Date(r.check_in).getTime() > 12 * 3600000 ? <span className="font-semibold text-amber-700">{tx("Gehen fehlt")}</span> : <span className="text-emerald-700">{tx("läuft")}</span>}</td>
                       <td className="py-1.5 pr-2">{dur(r.check_in, r.check_out)}</td>
-                      <td className="py-1.5 text-right"><button onClick={() => resetPin(r.staff_id)} disabled={!!busy} className="text-xs text-slate-500 underline">PIN zurücksetzen</button></td>
+                      <td className="py-1.5 text-right"><button onClick={() => resetPin(r.staff_id)} disabled={!!busy} className="text-xs text-slate-500 underline">{tx("PIN zurücksetzen")}</button></td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
             </details>
-            <h3 className="mt-4 text-xs font-semibold uppercase tracking-wide text-slate-500">Wie wird gestempelt?</h3>
-            <div className="mt-1 flex flex-wrap gap-2" role="radiogroup" aria-label="Erfassungsart">
-              {[["terminal", "Nur Terminal"], ["handy", "Nur Handy"], ["beides", "Terminal und Handy"]].map(([k, l]) => (
+            <h3 className="mt-4 text-xs font-semibold uppercase tracking-wide text-slate-500">{tx("Wie wird gestempelt?")}</h3>
+            <div className="mt-1 flex flex-wrap gap-2" role="radiogroup" aria-label={tx("Erfassungsart")}>
+              {[["terminal", tx("Nur Terminal")], ["handy", tx("Nur Handy")], ["beides", tx("Terminal und Handy")]].map(([k, l]) => (
                 <button key={k} role="radio" aria-checked={mode === k} disabled={busy === "modes"} onClick={() => saveModes(k, standort)}
                   className={`rounded-lg border px-3 py-1.5 text-sm active:translate-y-px ${mode === k ? "border-teal-600 bg-teal-600 font-semibold text-white" : "border-slate-200 text-slate-700 hover:bg-slate-50"}`}>{l}</button>
               ))}
@@ -666,193 +666,190 @@ export default function AttendanceDialog({ onClose }) {
             {mode !== "terminal" && (
               <label className="mt-2 flex items-start gap-2 text-sm text-slate-700">
                 <input type="checkbox" className="mt-1" checked={standort} disabled={busy === "modes"} onChange={(e) => saveModes(mode, e.target.checked)} />
-                <span>Beim Stempeln mit dem Handy einmalig den Standort speichern <span className="text-slate-500">(keine laufende Ortung; Mitarbeitende informieren, ggf. Betriebsrat fragen)</span></span>
+                <span>{tx("Beim Stempeln mit dem Handy einmalig den Standort speichern ")}<span className="text-slate-500">{tx("(keine laufende Ortung; Mitarbeitende informieren, ggf. Betriebsrat fragen)")}</span></span>
               </label>
             )}
-            <div className="mt-1 text-[11px] text-slate-500">Vergessene oder falsche Zeiten tragen alle selbst in der App ein („Zeit beantragen“, „Korrektur beantragen“); Sie bestätigen sie hier.</div>
+            <div className="mt-1 text-[11px] text-slate-500">{tx("Vergessene oder falsche Zeiten tragen alle selbst in der App ein („Zeit beantragen“, „Korrektur beantragen“); Sie bestätigen sie hier.")}</div>
 
-            <h3 className="mt-4 text-xs font-semibold uppercase tracking-wide text-slate-500">Stundenzettel (für die Lohnabrechnung)</h3>
+            <h3 className="mt-4 text-xs font-semibold uppercase tracking-wide text-slate-500">{tx("Stundenzettel (für die Lohnabrechnung)")}</h3>
             <div className="mt-1 flex flex-wrap items-end gap-2">
-              <label className="text-xs text-slate-600">Monat<input type="month" value={tsMonth} onChange={(e) => setTsMonth(e.target.value)} className="mt-1 block rounded-md border border-slate-300 px-2 py-1.5 text-sm" /></label>
-              <label className="text-xs text-slate-600">Für
-                <select value={tsWho} onChange={(e) => setTsWho(e.target.value)} className="mt-1 block rounded-md border border-slate-300 px-2 py-1.5 text-sm">
-                  <option value="all">Alle ({staffList.length})</option>
+              <label className="text-xs text-slate-600">{tx("Monat")}<input type="month" value={tsMonth} onChange={(e) => setTsMonth(e.target.value)} className="mt-1 block rounded-md border border-slate-300 px-2 py-1.5 text-sm" /></label>
+              <label className="text-xs text-slate-600">{tx("Für")}<select value={tsWho} onChange={(e) => setTsWho(e.target.value)} className="mt-1 block rounded-md border border-slate-300 px-2 py-1.5 text-sm">
+                  <option value="all">{tx("Alle (")}{staffList.length})</option>
                   {staffList.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
                 </select>
               </label>
-              <button onClick={printTimesheets} disabled={busy === "ts"} className="rounded-md bg-teal-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-teal-700 active:translate-y-px">{busy === "ts" ? "Moment …" : "Drucken / PDF"}</button>
+              <button onClick={printTimesheets} disabled={busy === "ts"} className="rounded-md bg-teal-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-teal-700 active:translate-y-px">{busy === "ts" ? tx("Moment …") : tx("Drucken / PDF")}</button>
             </div>
-            <div className="mt-1 text-[11px] text-slate-500">Eine Seite pro Person: Beginn, Ende, Pause, Netto, Soll, Zeitkonto, Nacht-/Sonntags-/Feiertagsstunden, Urlaub, Krank.</div>
+            <div className="mt-1 text-[11px] text-slate-500">{tx("Eine Seite pro Person: Beginn, Ende, Pause, Netto, Soll, Zeitkonto, Nacht-/Sonntags-/Feiertagsstunden, Urlaub, Krank.")}</div>
             {vacForm ? (
               <div className="mt-2 rounded-lg border border-slate-200 bg-slate-50 p-2.5">
-                <div className="flex items-center gap-2 text-xs font-semibold text-slate-700">Urlaubsanspruch
-                  <select value={vacForm.year} onChange={(e) => openVac(Number(e.target.value))} className="rounded-md border border-slate-300 px-1.5 py-0.5 text-xs" aria-label="Jahr">
+                <div className="flex items-center gap-2 text-xs font-semibold text-slate-700">{tx("Urlaubsanspruch")}<select value={vacForm.year} onChange={(e) => openVac(Number(e.target.value))} className="rounded-md border border-slate-300 px-1.5 py-0.5 text-xs" aria-label={tx("Jahr")}>
                     {[0, 1, -1].map((k) => new Date().getFullYear() + k).sort().map((yy) => <option key={yy} value={yy}>{yy}</option>)}
                   </select>
                 </div>
-                <table className="mt-1 text-sm"><thead><tr className="text-xs text-slate-500"><th className="pr-3 text-left">Name</th><th className="pr-3 text-left">Tage im Jahr</th><th className="text-left">Rest Vorjahr</th></tr></thead>
+                <table className="mt-1 text-sm"><thead><tr className="text-xs text-slate-500"><th className="pr-3 text-left">{tx("Name")}</th><th className="pr-3 text-left">{tx("Tage im Jahr")}</th><th className="text-left">{tx("Rest Vorjahr")}</th></tr></thead>
                   <tbody>{staffList.map((x) => { const r = vacForm.rows[x.id] || { entitlement: "", carryover: "" }; const set = (k, v) => setVacForm({ ...vacForm, rows: { ...vacForm.rows, [x.id]: { ...r, [k]: v } } }); return (
                     <tr key={x.id}><td className="pr-3">{x.name}</td>
-                      <td className="pr-3"><input value={r.entitlement} onChange={(e) => set("entitlement", e.target.value)} placeholder="z. B. 30" className="w-20 rounded-md border border-slate-300 px-2 py-0.5" aria-label={`Urlaubstage ${x.name}`} /></td>
-                      <td><input value={r.carryover} onChange={(e) => set("carryover", e.target.value)} placeholder="0" className="w-20 rounded-md border border-slate-300 px-2 py-0.5" aria-label={`Rest Vorjahr ${x.name}`} /></td></tr>
+                      <td className="pr-3"><input value={r.entitlement} onChange={(e) => set("entitlement", e.target.value)} placeholder="z. B. 30" className="w-20 rounded-md border border-slate-300 px-2 py-0.5" aria-label={tx("Urlaubstage {0}", x.name)} /></td>
+                      <td><input value={r.carryover} onChange={(e) => set("carryover", e.target.value)} placeholder="0" className="w-20 rounded-md border border-slate-300 px-2 py-0.5" aria-label={tx("Rest Vorjahr {0}", x.name)} /></td></tr>
                   ); })}</tbody></table>
                 <div className="mt-2 flex gap-2">
-                  <button onClick={saveVac} disabled={busy === "vac"} className="rounded-md bg-teal-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-teal-700 active:translate-y-px">{busy === "vac" ? "Moment …" : "Speichern"}</button>
-                  <button onClick={() => setVacForm(null)} className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-600">Abbrechen</button>
+                  <button onClick={saveVac} disabled={busy === "vac"} className="rounded-md bg-teal-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-teal-700 active:translate-y-px">{busy === "vac" ? tx("Moment …") : tx("Speichern")}</button>
+                  <button onClick={() => setVacForm(null)} className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-600">{tx("Abbrechen")}</button>
                 </div>
               </div>
             ) : (
-              <button onClick={() => openVac(Number(tsMonth.slice(0, 4)))} className="mr-2 mt-1.5 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs text-slate-700 hover:bg-slate-50 active:translate-y-px">Urlaubsanspruch eintragen</button>
+              <button onClick={() => openVac(Number(tsMonth.slice(0, 4)))} className="mr-2 mt-1.5 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs text-slate-700 hover:bg-slate-50 active:translate-y-px">{tx("Urlaubsanspruch eintragen")}</button>
             )}
             {surchargesOn(org) && (zusForm ? (
               <div className="mt-2 rounded-lg border border-slate-200 bg-slate-50 p-2.5">
-                <div className="text-xs font-semibold text-slate-700">Zuschläge (freiwillig – nur was Ihre Firma zahlt)</div>
+                <div className="text-xs font-semibold text-slate-700">{tx("Zuschläge (freiwillig – nur was Ihre Firma zahlt)")}</div>
                 {SURCHARGES.map((z) => { const c = zusForm[z.key] || { mode: "off" }; const set = (patch) => setZusForm({ ...zusForm, [z.key]: { ...c, ...patch } }); return (
                   <div key={z.key} className="mt-1.5 flex flex-wrap items-end gap-2">
-                    <span className="w-44 text-xs text-slate-700">{z.label}</span>
-                    <select value={c.mode || "off"} onChange={(e) => set({ mode: e.target.value })} className="rounded-md border border-slate-300 px-2 py-1 text-sm" aria-label={`${z.label} Art`}>
-                      <option value="off">kein Zuschlag</option><option value="percent">Prozent (Stunden)</option><option value="perDay">Betrag pro Tag (€)</option>
+                    <span className="w-44 text-xs text-slate-700">{tx(z.label)}</span>
+                    <select value={c.mode || "off"} onChange={(e) => set({ mode: e.target.value })} className="rounded-md border border-slate-300 px-2 py-1 text-sm" aria-label={tx("{0} Art", tx(z.label))}>
+                      <option value="off">{tx("kein Zuschlag")}</option><option value="percent">{tx("Prozent (Stunden)")}</option><option value="perDay">{tx("Betrag pro Tag (€)")}</option>
                     </select>
-                    {c.mode && c.mode !== "off" && <input value={c.value == null ? "" : c.value} onChange={(e) => set({ value: e.target.value })} placeholder={c.mode === "perDay" ? "z. B. 102,26" : "z. B. 20"} className="w-24 rounded-md border border-slate-300 px-2 py-1 text-sm" aria-label={`${z.label} Wert`} />}
-                    {c.mode && c.mode !== "off" && <input value={c.code || ""} onChange={(e) => set({ code: e.target.value })} placeholder="Lohnart-Code" className="w-28 rounded-md border border-slate-300 px-2 py-1 text-sm" aria-label={`${z.label} Code`} />}
+                    {c.mode && c.mode !== "off" && <input value={c.value == null ? "" : c.value} onChange={(e) => set({ value: e.target.value })} placeholder={c.mode === "perDay" ? tx("z. B. 102,26") : tx("z. B. 20")} className="w-24 rounded-md border border-slate-300 px-2 py-1 text-sm" aria-label={tx("{0} Wert", tx(z.label))} />}
+                    {c.mode && c.mode !== "off" && <input value={c.code || ""} onChange={(e) => set({ code: e.target.value })} placeholder={tx("Lohnart-Code")} className="w-28 rounded-md border border-slate-300 px-2 py-1 text-sm" aria-label={tx("{0} Code", tx(z.label))} />}
                   </div>
                 ); })}
                 <div className="mt-2 flex gap-2">
-                  <button onClick={saveZus} disabled={busy === "zus"} className="rounded-md bg-teal-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-teal-700 active:translate-y-px">{busy === "zus" ? "Moment …" : "Speichern"}</button>
-                  <button onClick={() => setZusForm(null)} className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-600">Abbrechen</button>
+                  <button onClick={saveZus} disabled={busy === "zus"} className="rounded-md bg-teal-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-teal-700 active:translate-y-px">{busy === "zus" ? tx("Moment …") : tx("Speichern")}</button>
+                  <button onClick={() => setZusForm(null)} className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-600">{tx("Abbrechen")}</button>
                 </div>
               </div>
             ) : (
-              <button onClick={() => setZusForm(zus || {})} className="mt-1.5 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs text-slate-700 hover:bg-slate-50 active:translate-y-px">Zuschläge einstellen{zus ? ` (${SURCHARGES.filter((z) => zus[z.key] && zus[z.key].mode !== "off").length} aktiv)` : " (optional)"}</button>
+              <button onClick={() => setZusForm(zus || {})} className="mt-1.5 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs text-slate-700 hover:bg-slate-50 active:translate-y-px">{tx("Zuschläge einstellen")}{zus ? tx(" ({0} aktiv)", SURCHARGES.filter((z) => zus[z.key] && zus[z.key].mode !== "off").length) : tx(" (optional)")}</button>
             ))}
 
             <div className="mt-2">
               {otForm ? (
                 <div className="rounded-lg border border-slate-200 bg-slate-50 p-2.5">
-                  <div className="text-xs font-semibold text-slate-700">Überstunden: Zeitkonto oder Auszahlung</div>
+                  <div className="text-xs font-semibold text-slate-700">{tx("Überstunden: Zeitkonto oder Auszahlung")}</div>
                   {Object.entries(OVERTIME_MODES).map(([k, label]) => (
                     <label key={k} className="mt-1 flex items-center gap-2 text-sm text-slate-700"><input type="radio" name="otmode" checked={(otForm.mode || "konto") === k} onChange={() => setOtForm({ ...otForm, mode: k })} />{label}</label>
                   ))}
-                  {(otForm.mode || "konto") !== "konto" && <input value={otForm.code || ""} onChange={(e) => setOtForm({ ...otForm, code: e.target.value })} placeholder="Lohnart-Code (optional)" aria-label="Lohnart-Code Überstunden" className="mt-1.5 w-40 rounded-md border border-slate-300 px-2 py-1 text-sm" />}
-                  <div className="mt-1 text-[11px] text-slate-500">Ausgezahlt werden nur Plusstunden; Minusstunden bleiben im Zeitkonto. Bei Minijobs auf die Verdienstgrenze achten.</div>
+                  {(otForm.mode || "konto") !== "konto" && <input value={otForm.code || ""} onChange={(e) => setOtForm({ ...otForm, code: e.target.value })} placeholder={tx("Lohnart-Code (optional)")} aria-label={tx("Lohnart-Code Überstunden")} className="mt-1.5 w-40 rounded-md border border-slate-300 px-2 py-1 text-sm" />}
+                  <div className="mt-1 text-[11px] text-slate-500">{tx("Ausgezahlt werden nur Plusstunden; Minusstunden bleiben im Zeitkonto. Bei Minijobs auf die Verdienstgrenze achten.")}</div>
                   <div className="mt-2 flex gap-2">
-                    <button onClick={saveOt} disabled={busy === "ot"} className="rounded-md bg-teal-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-teal-700 active:translate-y-px">{busy === "ot" ? "Moment …" : "Speichern"}</button>
-                    <button onClick={() => setOtForm(null)} className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-600">Abbrechen</button>
+                    <button onClick={saveOt} disabled={busy === "ot"} className="rounded-md bg-teal-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-teal-700 active:translate-y-px">{busy === "ot" ? tx("Moment …") : tx("Speichern")}</button>
+                    <button onClick={() => setOtForm(null)} className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-600">{tx("Abbrechen")}</button>
                   </div>
                 </div>
               ) : (
-                <button onClick={() => setOtForm(ot || { mode: "konto" })} className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs text-slate-700 hover:bg-slate-50 active:translate-y-px">Überstunden: {overtimeMode(ot) === "konto" ? "Zeitkonto" : overtimeMode(ot) === "auszahlung" ? "Auszahlung" : "Gemischt"} – ändern</button>
+                <button onClick={() => setOtForm(ot || { mode: "konto" })} className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs text-slate-700 hover:bg-slate-50 active:translate-y-px">{tx("Überstunden: ")}{overtimeMode(ot) === "konto" ? tx("Zeitkonto") : overtimeMode(ot) === "auszahlung" ? tx("Auszahlung") : tx("Gemischt")}{tx(" – ändern")}</button>
               )}
               {overtimeMode(ot) === "gemischt" && !otForm && (
                 payForm ? (
                   <div className="mt-2 rounded-lg border border-slate-200 bg-slate-50 p-2.5">
-                    <div className="text-xs font-semibold text-slate-700">Überstunden auszahlen – {MONTHS[Number(tsMonth.slice(5)) - 1]} {tsMonth.slice(0, 4)}</div>
+                    <div className="text-xs font-semibold text-slate-700">{tx("Überstunden auszahlen – ")}{monthName(Number(tsMonth.slice(5)) - 1)} {tsMonth.slice(0, 4)}</div>
                     <div className="mt-1 flex flex-wrap items-end gap-2">
-                      <select value={payForm.staffId} onChange={(e) => setPayForm({ ...payForm, staffId: e.target.value })} aria-label="Person für Auszahlung" className="rounded-md border border-slate-300 px-2 py-1 text-sm">
-                        <option value="">Person wählen …</option>
+                      <select value={payForm.staffId} onChange={(e) => setPayForm({ ...payForm, staffId: e.target.value })} aria-label={tx("Person für Auszahlung")} className="rounded-md border border-slate-300 px-2 py-1 text-sm">
+                        <option value="">{tx("Person wählen …")}</option>
                         {staffList.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
                       </select>
-                      <input value={payForm.hours} onChange={(e) => setPayForm({ ...payForm, hours: e.target.value })} placeholder="Stunden" aria-label="Stunden auszahlen" className="w-20 rounded-md border border-slate-300 px-2 py-1 text-sm" />
-                      <input value={payForm.note} onChange={(e) => setPayForm({ ...payForm, note: e.target.value })} placeholder="Notiz (optional)" aria-label="Notiz Auszahlung" className="w-40 rounded-md border border-slate-300 px-2 py-1 text-sm" />
-                      <button onClick={addPayout} disabled={busy === "pay"} className="rounded-md bg-teal-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-teal-700 active:translate-y-px">{busy === "pay" ? "Moment …" : "Auszahlen"}</button>
-                      <button onClick={() => setPayForm(null)} className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-600">Schließen</button>
+                      <input value={payForm.hours} onChange={(e) => setPayForm({ ...payForm, hours: e.target.value })} placeholder={tx("Stunden")} aria-label={tx("Stunden auszahlen")} className="w-20 rounded-md border border-slate-300 px-2 py-1 text-sm" />
+                      <input value={payForm.note} onChange={(e) => setPayForm({ ...payForm, note: e.target.value })} placeholder={tx("Notiz (optional)")} aria-label={tx("Notiz Auszahlung")} className="w-40 rounded-md border border-slate-300 px-2 py-1 text-sm" />
+                      <button onClick={addPayout} disabled={busy === "pay"} className="rounded-md bg-teal-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-teal-700 active:translate-y-px">{busy === "pay" ? tx("Moment …") : tx("Auszahlen")}</button>
+                      <button onClick={() => setPayForm(null)} className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-600">{tx("Schließen")}</button>
                     </div>
                     {payList.length > 0 && (
                       <ul className="mt-2 space-y-1 text-sm">
                         {payList.map((x) => (
                           <li key={x.id} className={x.voided_at ? "text-slate-400 line-through" : "text-slate-700"}>
-                            {(staffList.find((p) => p.id === x.staff_id) || {}).name || "?"}: {String(x.hours).replace(".", ",")} Std.{x.note ? ` – ${x.note}` : ""}
-                            {x.voided_at ? <span className="no-underline"> (storniert: {x.void_reason})</span> : <button onClick={() => voidPayout(x.id)} className="ml-2 text-xs text-rose-700 underline">Stornieren</button>}
+                            {(staffList.find((p) => p.id === x.staff_id) || {}).name || "?"}: {String(x.hours).replace(".", ",")}{tx(" Std.")}{x.note ? ` – ${x.note}` : ""}
+                            {x.voided_at ? <span className="no-underline">{tx(" (storniert: ")}{x.void_reason})</span> : <button onClick={() => voidPayout(x.id)} className="ml-2 text-xs text-rose-700 underline">{tx("Stornieren")}</button>}
                           </li>
                         ))}
                       </ul>
                     )}
-                    <div className="mt-1 text-[11px] text-slate-500">Wird am Monatsende vom Zeitkonto abgezogen und im Stundenzettel als „Überstunden ausgezahlt“ gezeigt. Nichts wird gelöscht – Fehler „Stornieren“ (mit Grund).</div>
+                    <div className="mt-1 text-[11px] text-slate-500">{tx("Wird am Monatsende vom Zeitkonto abgezogen und im Stundenzettel als „Überstunden ausgezahlt“ gezeigt. Nichts wird gelöscht – Fehler „Stornieren“ (mit Grund).")}</div>
                   </div>
                 ) : (
-                  <button onClick={() => { setPayForm({ staffId: "", hours: "", note: "" }); loadPayouts(); }} className="ml-2 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs text-slate-700 hover:bg-slate-50 active:translate-y-px">Überstunden auszahlen …</button>
+                  <button onClick={() => { setPayForm({ staffId: "", hours: "", note: "" }); loadPayouts(); }} className="ml-2 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs text-slate-700 hover:bg-slate-50 active:translate-y-px">{tx("Überstunden auszahlen …")}</button>
                 )
               )}
             </div>
 
-            <h3 className="mt-4 text-xs font-semibold uppercase tracking-wide text-slate-500">Zeiten bearbeiten (auch frühere Tage)</h3>
-            <div className="mt-0.5 text-xs text-slate-600">Für alles, was nicht unter „Zu prüfen“ steht: falsche Zeiten korrigieren („Korrigieren“ erscheint bei jeder Stempelung des Tages), Abwesenheit ändern oder aufheben, ältere Tage.</div>
-            <div className="mt-0.5 text-[11px] text-slate-500">Änderungen werden erst vorgemerkt. Erst „Speichern“ schreibt alle zusammen, mit einem Grund. „Abbrechen“ = nichts wird geändert.</div>
+            <h3 className="mt-4 text-xs font-semibold uppercase tracking-wide text-slate-500">{tx("Zeiten bearbeiten (auch frühere Tage)")}</h3>
+            <div className="mt-0.5 text-xs text-slate-600">{tx("Für alles, was nicht unter „Zu prüfen“ steht: falsche Zeiten korrigieren („Korrigieren“ erscheint bei jeder Stempelung des Tages), Abwesenheit ändern oder aufheben, ältere Tage.")}</div>
+            <div className="mt-0.5 text-[11px] text-slate-500">{tx("Änderungen werden erst vorgemerkt. Erst „Speichern“ schreibt alle zusammen, mit einem Grund. „Abbrechen“ = nichts wird geändert.")}</div>
             <div className="mt-1 flex flex-wrap items-end gap-2">
-              <select value={edit.staffId} onChange={(e) => loadDay(e.target.value, edit.date)} className="rounded-md border border-slate-300 px-2 py-1.5 text-sm" aria-label="Person">
-                <option value="">– Person –</option>
+              <select value={edit.staffId} onChange={(e) => loadDay(e.target.value, edit.date)} className="rounded-md border border-slate-300 px-2 py-1.5 text-sm" aria-label={tx("Person")}>
+                <option value="">{tx("– Person –")}</option>
                 {staffList.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
               </select>
-              <input type="date" value={edit.date} onChange={(e) => loadDay(edit.staffId, e.target.value)} className="rounded-md border border-slate-300 px-2 py-1.5 text-sm" aria-label="Tag" />
+              <input type="date" value={edit.date} onChange={(e) => loadDay(edit.staffId, e.target.value)} className="rounded-md border border-slate-300 px-2 py-1.5 text-sm" aria-label={tx("Tag")} />
             </div>
             {daySessions && (() => {
               const absKey = `abs${edit.staffId}|${edit.date}`;
               const pAbs = pending.find((p) => p.key === absKey);
               const dayAdds = pending.filter((p) => p.op === "add" && p.staffId === edit.staffId && p.date === edit.date);
-              const mark = <span className="ml-1 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-900">vorgemerkt</span>;
+              const mark = <span className="ml-1 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-900">{tx("vorgemerkt")}</span>;
               return (
               <div className="mt-2 rounded-lg bg-slate-50 p-2.5">
                 {pAbs ? (
                   <div className="mb-1 flex items-center justify-between gap-2 text-sm">
-                    <span>{pAbs.op === "absence" ? <>Abwesenheit: <b>{ABSENCE[pAbs.kind].label}</b>{pAbs.note ? ` · ${pAbs.note}` : ""}</> : <>Abwesenheit <s>{ABSENCE[pAbs.kind].label}</s> wird aufgehoben</>}{mark}</span>
-                    <button onClick={() => unqueue(absKey)} className="whitespace-nowrap rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs text-slate-700">Vormerkung entfernen</button>
+                    <span>{pAbs.op === "absence" ? <>{tx("Abwesenheit: ")}<b>{tx(ABSENCE[pAbs.kind].label)}</b>{pAbs.note ? ` · ${pAbs.note}` : ""}</> : <>{tx("Abwesenheit ")}<s>{tx(ABSENCE[pAbs.kind].label)}</s>{tx(" wird aufgehoben")}</>}{mark}</span>
+                    <button onClick={() => unqueue(absKey)} className="whitespace-nowrap rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs text-slate-700">{tx("Vormerkung entfernen")}</button>
                   </div>
                 ) : dayAbsence ? (
-                  <div className="mb-1 flex items-center justify-between gap-2 text-sm"><span>Abwesenheit: <b>{ABSENCE[dayAbsence.kind].label}</b>{dayAbsence.note ? ` · ${dayAbsence.note}` : ""}</span>
-                    <span className="whitespace-nowrap"><button onClick={() => setAbsForm({ staffId: edit.staffId, date: edit.date, kind: dayAbsence.kind, note: dayAbsence.note || "", queue: true })} className="mr-1 rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs text-slate-700">Ändern</button><button onClick={() => queueUnabsence(dayAbsence)} className="rounded-md border border-rose-200 bg-white px-2.5 py-1 text-xs text-rose-700">Aufheben</button></span></div>
+                  <div className="mb-1 flex items-center justify-between gap-2 text-sm"><span>{tx("Abwesenheit: ")}<b>{tx(ABSENCE[dayAbsence.kind].label)}</b>{dayAbsence.note ? ` · ${dayAbsence.note}` : ""}</span>
+                    <span className="whitespace-nowrap"><button onClick={() => setAbsForm({ staffId: edit.staffId, date: edit.date, kind: dayAbsence.kind, note: dayAbsence.note || "", queue: true })} className="mr-1 rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs text-slate-700">{tx("Ändern")}</button><button onClick={() => queueUnabsence(dayAbsence)} className="rounded-md border border-rose-200 bg-white px-2.5 py-1 text-xs text-rose-700">{tx("Aufheben")}</button></span></div>
                 ) : (
-                  <button onClick={() => setAbsForm({ staffId: edit.staffId, date: edit.date, kind: "krank", note: "", queue: true })} className="mb-1 rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs text-slate-700 hover:bg-slate-50">Abwesenheit eintragen …</button>
+                  <button onClick={() => setAbsForm({ staffId: edit.staffId, date: edit.date, kind: "krank", note: "", queue: true })} className="mb-1 rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs text-slate-700 hover:bg-slate-50">{tx("Abwesenheit eintragen …")}</button>
                 )}
                 {absForm && absForm.queue && absForm.staffId === edit.staffId && absForm.date === edit.date && (
                   <div className="mb-2 flex flex-wrap items-end gap-2 border-y border-slate-200 py-2">
-                    <label className="text-xs text-slate-600">Grund
-                      <select value={absForm.kind} onChange={(e) => setAbsForm({ ...absForm, kind: e.target.value })} className="mt-1 block rounded-md border border-slate-300 px-2 py-1.5 text-sm">
-                        {Object.keys(ABSENCE).map((k) => <option key={k} value={k}>{ABSENCE[k].label}{ABSENCE[k].credit ? "" : ABSENCE[k].neutral ? " (kein Soll – keine Minusstunden)" : " (Stunden fehlen)"}</option>)}
+                    <label className="text-xs text-slate-600">{tx("Grund")}<select value={absForm.kind} onChange={(e) => setAbsForm({ ...absForm, kind: e.target.value })} className="mt-1 block rounded-md border border-slate-300 px-2 py-1.5 text-sm">
+                        {Object.keys(ABSENCE).map((k) => <option key={k} value={k}>{tx(ABSENCE[k].label)}{ABSENCE[k].credit ? "" : ABSENCE[k].neutral ? tx(" (kein Soll – keine Minusstunden)") : tx(" (Stunden fehlen)")}</option>)}
                       </select>
                     </label>
-                    <label className="text-xs text-slate-600">Notiz (optional)<input value={absForm.note} maxLength={500} onChange={(e) => setAbsForm({ ...absForm, note: e.target.value })} className="mt-1 block w-52 rounded-md border border-slate-300 px-2 py-1.5 text-sm" /></label>
-                    <button onClick={queueAbsence} className="rounded-md bg-teal-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-teal-700 active:translate-y-px">Vormerken</button>
-                    <button onClick={() => setAbsForm(null)} className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-600">Abbrechen</button>
+                    <label className="text-xs text-slate-600">{tx("Notiz (optional)")}<input value={absForm.note} maxLength={500} onChange={(e) => setAbsForm({ ...absForm, note: e.target.value })} className="mt-1 block w-52 rounded-md border border-slate-300 px-2 py-1.5 text-sm" /></label>
+                    <button onClick={queueAbsence} className="rounded-md bg-teal-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-teal-700 active:translate-y-px">{tx("Vormerken")}</button>
+                    <button onClick={() => setAbsForm(null)} className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-600">{tx("Abbrechen")}</button>
                   </div>
                 )}
-                {daySessions.length === 0 && dayAdds.length === 0 && <div className="text-xs text-slate-500">An diesem Tag gibt es keine Stempelung.</div>}
+                {daySessions.length === 0 && dayAdds.length === 0 && <div className="text-xs text-slate-500">{tx("An diesem Tag gibt es keine Stempelung.")}</div>}
                 {daySessions.map((x) => {
                   const pf = pending.find((p) => p.op === "fix" && p.sessionId === x.id);
                   const pr = pending.find((p) => p.op === "remove" && p.sessionId === x.id);
                   if (pr) return (
                     <div key={x.id} className="flex items-center justify-between gap-2 py-1 text-sm">
-                      <span className="text-slate-400"><s>Kommen {clock(x.check_in)} · Gehen {x.check_out ? clock(x.check_out) : "fehlt"}</s><span className="ml-1 rounded bg-rose-100 px-1.5 py-0.5 text-[10px] font-semibold text-rose-800">wird entfernt</span></span>
-                      <button onClick={() => unqueue(pr.key)} className="rounded-md border border-slate-200 bg-white px-2 py-1 text-xs text-slate-600" aria-label="Vormerkung entfernen">✕</button>
+                      <span className="text-slate-400"><s>{tx("Kommen ")}{clock(x.check_in)}{tx(" · Gehen ")}{x.check_out ? clock(x.check_out) : tx("fehlt")}</s><span className="ml-1 rounded bg-rose-100 px-1.5 py-0.5 text-[10px] font-semibold text-rose-800">{tx("wird entfernt")}</span></span>
+                      <button onClick={() => unqueue(pr.key)} className="rounded-md border border-slate-200 bg-white px-2 py-1 text-xs text-slate-600" aria-label={tx("Vormerkung entfernen")}>✕</button>
                     </div>
                   );
                   return (
                     <div key={x.id} className="flex items-center justify-between gap-2 py-1 text-sm">
-                      <span>Kommen {pf && pf.in ? <><s className="text-slate-400">{clock(x.check_in)}</s> <b>{clock(pf.in)}</b></> : <b>{clock(x.check_in)}</b>} · Gehen {pf && pf.out ? <><s className="text-slate-400">{x.check_out ? clock(x.check_out) : "fehlt"}</s> <b>{clockOn(pf.out, edit.date)}</b></> : <b>{x.check_out ? clock(x.check_out) : "fehlt"}</b>}{pf && mark}</span>
+                      <span>{tx("Kommen ")}{pf && pf.in ? <><s className="text-slate-400">{clock(x.check_in)}</s> <b>{clock(pf.in)}</b></> : <b>{clock(x.check_in)}</b>}{tx(" · Gehen ")}{pf && pf.out ? <><s className="text-slate-400">{x.check_out ? clock(x.check_out) : tx("fehlt")}</s> <b>{clockOn(pf.out, edit.date)}</b></> : <b>{x.check_out ? clock(x.check_out) : tx("fehlt")}</b>}{pf && mark}</span>
                       <span className="whitespace-nowrap">
-                        {pf && <button onClick={() => unqueue(pf.key)} className="mr-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-xs text-slate-600" aria-label="Vormerkung entfernen">✕</button>}
-                        <button onClick={() => setFix({ sessionId: x.id, in: pf && pf.in ? clock(pf.in) : "", out: pf && pf.out ? clock(pf.out) : "" })} className="rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs text-slate-700 hover:bg-slate-50">Korrigieren</button>
-                        <button onClick={() => queueRemove(x)} className="ml-1 rounded-md border border-rose-200 bg-white px-2.5 py-1 text-xs text-rose-700 hover:bg-rose-50">Entfernen</button>
+                        {pf && <button onClick={() => unqueue(pf.key)} className="mr-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-xs text-slate-600" aria-label={tx("Vormerkung entfernen")}>✕</button>}
+                        <button onClick={() => setFix({ sessionId: x.id, in: pf && pf.in ? clock(pf.in) : "", out: pf && pf.out ? clock(pf.out) : "" })} className="rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs text-slate-700 hover:bg-slate-50">{tx("Korrigieren")}</button>
+                        <button onClick={() => queueRemove(x)} className="ml-1 rounded-md border border-rose-200 bg-white px-2.5 py-1 text-xs text-rose-700 hover:bg-rose-50">{tx("Entfernen")}</button>
                       </span>
                     </div>
                   );
                 })}
                 {dayRemoved.length > 0 && (
-                  <div className="mt-1 text-[11px] text-slate-400">{dayRemoved.map((x) => <div key={x.id}>Entfernt: <s>{clock(x.check_in)} – {x.check_out ? clock(x.check_out) : "fehlt"}</s> · {x.reason} ({new Date(x.removed_at).toLocaleDateString("de-DE")})</div>)}</div>
+                  <div className="mt-1 text-[11px] text-slate-400">{dayRemoved.map((x) => <div key={x.id}>{tx("Entfernt: ")}<s>{clock(x.check_in)} – {x.check_out ? clock(x.check_out) : tx("fehlt")}</s> · {x.reason} ({new Date(x.removed_at).toLocaleDateString("de-DE")})</div>)}</div>
                 )}
                 {dayAdds.map((p) => (
                   <div key={p.key} className="flex items-center justify-between gap-2 py-1 text-sm">
-                    <span>Kommen <b>{clock(p.in)}</b> · Gehen <b>{clockOn(p.out, p.date)}</b> (nachgetragen){mark}</span>
-                    <button onClick={() => unqueue(p.key)} className="rounded-md border border-slate-200 bg-white px-2 py-1 text-xs text-slate-600" aria-label="Vormerkung entfernen">✕</button>
+                    <span>{tx("Kommen ")}<b>{clock(p.in)}</b>{tx(" · Gehen ")}<b>{clockOn(p.out, p.date)}</b>{tx(" (nachgetragen)")}{mark}</span>
+                    <button onClick={() => unqueue(p.key)} className="rounded-md border border-slate-200 bg-white px-2 py-1 text-xs text-slate-600" aria-label={tx("Vormerkung entfernen")}>✕</button>
                   </div>
                 ))}
-                {!fix && <button onClick={() => setFix({ sessionId: null, in: "", out: "" })} className="mt-1 rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs text-slate-700 hover:bg-slate-50">+ Zeit nachtragen</button>}
+                {!fix && <button onClick={() => setFix({ sessionId: null, in: "", out: "" })} className="mt-1 rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs text-slate-700 hover:bg-slate-50">{tx("+ Zeit nachtragen")}</button>}
                 {fix && (
                   <div className="mt-2 flex flex-wrap items-end gap-2 border-t border-slate-200 pt-2">
-                    <label className="text-xs text-slate-600">Kommen<input type="time" value={fix.in} onChange={(e) => setFix({ ...fix, in: e.target.value })} className="mt-1 block rounded-md border border-slate-300 px-2 py-1 text-sm" /></label>
-                    <label className="text-xs text-slate-600">Gehen<input type="time" value={fix.out} onChange={(e) => setFix({ ...fix, out: e.target.value })} className="mt-1 block rounded-md border border-slate-300 px-2 py-1 text-sm" /></label>
-                    <button onClick={queueFix} className="rounded-md bg-teal-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-teal-700 active:translate-y-px">Vormerken</button>
-                    <button onClick={() => setFix(null)} className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-600">Abbrechen</button>
-                    {fix.sessionId && <div className="w-full text-[11px] text-slate-500">Nur das eintragen, was falsch ist. Die Stempelung selbst bleibt erhalten; die Korrektur wird beim Speichern mit Grund protokolliert.</div>}
+                    <label className="text-xs text-slate-600">{tx("Kommen")}<input type="time" value={fix.in} onChange={(e) => setFix({ ...fix, in: e.target.value })} className="mt-1 block rounded-md border border-slate-300 px-2 py-1 text-sm" /></label>
+                    <label className="text-xs text-slate-600">{tx("Gehen")}<input type="time" value={fix.out} onChange={(e) => setFix({ ...fix, out: e.target.value })} className="mt-1 block rounded-md border border-slate-300 px-2 py-1 text-sm" /></label>
+                    <button onClick={queueFix} className="rounded-md bg-teal-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-teal-700 active:translate-y-px">{tx("Vormerken")}</button>
+                    <button onClick={() => setFix(null)} className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-600">{tx("Abbrechen")}</button>
+                    {fix.sessionId && <div className="w-full text-[11px] text-slate-500">{tx("Nur das eintragen, was falsch ist. Die Stempelung selbst bleibt erhalten; die Korrektur wird beim Speichern mit Grund protokolliert.")}</div>}
                   </div>
                 )}
               </div>
@@ -860,87 +857,82 @@ export default function AttendanceDialog({ onClose }) {
             })()}
             {pending.length > 0 && (
               <div className="mt-2 rounded-xl border-2 border-amber-300 bg-amber-50 p-3">
-                <div className="text-sm font-semibold text-amber-900">{pending.length} {pending.length === 1 ? "Änderung" : "Änderungen"} für {ymLabel(pendMonth)} – noch nicht gespeichert</div>
+                <div className="text-sm font-semibold text-amber-900">{pending.length} {pending.length === 1 ? tx("Änderung") : tx("Änderungen")}{tx(" für ")}{ymLabel(pendMonth)}{tx(" – noch nicht gespeichert")}</div>
                 <ul className="mt-1 divide-y divide-amber-200">
                   {sortedPending.map((p) => (
                     <li key={p.key} className="flex items-center justify-between gap-2 py-1 text-xs text-slate-800">
                       <button onClick={() => loadDay(p.staffId, p.date)} className="text-left hover:underline"><b>{dayLabel(p.date)}</b> · {names[p.staffId] || "?"} · {describe(p)}</button>
-                      <button onClick={() => unqueue(p.key)} className="rounded-md border border-amber-200 bg-white px-2 py-0.5 text-xs text-slate-600" aria-label="Diese Änderung entfernen">✕</button>
+                      <button onClick={() => unqueue(p.key)} className="rounded-md border border-amber-200 bg-white px-2 py-0.5 text-xs text-slate-600" aria-label={tx("Diese Änderung entfernen")}>✕</button>
                     </li>
                   ))}
                 </ul>
-                <label className="mt-2 block text-xs text-slate-700">Grund für alle Änderungen (Pflicht)
-                  <input value={pendReason} maxLength={500} onChange={(e) => setPendReason(e.target.value)} placeholder="z. B. Stempeln vergessen, laut Aussage der Person" className="mt-1 block w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm" />
+                <label className="mt-2 block text-xs text-slate-700">{tx("Grund für alle Änderungen (Pflicht)")}<input value={pendReason} maxLength={500} onChange={(e) => setPendReason(e.target.value)} placeholder={tx("z. B. Stempeln vergessen, laut Aussage der Person")} className="mt-1 block w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm" />
                 </label>
                 <div className="mt-2 flex flex-wrap gap-2">
-                  <button onClick={savePending} disabled={busy === "pend"} className="rounded-md bg-teal-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-teal-700 active:translate-y-px disabled:opacity-60">{busy === "pend" ? "Speichert …" : `Speichern (${pending.length})`}</button>
-                  <button onClick={cancelPending} disabled={busy === "pend"} className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-700">Abbrechen</button>
+                  <button onClick={savePending} disabled={busy === "pend"} className="rounded-md bg-teal-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-teal-700 active:translate-y-px disabled:opacity-60">{busy === "pend" ? tx("Speichert …") : tx("Speichern ({0})", pending.length)}</button>
+                  <button onClick={cancelPending} disabled={busy === "pend"} className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-700">{tx("Abbrechen")}</button>
                 </div>
-                {/^(Nicht gespeichert|Bitte einen Grund)/.test(msg) && <div role="alert" className="mt-2 rounded-lg border border-rose-300 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-800">{msg}</div>}
-                <div className="mt-1 text-[11px] text-amber-900">Gespeichert wird alles zusammen oder gar nichts. Bis dahin ändert sich nichts – auch nicht für die Mitarbeitenden.</div>
+                {/^(Nicht gespeichert|Bitte einen Grund|Not saved|Please give a reason)/.test(tx(msg)) && <div role="alert" className="mt-2 rounded-lg border border-rose-300 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-800">{tx(msg)}</div>}
+                <div className="mt-1 text-[11px] text-amber-900">{tx("Gespeichert wird alles zusammen oder gar nichts. Bis dahin ändert sich nichts – auch nicht für die Mitarbeitenden.")}</div>
               </div>
             )}
 
-            <h3 className="mt-4 text-xs font-semibold uppercase tracking-wide text-slate-500">Chipkarten ({badges.length})</h3>
+            <h3 className="mt-4 text-xs font-semibold uppercase tracking-wide text-slate-500">{tx("Chipkarten (")}{badges.length})</h3>
             <label className="mt-1 flex items-center gap-2 text-xs text-slate-700">
-              <input type="checkbox" checked={needPin} disabled={!!busy} onChange={(e) => toggleNeedPin(e.target.checked)} />
-              Karte + PIN erforderlich <span className="text-slate-400">(sonst genügt die Karte allein)</span>
+              <input type="checkbox" checked={needPin} disabled={!!busy} onChange={(e) => toggleNeedPin(e.target.checked)} />{tx("Karte + PIN erforderlich ")}<span className="text-slate-400">{tx("(sonst genügt die Karte allein)")}</span>
             </label>
             <ul className="mt-1 divide-y divide-slate-100">
               {badges.map((b) => (
                 <li key={b.id} className="flex items-center justify-between gap-2 py-1.5">
-                  <span>{names[b.staff_id] || "?"} <span className="text-xs text-slate-400">Karte …{String(b.badge_code).slice(-4)}</span></span>
-                  <button onClick={() => revokeCard(b)} disabled={!!busy} className="rounded-lg border border-rose-200 px-2.5 py-1 text-xs text-rose-700 hover:bg-rose-50 active:translate-y-px">Entziehen</button>
+                  <span>{names[b.staff_id] || "?"} <span className="text-xs text-slate-400">{tx("Karte …")}{String(b.badge_code).slice(-4)}</span></span>
+                  <button onClick={() => revokeCard(b)} disabled={!!busy} className="rounded-lg border border-rose-200 px-2.5 py-1 text-xs text-rose-700 hover:bg-rose-50 active:translate-y-px">{tx("Entziehen")}</button>
                 </li>
               ))}
             </ul>
             {newCard ? (
               <div className="mt-2 rounded-lg bg-slate-50 p-2.5">
                 <div className="flex flex-wrap items-end gap-2">
-                  <label className="text-xs text-slate-600">Person
-                    <select value={newCard.staffId} onChange={(e) => setNewCard((c) => ({ ...c, staffId: e.target.value }))} className="mt-1 block rounded-md border border-slate-300 px-2 py-1.5 text-sm">
-                      <option value="">– wählen –</option>
+                  <label className="text-xs text-slate-600">{tx("Person")}<select value={newCard.staffId} onChange={(e) => setNewCard((c) => ({ ...c, staffId: e.target.value }))} className="mt-1 block rounded-md border border-slate-300 px-2 py-1.5 text-sm">
+                      <option value="">{tx("– wählen –")}</option>
                       {staffList.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
                     </select>
                   </label>
-                  <label className="text-xs text-slate-600">Kartennummer
-                    <input autoFocus value={newCard.code} onChange={(e) => setNewCard((c) => ({ ...c, code: e.target.value }))} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addCard(); } }}
-                      placeholder="Karte an das Kartenlesegerät halten …" className="mt-1 block w-52 rounded-md border border-slate-300 px-2 py-1.5 text-sm font-mono" />
+                  <label className="text-xs text-slate-600">{tx("Kartennummer")}<input autoFocus value={newCard.code} onChange={(e) => setNewCard((c) => ({ ...c, code: e.target.value }))} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addCard(); } }}
+                      placeholder={tx("Karte an das Kartenlesegerät halten …")} className="mt-1 block w-52 rounded-md border border-slate-300 px-2 py-1.5 text-sm font-mono" />
                   </label>
-                  <button onClick={addCard} disabled={busy === "card"} className="rounded-md bg-teal-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-teal-700 active:translate-y-px">{busy === "card" ? "Moment …" : "Speichern"}</button>
-                  <button onClick={() => setNewCard(null)} className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-600">Abbrechen</button>
+                  <button onClick={addCard} disabled={busy === "card"} className="rounded-md bg-teal-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-teal-700 active:translate-y-px">{busy === "card" ? tx("Moment …") : tx("Speichern")}</button>
+                  <button onClick={() => setNewCard(null)} className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-600">{tx("Abbrechen")}</button>
                 </div>
-                <div className="mt-1 text-[11px] text-slate-500">Das Kartenlesegerät an diesen Computer stecken, ins Feld klicken und die Karte oder den Chip davor halten – die Nummer erscheint von selbst.</div>
+                <div className="mt-1 text-[11px] text-slate-500">{tx("Das Kartenlesegerät an diesen Computer stecken, ins Feld klicken und die Karte oder den Chip davor halten – die Nummer erscheint von selbst.")}</div>
               </div>
             ) : (
-              <button onClick={() => setNewCard({ staffId: "", code: "" })} className="mt-2 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs text-slate-700 hover:bg-slate-50 active:translate-y-px">+ Karte zuweisen</button>
+              <button onClick={() => setNewCard({ staffId: "", code: "" })} className="mt-2 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs text-slate-700 hover:bg-slate-50 active:translate-y-px">{tx("+ Karte zuweisen")}</button>
             )}
 
-            <h3 className="mt-4 text-xs font-semibold uppercase tracking-wide text-slate-500">Terminals</h3>
+            <h3 className="mt-4 text-xs font-semibold uppercase tracking-wide text-slate-500">{tx("Terminals")}</h3>
             {pairCode ? (
               <div className="mt-2 rounded-xl border-2 border-teal-300 bg-teal-50 p-3 text-center">
-                <div className="text-xs text-slate-600">Einrichtungs-Code für „{pairCode.name}“</div>
+                <div className="text-xs text-slate-600">{tx("Einrichtungs-Code für „")}{pairCode.name}“</div>
                 <div className="my-1 font-mono text-3xl font-bold tracking-widest text-slate-900">{pairCode.code}</div>
-                <div className="text-xs text-slate-600">Auf dem Tablet <b>{typeof window !== "undefined" ? window.location.origin : ""}/terminal</b> öffnen und diesen Code eingeben. Gilt einmal, 24 Stunden.<br />Sie müssen dafür nicht vor Ort sein – den Code können Sie auch telefonisch durchgeben.</div>
-                <button onClick={() => setPairCode(null)} className="mt-2 rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-600">Fertig</button>
+                <div className="text-xs text-slate-600">{tx("Auf dem Tablet ")}<b>{typeof window !== "undefined" ? window.location.origin : ""}{tx("/terminal")}</b>{tx(" öffnen und diesen Code eingeben. Gilt einmal, 24 Stunden.")}<br />{tx("Sie müssen dafür nicht vor Ort sein – den Code können Sie auch telefonisch durchgeben.")}</div>
+                <button onClick={() => setPairCode(null)} className="mt-2 rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-600">{tx("Fertig")}</button>
               </div>
             ) : pairName !== null ? (
               <div className="mt-2 flex flex-wrap items-end gap-2 rounded-lg bg-slate-50 p-2.5">
-                <label className="text-xs text-slate-600">Name des Terminals
-                  <input autoFocus value={pairName} onChange={(e) => setPairName(e.target.value)} maxLength={60} placeholder="z. B. Terminal Eingang" className="mt-1 block w-56 rounded-md border border-slate-300 px-2 py-1.5 text-sm" />
+                <label className="text-xs text-slate-600">{tx("Name des Terminals")}<input autoFocus value={pairName} onChange={(e) => setPairName(e.target.value)} maxLength={60} placeholder={tx("z. B. Terminal Eingang")} className="mt-1 block w-56 rounded-md border border-slate-300 px-2 py-1.5 text-sm" />
                 </label>
-                <button onClick={createPairCode} disabled={busy === "pair"} className="rounded-md bg-teal-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-teal-700 active:translate-y-px">{busy === "pair" ? "Moment …" : "Code erstellen"}</button>
-                <button onClick={() => setPairName(null)} className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-600">Abbrechen</button>
+                <button onClick={createPairCode} disabled={busy === "pair"} className="rounded-md bg-teal-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-teal-700 active:translate-y-px">{busy === "pair" ? tx("Moment …") : tx("Code erstellen")}</button>
+                <button onClick={() => setPairName(null)} className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-600">{tx("Abbrechen")}</button>
               </div>
             ) : (
-              <button onClick={() => setPairName("Terminal Eingang")} className="mt-1 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs text-slate-700 hover:bg-slate-50 active:translate-y-px">+ Neues Terminal einrichten</button>
+              <button onClick={() => setPairName(tx("Terminal Eingang"))} className="mt-1 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs text-slate-700 hover:bg-slate-50 active:translate-y-px">{tx("+ Neues Terminal einrichten")}</button>
             )}
             <ul className="mt-1 divide-y divide-slate-100">
-              {devices.length === 0 && <li className="py-2 text-xs text-slate-500">Noch kein Terminal eingerichtet.</li>}
+              {devices.length === 0 && <li className="py-2 text-xs text-slate-500">{tx("Noch kein Terminal eingerichtet.")}</li>}
               {devices.map((d) => (
                 <li key={d.id} className="flex items-center justify-between gap-2 py-2">
-                  <span>{d.name} <span className="text-xs text-slate-400">{d.serial}</span> {d.active ? <span className="text-xs text-emerald-700">aktiv</span> : <span className="text-xs text-rose-700">gesperrt</span>}</span>
-                  <button onClick={() => toggleDevice(d)} disabled={!!busy} className={`rounded-lg border px-2.5 py-1 text-xs active:translate-y-px ${d.active ? "border-rose-200 text-rose-700 hover:bg-rose-50" : "border-emerald-200 text-emerald-800 hover:bg-emerald-50"}`}>{d.active ? "Sperren" : "Entsperren"}</button>
+                  <span>{d.name} <span className="text-xs text-slate-400">{d.serial}</span> {d.active ? <span className="text-xs text-emerald-700">{tx("aktiv")}</span> : <span className="text-xs text-rose-700">{tx("gesperrt")}</span>}</span>
+                  <button onClick={() => toggleDevice(d)} disabled={!!busy} className={`rounded-lg border px-2.5 py-1 text-xs active:translate-y-px ${d.active ? "border-rose-200 text-rose-700 hover:bg-rose-50" : "border-emerald-200 text-emerald-800 hover:bg-emerald-50"}`}>{d.active ? tx("Sperren") : tx("Entsperren")}</button>
                 </li>
               ))}
             </ul>

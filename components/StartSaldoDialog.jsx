@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
+import { tx } from "../lib/i18n";
 
 // "Zeitkonto zum Start" (script 42, changed by script 43 on 13 Nov 2026 – user: "one must always have access").
 // Inhaber / Leitung enter the Zeitkonto of each person when the company starts with Dienstigo (e.g. from the old
@@ -67,56 +68,53 @@ export default function StartSaldoDialog({ org }) {
       if (v === null || v === p.saved) return;
       if (Number.isNaN(v) || Math.abs(v) > 120000) bad.push(p.name); else rows.push({ staff_id: p.id, minutes: v });
     });
-    if (bad.length) { setMsg(`Bitte prüfen: ${bad.join(", ")} (Format z. B. +12:30, -4:15 oder 12,5)`); return; }
-    if (!rows.length) { setMsg("Keine Änderung."); return; }
-    if (changed.length && reason.trim().length < 3) { setMsg("Für geänderte Werte bitte einen Grund angeben."); return; }
+    if (bad.length) { setMsg(tx("Bitte prüfen: {0} (Format z. B. +12:30, -4:15 oder 12,5)", bad.join(", "))); return; }
+    if (!rows.length) { setMsg(tx("Keine Änderung.")); return; }
+    if (changed.length && reason.trim().length < 3) { setMsg(tx("Für geänderte Werte bitte einen Grund angeben.")); return; }
     setBusy(true); setMsg("");
     const { error } = await org.supabase.rpc("set_start_balances", { p_org: org.orgId, p_rows: rows, p_reason: reason.trim() || null });
     setBusy(false);
-    if (error) { setMsg(`Nicht gespeichert: ${error.message}`); return; }
+    if (error) { setMsg(tx("Nicht gespeichert: {0}", tx(error.message))); return; }
     const list = await load();
     setPeople(list); fill(list); setReason("");
-    setMsg(`✓ ${rows.length} gespeichert.`);
+    setMsg(tx("✓ {0} gespeichert.", rows.length));
   }
 
   if (!people || !people.length) return null;
   if (!open) return (
     // neutral button (user 13 Nov 2026: no red – an empty value simply counts as 0)
-    <button type="button" className="dg-item" onClick={() => { setMsg(""); setOpen(true); }} title="Zeitkonto zum Start eintragen oder ändern">
-      <span className="dg-item-label">Zeitkonto zum Start</span>
+    <button type="button" className="dg-item" onClick={() => { setMsg(""); setOpen(true); }} title={tx("Zeitkonto zum Start eintragen oder ändern")}>
+      <span className="dg-item-label">{tx("Zeitkonto zum Start")}</span>
     </button>
   );
   return (
-    <div role="dialog" aria-modal="true" aria-label="Zeitkonto zum Start" className="fixed inset-0 z-[80] flex items-start justify-center overflow-y-auto bg-slate-900/40 p-4">
+    <div role="dialog" aria-modal="true" aria-label={tx("Zeitkonto zum Start")} className="fixed inset-0 z-[80] flex items-start justify-center overflow-y-auto bg-slate-900/40 p-4">
       <div className="mt-10 w-full max-w-lg rounded-2xl bg-white p-5 shadow-xl">
-        <div className="text-lg font-semibold text-slate-900">Zeitkonto zum Start</div>
-        <p className="mt-1 text-sm text-slate-600">
-          Stand des Zeitkontos jeder Person beim Start mit Dienstigo (z. B. aus dem alten System).
-          <b> + </b>= Überstunden, <b>−</b> = Minusstunden, z. B. <code>+12:30</code>, <code>-4:15</code> oder <code>0</code>.
+        <div className="text-lg font-semibold text-slate-900">{tx("Zeitkonto zum Start")}</div>
+        <p className="mt-1 text-sm text-slate-600">{tx("Stand des Zeitkontos jeder Person beim Start mit Dienstigo (z. B. aus dem alten System).")}<b> + </b>{tx("= Überstunden, ")}<b>−</b>{tx(" = Minusstunden, z. B. ")}<code>+12:30</code>, <code>-4:15</code>{tx(" oder ")}<code>0</code>.
         </p>
-        <p className="mt-1 text-xs text-slate-500">Leere Felder zählen als 0:00. Gespeicherte Werte lassen sich ändern – mit Grund, alles wird protokolliert.</p>
+        <p className="mt-1 text-xs text-slate-500">{tx("Leere Felder zählen als 0:00. Gespeicherte Werte lassen sich ändern – mit Grund, alles wird protokolliert.")}</p>
         <div className="mt-3 max-h-[50vh] divide-y divide-slate-100 overflow-y-auto rounded-xl border border-slate-200">
           {people.map((p) => {
             const v = parseHM(vals[p.id]);
             const isChanged = p.saved != null && v !== null && v !== p.saved;
             return (
               <label key={p.id} className="flex items-center justify-between gap-3 px-3 py-2 text-sm">
-                <span className="font-medium text-slate-800">{p.name}{p.saved == null && <span className="ml-2 text-xs font-normal text-slate-400">leer = 0</span>}{isChanged && <span className="ml-2 text-xs font-normal text-amber-700">geändert (vorher {fmtHM(p.saved)})</span>}</span>
+                <span className="font-medium text-slate-800">{p.name}{p.saved == null && <span className="ml-2 text-xs font-normal text-slate-400">{tx("leer = 0")}</span>}{isChanged && <span className="ml-2 text-xs font-normal text-amber-700">{tx("geändert (vorher ")}{fmtHM(p.saved)})</span>}</span>
                 <input value={vals[p.id] || ""} onChange={(e) => setVals((x) => ({ ...x, [p.id]: e.target.value }))} placeholder="+0:00" inputMode="text"
-                  className={`w-28 rounded-md border px-2 py-1.5 text-right font-mono text-sm ${isChanged ? "border-amber-400 bg-amber-50" : "border-slate-300"}`} aria-label={`Zeitkonto von ${p.name}`} />
+                  className={`w-28 rounded-md border px-2 py-1.5 text-right font-mono text-sm ${isChanged ? "border-amber-400 bg-amber-50" : "border-slate-300"}`} aria-label={tx("Zeitkonto von {0}", p.name)} />
               </label>
             );
           })}
         </div>
         {changed.length > 0 && (
-          <label className="mt-3 block text-xs text-slate-600">Grund für die Änderung (Pflicht)
-            <input value={reason} maxLength={300} onChange={(e) => setReason(e.target.value)} placeholder="z. B. Tippfehler, Wert aus dem alten System korrigiert" className="mt-1 block w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm" />
+          <label className="mt-3 block text-xs text-slate-600">{tx("Grund für die Änderung (Pflicht)")}<input value={reason} maxLength={300} onChange={(e) => setReason(e.target.value)} placeholder={tx("z. B. Tippfehler, Wert aus dem alten System korrigiert")} className="mt-1 block w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm" />
           </label>
         )}
-        {msg && <div role="status" className="mt-3 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-700">{msg}</div>}
+        {msg && <div role="status" className="mt-3 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-700">{tx(msg)}</div>}
         <div className="mt-4 flex justify-end gap-2">
-          <button onClick={close} className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm text-slate-700 hover:bg-slate-50">Schließen</button>
-          <button onClick={save} disabled={busy} className="rounded-lg bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-700 disabled:opacity-60">{busy ? "Moment …" : "Speichern"}</button>
+          <button onClick={close} className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm text-slate-700 hover:bg-slate-50">{tx("Schließen")}</button>
+          <button onClick={save} disabled={busy} className="rounded-lg bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-700 disabled:opacity-60">{busy ? tx("Moment …") : tx("Speichern")}</button>
         </div>
       </div>
     </div>

@@ -6,6 +6,7 @@ import { PALETTE, makeCodes, netHours, hhmm } from "../lib/shiftStyle";
 import { fetchAll } from "../lib/fetchAll";
 import { computeChanges } from "../lib/planDiff";
 import { withPlaceCodes } from "../lib/locations";
+import { tx, loc, isoDmy, wdShort, dm, monthName } from "../lib/i18n";
 
 const INK = "#1B2433";
 const PRIMARY = "#243B6B";
@@ -28,13 +29,13 @@ const btn = { border: 0, borderRadius: 12, background: PRIMARY, color: "#fff", f
 const btnGhost = { border: "1.5px solid #9AAED0", borderRadius: 12, background: "#fff", color: INK, fontSize: 15, fontWeight: 600, padding: "9px 12px", cursor: "pointer" };
 const btnDanger = { ...btnGhost, color: "#B3263E", borderColor: "#F0C4CD" };
 
-const fmtDateTime = (iso) => { try { return new Date(iso).toLocaleString("de-DE", { dateStyle: "short", timeStyle: "short" }); } catch (e) { return iso; } };
-const fmtDate = (iso) => { const [y, m, d] = String(iso).split("-"); return `${d}.${m}.${y}`; };
+const fmtDateTime = (iso) => { try { return new Date(iso).toLocaleString(loc(), { dateStyle: "short", timeStyle: "short" }); } catch (e) { return iso; } };
+const fmtDate = (iso) => isoDmy(iso);
 const keyOf = (y, m) => `${y}-${m}`;
 function friendly(e) {
   const msg = e && e.message ? e.message : String(e);
   if (/Could not find the function|schema cache|does not exist|relation .* does not exist/i.test(msg)) {
-    return "Die Datenbank ist noch nicht auf Freigabe und Archiv umgestellt. Bitte zuerst approval-archive-schema.sql im SQL Editor ausführen.";
+    return tx("Die Datenbank ist noch nicht auf Freigabe und Archiv umgestellt. Bitte zuerst approval-archive-schema.sql im SQL Editor ausführen.");
   }
   return msg;
 }
@@ -59,18 +60,18 @@ function PlanGrid({ defs, shifts, year, month, marks = {}, extraNames = {} }) {
   }, [shifts, defByKey, marks, extraNames]);
   const days = Array.from({ length: total }, (_, i) => i + 1);
 
-  if (!people.length) return <div style={{ fontSize: 14, color: MUTED }}>In dieser Fassung gibt es keine Schichten.</div>;
+  if (!people.length) return <div style={{ fontSize: 14, color: MUTED }}>{tx("In dieser Fassung gibt es keine Schichten.")}</div>;
   return (
     <div style={{ overflowX: "auto", border: `1px solid ${LINE}`, borderRadius: 12 }}>
       <table style={{ borderCollapse: "collapse", fontSize: 12, minWidth: "100%" }}>
         <thead>
           <tr>
-            <th style={{ position: "sticky", left: 0, background: "#fff", textAlign: "left", padding: "6px 8px", borderBottom: `1px solid ${LINE}`, minWidth: 110 }}>Person</th>
+            <th style={{ position: "sticky", left: 0, background: "#fff", textAlign: "left", padding: "6px 8px", borderBottom: `1px solid ${LINE}`, minWidth: 110 }}>{tx("Person")}</th>
             {days.map((d) => {
               const wd = new Date(year, month - 1, d).getDay(); const we = wd === 0 || wd === 6;
-              return <th key={d} style={{ padding: "4px 2px", borderBottom: `1px solid ${LINE}`, background: we ? "#F1F3F8" : "#fff", minWidth: 26, fontWeight: 600 }}><div style={{ color: MUTED, fontSize: 10 }}>{WD[wd]}</div>{d}</th>;
+              return <th key={d} style={{ padding: "4px 2px", borderBottom: `1px solid ${LINE}`, background: we ? "#F1F3F8" : "#fff", minWidth: 26, fontWeight: 600 }}><div style={{ color: MUTED, fontSize: 10 }}>{wdShort(wd)}</div>{d}</th>;
             })}
-            <th style={{ padding: "4px 8px", borderBottom: `1px solid ${LINE}`, textAlign: "right" }}>Std.</th>
+            <th style={{ padding: "4px 8px", borderBottom: `1px solid ${LINE}`, textAlign: "right" }}>{tx("Std.")}</th>
           </tr>
         </thead>
         <tbody>
@@ -82,7 +83,7 @@ function PlanGrid({ defs, shifts, year, month, marks = {}, extraNames = {} }) {
                 const st = ks.length ? styleOf(ks[0]) : null;
                 const mk = marks[`${p.id}|${d}`];
                 return (
-                  <td key={d} title={mk === "removed" ? "Schicht entfällt" : mk === "added" ? "Geändert" : ks.map((k) => (defByKey[k] ? defByKey[k].label : k)).join(", ")}
+                  <td key={d} title={mk === "removed" ? tx("Schicht entfällt") : mk === "added" ? tx("Geändert") : ks.map((k) => (defByKey[k] ? defByKey[k].label : k)).join(", ")}
                     style={{ padding: 2, borderBottom: `1px solid #EEF0F4`, textAlign: "center" }}>
                     {st && <div style={{ background: st.soft, color: st.ink, borderRadius: 6, fontWeight: 700, padding: "3px 0", outline: mk === "added" ? "2px solid #F59E0B" : "none" }}>{ks.map((k) => codes[k] || "?").join("+")}</div>}
                     {!st && mk === "removed" && <div style={{ border: "2px dashed #F59E0B", color: "#B45309", borderRadius: 6, fontWeight: 700, padding: "1px 0" }}>✕</div>}
@@ -105,7 +106,7 @@ export default function ScheduleReview() {
   const org = useContext(OrgContext);
   const sb = org.supabase;
   const isLeader = org.role === "owner" || org.role === "supervisor"; // approves, decides, changes settings
-  const roleText = { owner: "Inhaber", supervisor: "Leitung", planner: "Schichtplaner" }[org.role] || org.role;
+  const roleText = { owner: tx("Inhaber"), supervisor: tx("Leitung"), planner: "Schichtplaner" }[org.role] || org.role;
   const [requireApproval, setRequireApproval] = useState(org.requireApproval !== false);
   const [retention, setRetention] = useState(org.retentionYears || 6);
   const [months, setMonths] = useState(null);
@@ -215,16 +216,16 @@ export default function ScheduleReview() {
   };
   // how the database will classify a change of the version being reviewed
   const classOf = (c) => {
-    if (monthRow && monthRow.change_normal) return "normale Änderung (so markiert)";
+    if (monthRow && monthRow.change_normal) return tx("normale Änderung (so markiert)");
     const lead = Math.round((new Date(c.date) - new Date(new Date().toISOString().slice(0, 10))) / 86400000);
-    return lead > shortDays ? `normale Änderung (${lead} Tage vorher)` : (c.kind === "cancelled" ? "Entfall" : "kurzfristig, zählt als Einspringen");
+    return lead > shortDays ? tx("normale Änderung ({0} Tage vorher)", lead) : (c.kind === "cancelled" ? "Entfall" : tx("kurzfristig, zählt als Einspringen"));
   };
   const labelOfKey = (k) => { const d = defs.find((x) => x.key === k); return d ? d.label : k; };
   const nameOf = (id) => staffNames[id] || "Unbekannt";
-  const dayText = (iso) => { const [y, m, d] = iso.split("-").map(Number); return `${WD_LONG[new Date(y, m - 1, d).getDay()]} ${String(d).padStart(2, "0")}.${String(m).padStart(2, "0")}.`; };
+  const dayText = (iso) => { const [y, m, d] = iso.split("-").map(Number); return `${wdShort(new Date(y, m - 1, d).getDay())} ${dm(new Date(y, m - 1, d))}`; };
   const changeText = (c) => {
     const who = nameOf(c.staffId || c.staff_id); const other = nameOf(c.replacedId || c.replaced_staff_id);
-    return c.kind === "cover" ? `${who} übernimmt für ${other}` : c.kind === "extra" ? `${who}: zusätzliche Schicht` : `${who}: Schicht entfällt`;
+    return c.kind === "cover" ? tx("{0} übernimmt für {1}", who, other) : c.kind === "extra" ? tx("{0}: zusätzliche Schicht", who) : tx("{0}: Schicht entfällt", who);
   };
 
   // Einspringen overview for the Leitung
@@ -248,12 +249,12 @@ export default function ScheduleReview() {
   async function setStatus(c, status) {
     let note = null;
     if (status === "done") {
-      note = window.prompt("Notiz zur Entscheidung (optional), z. B. „Prämie zugesagt“", c.manager_note || "");
+      note = window.prompt(tx("Notiz zur Entscheidung (optional), z. B. „Prämie zugesagt“"), c.manager_note || "");
       if (note === null) return;
     } else if (status === "void") {
-      note = window.prompt("Grund für das Stornieren (Pflicht), z. B. „Irrtum bei der Planung“", "");
+      note = window.prompt(tx("Grund für das Stornieren (Pflicht), z. B. „Irrtum bei der Planung“"), "");
       if (note === null) return;
-      if (!note.trim()) { setErr("Bitte einen Grund für das Stornieren angeben."); return; }
+      if (!note.trim()) { setErr(tx("Bitte einen Grund für das Stornieren angeben.")); return; }
     }
     setBusy(true); setErr("");
     const r = await sb.rpc("set_change_status", { p_id: c.id, p_status: status, p_note: note });
@@ -272,16 +273,16 @@ export default function ScheduleReview() {
   const rpcArgs = { p_org: org.orgId, p_year: sel && sel.year, p_month: sel && sel.month };
 
   async function saveSettings() {
-    const ok = await call("set_org_settings", { p_org: org.orgId, p_require_approval: requireApproval, p_retention_years: Number(retention), p_short_notice_days: Number(shortDays) }, "Einstellungen gespeichert. Sie gelten ab sofort (in den Dienstplanern nach dem nächsten Laden der Seite).");
+    const ok = await call("set_org_settings", { p_org: org.orgId, p_require_approval: requireApproval, p_retention_years: Number(retention), p_short_notice_days: Number(shortDays) }, tx("Einstellungen gespeichert. Sie gelten ab sofort (in den Dienstplanern nach dem nächsten Laden der Seite)."));
     return ok;
   }
   async function purge() {
-    if (!window.confirm(`${expired} abgelaufene Archiv-Einträge und die zugehörigen alten Pläne endgültig löschen? Das kann nicht rückgängig gemacht werden.`)) return;
+    if (!window.confirm(tx("{0} abgelaufene Archiv-Einträge und die zugehörigen alten Pläne endgültig löschen? Das kann nicht rückgängig gemacht werden.", expired))) return;
     setBusy(true); setMsg(""); setErr("");
     const r = await sb.rpc("purge_expired_versions", { p_org: org.orgId });
     setBusy(false);
     if (r.error) { setErr(friendly(r.error)); return; }
-    setMsg(`${r.data} Einträge gelöscht.`); setVersion((v) => v + 1);
+    setMsg(tx("{0} Einträge gelöscht.", r.data)); setVersion((v) => v + 1);
   }
 
   return (
@@ -290,35 +291,33 @@ export default function ScheduleReview() {
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, marginBottom: 12, flexWrap: "wrap" }}>
           <div>
             <div style={{ fontSize: 13, color: MUTED }}>{org.orgName} · {roleText}</div>
-            <h1 style={{ fontSize: 24, fontWeight: 750, letterSpacing: -0.4, margin: 0 }}>Freigaben &amp; Archiv</h1>
+            <h1 style={{ fontSize: 24, fontWeight: 750, letterSpacing: -0.4, margin: 0 }}>{tx("Freigaben & Archiv")}</h1>
           </div>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-            <a href="/labor" style={{ ...btnGhost, textDecoration: "none" }}>Zum Dienstplaner</a>
+            <a href="/labor" style={{ ...btnGhost, textDecoration: "none" }}>{tx("Zum Dienstplaner")}</a>
             <span style={{ width: 28 }} aria-hidden="true" />
-            <button onClick={() => sb.auth.signOut()} style={btnGhost}>Abmelden</button>
+            <button onClick={() => sb.auth.signOut()} style={btnGhost}>{tx("Abmelden")}</button>
           </div>
         </div>
 
         {isLeader && months && months.some((x) => x.status === "pending") && (
-          <div role="status" style={{ ...card, background: "#FFF1D2", color: "#7A4E00", fontSize: 14, fontWeight: 600 }}>
-            ● Wartet auf deine Freigabe: {months.filter((x) => x.status === "pending").map((x) => `${MONTHS[x.month - 1]} ${x.year}`).join(", ")}. Unten auswählen, prüfen und „Freigeben“ oder „Zurückweisen“.
-          </div>
+          <div role="status" style={{ ...card, background: "#FFF1D2", color: "#7A4E00", fontSize: 14, fontWeight: 600 }}>{tx("● Wartet auf deine Freigabe: ")}{months.filter((x) => x.status === "pending").map((x) => `${monthName(x.month - 1)} ${x.year}`).join(", ")}{tx(". Unten auswählen, prüfen und „Freigeben“ oder „Zurückweisen“.")}</div>
         )}
-        {err && <div role="alert" style={{ ...card, background: "#FCE5EA", color: "#8A2A3E", fontSize: 14 }}>{err}</div>}
-        {msg && <div style={{ ...card, background: "#DDF2E8", color: "#1F6347", fontSize: 14 }}>{msg}</div>}
+        {err && <div role="alert" style={{ ...card, background: "#FCE5EA", color: "#8A2A3E", fontSize: 14 }}>{tx(err)}</div>}
+        {msg && <div style={{ ...card, background: "#DDF2E8", color: "#1F6347", fontSize: 14 }}>{tx(msg)}</div>}
 
         <div style={card}>
-          <div style={{ fontSize: 15, fontWeight: 650, marginBottom: 8 }}>Monate</div>
-          {months === null && <div style={{ color: MUTED }}>Lädt …</div>}
-          {months && months.length === 0 && <div style={{ fontSize: 14, color: MUTED }}>Noch kein Monat gespeichert. Im Dienstplaner einen Plan erstellen und „Entwurf speichern“ drücken.</div>}
+          <div style={{ fontSize: 15, fontWeight: 650, marginBottom: 8 }}>{tx("Monate")}</div>
+          {months === null && <div style={{ color: MUTED }}>{tx("Lädt …")}</div>}
+          {months && months.length === 0 && <div style={{ fontSize: 14, color: MUTED }}>{tx("Noch kein Monat gespeichert. Im Dienstplaner einen Plan erstellen und „Entwurf speichern“ drücken.")}</div>}
           <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
             {months && months.map((m) => {
               const st = STATUS[m.status] || STATUS.draft; const active = sel && keyOf(sel.year, sel.month) === keyOf(m.year, m.month);
               return (
                 <button key={keyOf(m.year, m.month)} onClick={() => { setSel({ year: m.year, month: m.month }); setSource("auto"); setMsg(""); setErr(""); }}
                   style={{ border: active ? `2px solid ${PRIMARY}` : `1px solid ${LINE}`, background: "#fff", borderRadius: 14, padding: "8px 12px", textAlign: "left", cursor: "pointer" }}>
-                  <div style={{ fontSize: 14, fontWeight: 650 }}>{MONTHS[m.month - 1]} {m.year}</div>
-                  <div style={{ fontSize: 11, fontWeight: 650, background: st.bg, color: st.fg, borderRadius: 999, padding: "2px 8px", marginTop: 4, display: "inline-block" }}>{st.t}{m.has_newer_draft ? " · neuer Entwurf" : ""}</div>
+                  <div style={{ fontSize: 14, fontWeight: 650 }}>{monthName(m.month - 1)} {m.year}</div>
+                  <div style={{ fontSize: 11, fontWeight: 650, background: st.bg, color: st.fg, borderRadius: 999, padding: "2px 8px", marginTop: 4, display: "inline-block" }}>{tx(st.t)}{m.has_newer_draft ? tx(" · neuer Entwurf") : ""}</div>
                 </button>
               );
             })}
@@ -328,60 +327,60 @@ export default function ScheduleReview() {
         {sel && monthRow && (
           <div style={card}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 10 }}>
-              <div style={{ fontSize: 17, fontWeight: 700 }}>{MONTHS[sel.month - 1]} {sel.year}</div>
+              <div style={{ fontSize: 17, fontWeight: 700 }}>{monthName(sel.month - 1)} {sel.year}</div>
               <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                {[["auto", "Aktuell"], ["draft", "Entwurf"], ["published", "Veröffentlicht"]].map(([k, l]) => (
+                {[["auto", tx("Aktuell")], ["draft", tx("Entwurf")], ["published", tx("Veröffentlicht")]].map(([k, l]) => (
                   <button key={k} onClick={() => setSource(k)} style={{ ...btnGhost, padding: "6px 10px", fontSize: 12, background: source === k ? "#E7ECF6" : "#fff", color: source === k ? PRIMARY : INK }}>{l}</button>
                 ))}
               </div>
             </div>
-            {String(effective).startsWith("v:") && <div style={{ fontSize: 12, color: "#7A4E00", background: "#FFF1D2", borderRadius: 10, padding: "6px 10px", marginBottom: 8 }}>Archivierte Fassung (nur Ansicht). Zurück mit „Aktuell“.</div>}
+            {String(effective).startsWith("v:") && <div style={{ fontSize: 12, color: "#7A4E00", background: "#FFF1D2", borderRadius: 10, padding: "6px 10px", marginBottom: 8 }}>{tx("Archivierte Fassung (nur Ansicht). Zurück mit „Aktuell“.")}</div>}
             <PlanGrid defs={view.defs} shifts={view.shifts} year={sel.year} month={sel.month} marks={effective === "draft" || effective === "auto" ? marks : {}} extraNames={staffNames} />
             {preview.length > 0 && (effective === "draft") && (
               <div style={{ marginTop: 10, background: "#FFF8E6", border: "1px solid #F5D78A", borderRadius: 12, padding: "10px 12px" }}>
-                <div style={{ fontSize: 14, fontWeight: 650, color: "#7A4E00", marginBottom: 4 }}>Änderungen gegenüber der veröffentlichten Fassung ({preview.length})</div>
-                {preview.map((c, i) => <div key={i} style={{ fontSize: 13 }}>{dayText(c.date)} · {labelOfKey(c.key)}: {changeText(c)}{undoesEarlier(c) ? <span style={{ marginLeft: 6, color: "#1F6347", fontWeight: 650 }}>· macht eine frühere Änderung rückgängig</span> : <span style={{ marginLeft: 6, color: MUTED }}>· {classOf(c)}</span>}</div>)}
-                <div style={{ fontSize: 11, color: MUTED, marginTop: 6 }}>Im Plan oben sind die geänderten Felder markiert. Nach der Freigabe werden diese Änderungen in der Übersicht „Einspringen & Änderungen“ festgehalten. Macht eine Änderung eine frühere rückgängig, wird die frühere automatisch storniert.</div>
+                <div style={{ fontSize: 14, fontWeight: 650, color: "#7A4E00", marginBottom: 4 }}>{tx("Änderungen gegenüber der veröffentlichten Fassung (")}{preview.length})</div>
+                {preview.map((c, i) => <div key={i} style={{ fontSize: 13 }}>{dayText(c.date)} · {labelOfKey(c.key)}: {changeText(c)}{undoesEarlier(c) ? <span style={{ marginLeft: 6, color: "#1F6347", fontWeight: 650 }}>{tx("· macht eine frühere Änderung rückgängig")}</span> : <span style={{ marginLeft: 6, color: MUTED }}>· {classOf(c)}</span>}</div>)}
+                <div style={{ fontSize: 11, color: MUTED, marginTop: 6 }}>{tx("Im Plan oben sind die geänderten Felder markiert. Nach der Freigabe werden diese Änderungen in der Übersicht „Einspringen & Änderungen“ festgehalten. Macht eine Änderung eine frühere rückgängig, wird die frühere automatisch storniert.")}</div>
               </div>
             )}
 
             <div style={{ marginTop: 14 }}>
-              {monthRow.review_note && status === "draft" && <div style={{ fontSize: 13, color: "#B3263E", background: "#FCE5EA", borderRadius: 10, padding: "8px 10px", marginBottom: 10 }}>Zuletzt zurückgewiesen: {monthRow.review_note}</div>}
+              {monthRow.review_note && status === "draft" && <div style={{ fontSize: 13, color: "#B3263E", background: "#FCE5EA", borderRadius: 10, padding: "8px 10px", marginBottom: 10 }}>{tx("Zuletzt zurückgewiesen: ")}{monthRow.review_note}</div>}
               {status === "pending" && isLeader && (
                 <div>
-                  <div style={{ fontSize: 14, marginBottom: 8 }}>Dieser Plan wartet auf deine Freigabe{monthRow.submitted_at ? ` (eingereicht ${fmtDateTime(monthRow.submitted_at)})` : ""}. Die Mitarbeitenden sehen ihn erst nach „Freigeben“.</div>
-                  {monthRow.change_note && <div style={{ fontSize: 14, background: "#FFF1D2", color: "#7A4E00", borderRadius: 10, padding: "8px 10px", marginBottom: 8 }}><b>Änderungsgrund:</b> {monthRow.change_note}</div>}
-                  <textarea value={note} onChange={(e) => setNote(e.target.value)} placeholder="Grund für eine Zurückweisung (optional)" rows={2}
+                  <div style={{ fontSize: 14, marginBottom: 8 }}>{tx("Dieser Plan wartet auf deine Freigabe")}{monthRow.submitted_at ? tx(" (eingereicht {0})", fmtDateTime(monthRow.submitted_at)) : ""}{tx(". Die Mitarbeitenden sehen ihn erst nach „Freigeben“.")}</div>
+                  {monthRow.change_note && <div style={{ fontSize: 14, background: "#FFF1D2", color: "#7A4E00", borderRadius: 10, padding: "8px 10px", marginBottom: 8 }}><b>{tx("Änderungsgrund:")}</b> {monthRow.change_note}</div>}
+                  <textarea value={note} onChange={(e) => setNote(e.target.value)} placeholder={tx("Grund für eine Zurückweisung (optional)")} rows={2}
                     style={{ width: "100%", boxSizing: "border-box", border: `1px solid ${LINE}`, borderRadius: 12, padding: 10, fontSize: 14, marginBottom: 8 }} />
                   <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                    <button disabled={busy} style={btn} onClick={() => call("publish_month", rpcArgs, "Plan freigegeben und veröffentlicht.")}>Freigeben</button>
-                    <button disabled={busy} style={btnDanger} onClick={() => call("reject_month", { ...rpcArgs, p_note: note }, "Plan zurückgewiesen. Die Leitung sieht den Grund im Dienstplaner.")}>Zurückweisen</button>
+                    <button disabled={busy} style={btn} onClick={() => call("publish_month", rpcArgs, tx("Plan freigegeben und veröffentlicht."))}>{tx("Freigeben")}</button>
+                    <button disabled={busy} style={btnDanger} onClick={() => call("reject_month", { ...rpcArgs, p_note: note }, tx("Plan zurückgewiesen. Die Leitung sieht den Grund im Dienstplaner."))}>{tx("Zurückweisen")}</button>
                   </div>
                 </div>
               )}
-              {status === "pending" && !isLeader && <div style={{ fontSize: 14, color: MUTED }}>Wartet auf Freigabe durch die Leitung.</div>}
+              {status === "pending" && !isLeader && <div style={{ fontSize: 14, color: MUTED }}>{tx("Wartet auf Freigabe durch die Leitung.")}</div>}
               {status === "draft" && (
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
                   {isLeader || !requireApproval
-                    ? <button disabled={busy} style={btn} onClick={() => call("publish_month", rpcArgs, "Plan veröffentlicht.")}>Veröffentlichen</button>
-                    : <button disabled={busy} style={btn} onClick={() => call("submit_month", rpcArgs, "Zur Freigabe eingereicht.")}>Zur Freigabe einreichen</button>}
-                  <span style={{ fontSize: 12, color: MUTED }}>Der Entwurf ist für Mitarbeitende noch nicht sichtbar.</span>
+                    ? <button disabled={busy} style={btn} onClick={() => call("publish_month", rpcArgs, tx("Plan veröffentlicht."))}>{tx("Veröffentlichen")}</button>
+                    : <button disabled={busy} style={btn} onClick={() => call("submit_month", rpcArgs, tx("Zur Freigabe eingereicht."))}>{tx("Zur Freigabe einreichen")}</button>}
+                  <span style={{ fontSize: 12, color: MUTED }}>{tx("Der Entwurf ist für Mitarbeitende noch nicht sichtbar.")}</span>
                 </div>
               )}
-              {status === "published" && <div style={{ fontSize: 14, color: "#1F6347" }}>Veröffentlicht{monthRow.published_at ? ` am ${fmtDateTime(monthRow.published_at)}` : ""}.{monthRow.has_newer_draft ? " Es gibt einen neueren Entwurf, den die Mitarbeitenden noch nicht sehen." : ""}</div>}
+              {status === "published" && <div style={{ fontSize: 14, color: "#1F6347" }}>{tx("Veröffentlicht")}{monthRow.published_at ? tx(" am {0}", fmtDateTime(monthRow.published_at)) : ""}.{monthRow.has_newer_draft ? tx(" Es gibt einen neueren Entwurf, den die Mitarbeitenden noch nicht sehen.") : ""}</div>}
             </div>
 
             <div style={{ marginTop: 16 }}>
-              <div style={{ fontSize: 14, fontWeight: 650, marginBottom: 6 }}>Verlauf (unveränderlich archiviert)</div>
-              {versions.length === 0 && <div style={{ fontSize: 13, color: MUTED }}>Noch keine archivierten Fassungen. Beim Einreichen und Veröffentlichen wird jeweils eine Kopie gespeichert.</div>}
+              <div style={{ fontSize: 14, fontWeight: 650, marginBottom: 6 }}>{tx("Verlauf (unveränderlich archiviert)")}</div>
+              {versions.length === 0 && <div style={{ fontSize: 13, color: MUTED }}>{tx("Noch keine archivierten Fassungen. Beim Einreichen und Veröffentlichen wird jeweils eine Kopie gespeichert.")}</div>}
               {versions.map((v) => (
                 <div key={v.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, padding: "8px 0", borderTop: "1px solid #EEF0F4", flexWrap: "wrap" }}>
                   <div style={{ fontSize: 13 }}>
-                    <b>{EVENT_LABEL[v.event] || v.event}</b> · {fmtDateTime(v.created_at)}{v.actor_email ? ` · ${v.actor_email}` : ""}
-                    {v.note && <div style={{ color: MUTED }}>Grund: {v.note}</div>}
-                    <div style={{ color: MUTED, fontSize: 11 }}>Aufbewahren bis {fmtDate(v.keep_until)}</div>
+                    <b>{tx(EVENT_LABEL[v.event] || v.event)}</b> · {fmtDateTime(v.created_at)}{v.actor_email ? ` · ${v.actor_email}` : ""}
+                    {v.note && <div style={{ color: MUTED }}>{tx("Grund: ")}{v.note}</div>}
+                    <div style={{ color: MUTED, fontSize: 11 }}>{tx("Aufbewahren bis ")}{fmtDate(v.keep_until)}</div>
                   </div>
-                  <button style={{ ...btnGhost, padding: "6px 10px", fontSize: 12 }} onClick={() => setSource("v:" + v.id)}>Ansehen</button>
+                  <button style={{ ...btnGhost, padding: "6px 10px", fontSize: 12 }} onClick={() => setSource("v:" + v.id)}>{tx("Ansehen")}</button>
                 </div>
               ))}
             </div>
@@ -390,24 +389,24 @@ export default function ScheduleReview() {
 
         {isLeader && (
         <div id="einspringer" style={card}>
-          <div style={{ fontSize: 15, fontWeight: 650, marginBottom: 4 }}>Einspringen &amp; Änderungen</div>
-          <div style={{ fontSize: 13, color: MUTED, marginBottom: 10 }}>Wer bei einer Änderung eine Schicht übernimmt oder zusätzlich bekommt, wird hier festgehalten, damit es der Leitung auffällt. Das ist nur eine Übersicht für deine Entscheidung (z. B. Anerkennung). Es wird nichts automatisch ausgezahlt oder geändert.</div>
+          <div style={{ fontSize: 15, fontWeight: 650, marginBottom: 4 }}>{tx("Einspringen & Änderungen")}</div>
+          <div style={{ fontSize: 13, color: MUTED, marginBottom: 10 }}>{tx("Wer bei einer Änderung eine Schicht übernimmt oder zusätzlich bekommt, wird hier festgehalten, damit es der Leitung auffällt. Das ist nur eine Übersicht für deine Entscheidung (z. B. Anerkennung). Es wird nichts automatisch ausgezahlt oder geändert.")}</div>
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", marginBottom: 10 }}>
             <select value={period} onChange={(e) => setPeriod(e.target.value)} style={{ border: `1px solid ${LINE}`, borderRadius: 10, padding: "6px 8px", fontSize: 13 }}>
-              <option value="year">Dieses Jahr</option><option value="12m">Letzte 12 Monate</option><option value="all">Alles</option>
+              <option value="year">{tx("Dieses Jahr")}</option><option value="12m">{tx("Letzte 12 Monate")}</option><option value="all">{tx("Alles")}</option>
             </select>
-            <label style={{ fontSize: 13, display: "flex", gap: 6, alignItems: "center" }}><input type="checkbox" checked={onlyOpen} onChange={(e) => setOnlyOpen(e.target.checked)} />nur offene</label>
-            <label style={{ fontSize: 13, display: "flex", gap: 6, alignItems: "center" }}><input type="checkbox" checked={showAll} onChange={(e) => setShowAll(e.target.checked)} />auch normale Planänderungen anzeigen{hiddenCount > 0 && !showAll ? ` (${hiddenCount})` : ""}</label>
+            <label style={{ fontSize: 13, display: "flex", gap: 6, alignItems: "center" }}><input type="checkbox" checked={onlyOpen} onChange={(e) => setOnlyOpen(e.target.checked)} />{tx("nur offene")}</label>
+            <label style={{ fontSize: 13, display: "flex", gap: 6, alignItems: "center" }}><input type="checkbox" checked={showAll} onChange={(e) => setShowAll(e.target.checked)} />{tx("auch normale Planänderungen anzeigen")}{hiddenCount > 0 && !showAll ? ` (${hiddenCount})` : ""}</label>
           </div>
-          {ranking.length === 0 && <div style={{ fontSize: 13, color: MUTED }}>Noch kein Einspringen im gewählten Zeitraum.</div>}
+          {ranking.length === 0 && <div style={{ fontSize: 13, color: MUTED }}>{tx("Noch kein Einspringen im gewählten Zeitraum.")}</div>}
           {ranking.length > 0 && (
             <table style={{ borderCollapse: "collapse", fontSize: 13, width: "100%", marginBottom: 12 }}>
-              <thead><tr style={{ textAlign: "left", color: MUTED }}><th style={{ padding: "4px 6px" }}>Person</th><th style={{ padding: "4px 6px" }}>Einspringen</th><th style={{ padding: "4px 6px" }}>offen</th><th style={{ padding: "4px 6px" }}>zuletzt</th></tr></thead>
+              <thead><tr style={{ textAlign: "left", color: MUTED }}><th style={{ padding: "4px 6px" }}>{tx("Person")}</th><th style={{ padding: "4px 6px" }}>{tx("Einspringen")}</th><th style={{ padding: "4px 6px" }}>{tx("offen")}</th><th style={{ padding: "4px 6px" }}>{tx("zuletzt")}</th></tr></thead>
               <tbody>{ranking.map((r) => (
                 <tr key={r.id} style={{ borderTop: "1px solid #EEF0F4" }}>
                   <td style={{ padding: "6px", fontWeight: 650 }}>{nameOf(r.id)}</td>
                   <td style={{ padding: "6px" }}>{r.count}×</td>
-                  <td style={{ padding: "6px" }}>{r.open > 0 ? <span style={{ background: "#FFF1D2", color: "#7A4E00", borderRadius: 999, padding: "2px 8px", fontSize: 12, fontWeight: 650 }}>{r.open} offen</span> : <span style={{ color: "#1F6347" }}>erledigt</span>}</td>
+                  <td style={{ padding: "6px" }}>{r.open > 0 ? <span style={{ background: "#FFF1D2", color: "#7A4E00", borderRadius: 999, padding: "2px 8px", fontSize: 12, fontWeight: 650 }}>{r.open}{tx(" offen")}</span> : <span style={{ color: "#1F6347" }}>{tx("erledigt")}</span>}</td>
                   <td style={{ padding: "6px", color: MUTED }}>{fmtDate(r.last)}</td>
                 </tr>))}</tbody>
             </table>
@@ -419,22 +418,22 @@ export default function ScheduleReview() {
               <div key={c.id} style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", padding: "8px 0", borderTop: "1px solid #EEF0F4", flexWrap: "wrap", opacity: isVoid || c.kind === "cancelled" ? 0.7 : 1 }}>
                 <div style={{ fontSize: 13 }}>
                   <div style={{ textDecoration: isVoid ? "line-through" : "none" }}>
-                    <b>{dayText(c.change_date)}</b> · {labelOfKey(c.shift_key)} · <span style={{ color: c.kind === "cancelled" ? MUTED : "#7A4E00", fontWeight: 650 }}>{KIND_LABEL[c.kind]}</span>
+                    <b>{dayText(c.change_date)}</b> · {labelOfKey(c.shift_key)} · <span style={{ color: c.kind === "cancelled" ? MUTED : "#7A4E00", fontWeight: 650 }}>{tx(KIND_LABEL[c.kind])}</span>
                     <div>{changeText(c)}</div>
                   </div>
-                  {c.note && <div style={{ color: MUTED }}>Grund: {c.note}</div>}
-                  {c.manager_status === "normal" && <div style={{ color: "#4A5368", fontWeight: 650 }}>Normale Planänderung, kein Einspringen{c.normal_auto && c.lead_days !== null && c.lead_days !== undefined ? ` (${c.lead_days} Tage vor der Schicht veröffentlicht)` : c.normal_auto ? "" : " (so markiert)"}</div>}
-                  {isVoid && <div style={{ color: "#B3263E", fontWeight: 650 }}>{c.void_auto ? "Automatisch storniert (rückgängig gemacht)" : "Storniert (Irrtum)"}{c.manager_note ? ` · ${c.manager_note}` : ""}</div>}
-                  {!isVoid && c.manager_note && <div style={{ color: "#1F6347" }}>Vermerk: {c.manager_note}</div>}
+                  {c.note && <div style={{ color: MUTED }}>{tx("Grund: ")}{c.note}</div>}
+                  {c.manager_status === "normal" && <div style={{ color: "#4A5368", fontWeight: 650 }}>{tx("Normale Planänderung, kein Einspringen")}{c.normal_auto && c.lead_days !== null && c.lead_days !== undefined ? tx(" ({0} Tage vor der Schicht veröffentlicht)", c.lead_days) : c.normal_auto ? "" : tx(" (so markiert)")}</div>}
+                  {isVoid && <div style={{ color: "#B3263E", fontWeight: 650 }}>{c.void_auto ? tx("Automatisch storniert (rückgängig gemacht)") : tx("Storniert (Irrtum)")}{c.manager_note ? ` · ${c.manager_note}` : ""}</div>}
+                  {!isVoid && c.manager_note && <div style={{ color: "#1F6347" }}>{tx("Vermerk: ")}{c.manager_note}</div>}
                 </div>
                 <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                  {isVoid && <button disabled={busy} style={lightBtn} onClick={() => setStatus(c, "open")}>Wieder gültig</button>}
-                  {c.manager_status === "normal" && c.kind !== "cancelled" && <button disabled={busy} style={lightBtn} onClick={() => setStatus(c, "open")}>Als Einspringen zählen</button>}
-                  {c.manager_status === "open" && c.kind !== "cancelled" && <button disabled={busy} style={lightBtn} onClick={() => setStatus(c, "normal")}>Normale Änderung</button>}
+                  {isVoid && <button disabled={busy} style={lightBtn} onClick={() => setStatus(c, "open")}>{tx("Wieder gültig")}</button>}
+                  {c.manager_status === "normal" && c.kind !== "cancelled" && <button disabled={busy} style={lightBtn} onClick={() => setStatus(c, "open")}>{tx("Als Einspringen zählen")}</button>}
+                  {c.manager_status === "open" && c.kind !== "cancelled" && <button disabled={busy} style={lightBtn} onClick={() => setStatus(c, "normal")}>{tx("Normale Änderung")}</button>}
                   {!isVoid && c.kind !== "cancelled" && (c.manager_status === "open"
-                    ? <button disabled={busy} style={lightBtn} onClick={() => setStatus(c, "done")}>Berücksichtigt</button>
-                    : <button disabled={busy} style={{ ...lightBtn, color: "#1F6347" }} onClick={() => setStatus(c, "open")}>✓ berücksichtigt · wieder öffnen</button>)}
-                  {!isVoid && <button disabled={busy} style={{ ...lightBtn, color: "#B3263E", borderColor: "#F0C4CD" }} onClick={() => setStatus(c, "void")}>Irrtum / Storno</button>}
+                    ? <button disabled={busy} style={lightBtn} onClick={() => setStatus(c, "done")}>{tx("Berücksichtigt")}</button>
+                    : <button disabled={busy} style={{ ...lightBtn, color: "#1F6347" }} onClick={() => setStatus(c, "open")}>{tx("✓ berücksichtigt · wieder öffnen")}</button>)}
+                  {!isVoid && <button disabled={busy} style={{ ...lightBtn, color: "#B3263E", borderColor: "#F0C4CD" }} onClick={() => setStatus(c, "void")}>{tx("Irrtum / Storno")}</button>}
                 </div>
               </div>
             );
@@ -444,31 +443,28 @@ export default function ScheduleReview() {
 
         {isLeader && (
           <div style={card}>
-            <div style={{ fontSize: 15, fontWeight: 650, marginBottom: 10 }}>Einstellungen der Firma</div>
+            <div style={{ fontSize: 15, fontWeight: 650, marginBottom: 10 }}>{tx("Einstellungen der Firma")}</div>
             <label style={{ display: "flex", gap: 10, alignItems: "flex-start", fontSize: 14, marginBottom: 12 }}>
               <input type="checkbox" checked={requireApproval} onChange={(e) => setRequireApproval(e.target.checked)} style={{ marginTop: 3 }} />
-              <span>Schichtplaner müssen Pläne zur Freigabe einreichen, nur die Leitung gibt frei<br /><span style={{ fontSize: 12, color: MUTED }}>Ausgeschaltet können Schichtplaner selbst veröffentlichen. Leitung und Inhaber können immer direkt veröffentlichen.</span></span>
+              <span>{tx("Schichtplaner müssen Pläne zur Freigabe einreichen, nur die Leitung gibt frei")}<br /><span style={{ fontSize: 12, color: MUTED }}>{tx("Ausgeschaltet können Schichtplaner selbst veröffentlichen. Leitung und Inhaber können immer direkt veröffentlichen.")}</span></span>
             </label>
-            <label style={{ display: "block", fontSize: 14, marginBottom: 6 }}>Als „kurzfristig“ (Einspringen) gilt eine Änderung höchstens
-              <select value={shortDays} onChange={(e) => setShortDays(Number(e.target.value))} style={{ margin: "0 8px", border: `1px solid ${LINE}`, borderRadius: 10, padding: "6px 8px", fontSize: 14 }}>
-                {[0, 1, 2, 3, 4, 5, 7, 10, 14, 21, 30].map((n) => <option key={n} value={n}>{n} Tage</option>)}
-              </select>vor der Schicht
-            </label>
-            <div style={{ fontSize: 12, color: MUTED, marginBottom: 12 }}>Spätere Änderungen sind normale Planänderungen (z. B. November im Oktober nachbessern) und zählen nicht als Einspringen. Was „kurzfristig“ ist, legt deine Firma fest (z. B. Betriebsvereinbarung).</div>
-            <label style={{ display: "block", fontSize: 14, marginBottom: 6 }}>Pläne archivieren für
-              <select value={retention} onChange={(e) => setRetention(e.target.value)} style={{ marginLeft: 8, border: `1px solid ${LINE}`, borderRadius: 10, padding: "6px 8px", fontSize: 14 }}>
-                {[2, 3, 4, 5, 6, 7, 8, 9, 10].map((y) => <option key={y} value={y}>{y} Jahre</option>)}
+            <label style={{ display: "block", fontSize: 14, marginBottom: 6 }}>{tx("Als „kurzfristig“ (Einspringen) gilt eine Änderung höchstens")}<select value={shortDays} onChange={(e) => setShortDays(Number(e.target.value))} style={{ margin: "0 8px", border: `1px solid ${LINE}`, borderRadius: 10, padding: "6px 8px", fontSize: 14 }}>
+                {[0, 1, 2, 3, 4, 5, 7, 10, 14, 21, 30].map((n) => <option key={n} value={n}>{n}{tx(" Tage")}</option>)}
+              </select>{tx("vor der Schicht")}</label>
+            <div style={{ fontSize: 12, color: MUTED, marginBottom: 12 }}>{tx("Spätere Änderungen sind normale Planänderungen (z. B. November im Oktober nachbessern) und zählen nicht als Einspringen. Was „kurzfristig“ ist, legt deine Firma fest (z. B. Betriebsvereinbarung).")}</div>
+            <label style={{ display: "block", fontSize: 14, marginBottom: 6 }}>{tx("Pläne archivieren für")}<select value={retention} onChange={(e) => setRetention(e.target.value)} style={{ marginLeft: 8, border: `1px solid ${LINE}`, borderRadius: 10, padding: "6px 8px", fontSize: 14 }}>
+                {[2, 3, 4, 5, 6, 7, 8, 9, 10].map((y) => <option key={y} value={y}>{y}{tx(" Jahre")}</option>)}
               </select>
             </label>
-            <div style={{ fontSize: 12, color: MUTED, marginBottom: 12 }}>Gerechnet bis 31. Dezember des Jahres, in dem die Frist abläuft. Gesetzliches Minimum für Arbeitszeitnachweise sind 2 Jahre (§ 16 ArbZG). Für lohnrelevante Unterlagen gelten 6 Jahre (§ 41 EStG). Empfohlen: 6 Jahre. Lass dich im Zweifel von deiner Steuerberatung beraten.</div>
-            <button disabled={busy} style={btn} onClick={saveSettings}>Einstellungen speichern</button>
+            <div style={{ fontSize: 12, color: MUTED, marginBottom: 12 }}>{tx("Gerechnet bis 31. Dezember des Jahres, in dem die Frist abläuft. Gesetzliches Minimum für Arbeitszeitnachweise sind 2 Jahre (§ 16 ArbZG). Für lohnrelevante Unterlagen gelten 6 Jahre (§ 41 EStG). Empfohlen: 6 Jahre. Lass dich im Zweifel von deiner Steuerberatung beraten.")}</div>
+            <button disabled={busy} style={btn} onClick={saveSettings}>{tx("Einstellungen speichern")}</button>
 
             <div style={{ borderTop: "1px solid #EEF0F4", marginTop: 16, paddingTop: 12 }}>
-              <div style={{ fontSize: 14, fontWeight: 650 }}>Abgelaufene Einträge</div>
-              <div style={{ fontSize: 13, color: MUTED, margin: "4px 0 8px" }}>Es wird nichts automatisch gelöscht. Nach Ablauf der Frist solltest du Daten nicht ewig behalten (Datenschutz).</div>
+              <div style={{ fontSize: 14, fontWeight: 650 }}>{tx("Abgelaufene Einträge")}</div>
+              <div style={{ fontSize: 13, color: MUTED, margin: "4px 0 8px" }}>{tx("Es wird nichts automatisch gelöscht. Nach Ablauf der Frist solltest du Daten nicht ewig behalten (Datenschutz).")}</div>
               {expired > 0
-                ? <button disabled={busy} style={btnDanger} onClick={purge}>{expired} abgelaufene Einträge löschen</button>
-                : <span style={{ fontSize: 13, color: "#1F6347" }}>Keine abgelaufenen Einträge.</span>}
+                ? <button disabled={busy} style={btnDanger} onClick={purge}>{expired}{tx(" abgelaufene Einträge löschen")}</button>
+                : <span style={{ fontSize: 13, color: "#1F6347" }}>{tx("Keine abgelaufenen Einträge.")}</span>}
             </div>
           </div>
         )}

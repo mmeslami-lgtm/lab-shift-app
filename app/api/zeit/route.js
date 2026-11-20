@@ -98,10 +98,12 @@ export async function POST(request) {
         const tdir = body.direction === "out" ? "out" : body.direction === "in" ? "in" : null;
         const r = await supabaseAdmin.from("terminal_tokens").insert({ token, device_id: device.id, org_id: device.org_id, expires_at: expires, direction: tdir });
         if (r.error) throw r.error;
-        const o = await supabaseAdmin.from("organizations").select("name").eq("id", device.org_id);
+        let o = await supabaseAdmin.from("organizations").select("name, language").eq("id", device.org_id);
+        if (o.error) o = await supabaseAdmin.from("organizations").select("name").eq("id", device.org_id); // Skript 45 fehlt
+        const language = o.data && o.data[0] && o.data[0].language === "en" ? "en" : "de";
         const f = await supabaseAdmin.from("org_features").select("feature, enabled").eq("org_id", device.org_id);
         const features = f.error ? [] : (f.data || []).filter((x) => x.enabled).map((x) => x.feature);
-        return json({ token, expiresAt: expires, serverTime: new Date().toISOString(), terminal: device.name || device.serial, orgName: (o.data && o.data[0] && o.data[0].name) || "", features });
+        return json({ token, expiresAt: expires, serverTime: new Date().toISOString(), terminal: device.name || device.serial, orgName: (o.data && o.data[0] && o.data[0].name) || "", features, language });
       }
 
       if (action === "staff") {
