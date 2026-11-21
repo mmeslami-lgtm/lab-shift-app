@@ -73,7 +73,7 @@ export default function ZugaengeDialog({ onClose }) {
             <ul className="mt-1 divide-y divide-slate-100">
               {managers.map((m) => (
                 <li key={m.userId} className="flex flex-wrap items-center justify-between gap-2 py-1.5">
-                  <span><span className="mr-2 rounded-md bg-slate-100 px-2 py-0.5 text-xs text-slate-700">{{ owner: tx("Inhaber"), supervisor: tx("Leitung"), planner: tx("Schichtplaner") }[m.role]}</span>{m.email} <span className="text-xs text-slate-400">{m.lastSignIn ? tx("zuletzt {0}", new Date(m.lastSignIn).toLocaleDateString(loc())) : tx("noch nie angemeldet")}</span></span>
+                  <span><span className="mr-2 rounded-md bg-slate-100 px-2 py-0.5 text-xs text-slate-700">{{ owner: tx("Inhaber"), supervisor: tx("Leitung"), planner: tx("Schichtplaner"), office: tx("Büro") }[m.role]}</span>{m.email} <span className="text-xs text-slate-400">{m.lastSignIn ? tx("zuletzt {0}", new Date(m.lastSignIn).toLocaleDateString(loc())) : tx("noch nie angemeldet")}</span></span>
                   {m.canManage && (
                     <span className="whitespace-nowrap">
                       <button onClick={() => reset({ userId: m.userId, name: m.email })} disabled={!!busy} className="mr-1 rounded-md border border-slate-200 px-2.5 py-1 text-xs text-slate-700 hover:bg-slate-50 active:translate-y-px">{tx("Neues Passwort")}</button>
@@ -88,6 +88,7 @@ export default function ZugaengeDialog({ onClose }) {
                 <label className="text-xs text-slate-600">{tx("Rolle")}<select value={mgrForm.role} onChange={(e) => setMgrForm({ ...mgrForm, role: e.target.value })} className="mt-1 block rounded-md border border-slate-300 px-2 py-1.5 text-sm">
                     <option value="planner">{tx("Schichtplaner")}</option>
                     {myRole === "owner" && <option value="supervisor">{tx("Leitung")}</option>}
+                    {(org.products || []).includes("touren") && <option value="office">{tx("Büro (Kunden & Aufträge)")}</option>}
                   </select>
                 </label>
                 <label className="text-xs text-slate-600">{tx("E-Mail")}<input autoFocus type="email" value={mgrForm.email} onChange={(e) => setMgrForm({ ...mgrForm, email: e.target.value })} className="mt-1 block w-56 rounded-md border border-slate-300 px-2 py-1.5 text-sm" />

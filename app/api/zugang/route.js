@@ -22,9 +22,10 @@ function newPassword() { // 16 characters, no look-alikes
   return Array.from(randomBytes(16), (b) => abc[b % abc.length]).join("");
 }
 
-const ROLE_LABEL = { supervisor: "Leitung", planner: "Schichtplaner", employee: "Mitarbeitende" };
+const ROLE_LABEL = { supervisor: "Leitung", planner: "Schichtplaner", employee: "Mitarbeitende", office: "Büro" };
 // which roles the caller may create / reset / remove
-const allowed = (callerRole, role) => role === "employee" || role === "planner" || (role === "supervisor" && callerRole === "owner");
+// „office“ = Büro / Disposition (Touren D3a): nur Kunden und Aufträge, keine Zeiterfassung – Inhaber und Leitung dürfen es vergeben
+const allowed = (callerRole, role) => role === "employee" || role === "planner" || role === "office" || (role === "supervisor" && callerRole === "owner");
 
 async function leaderOf(request, orgId) {
   const m = (request.headers.get("authorization") || "").match(/^Bearer\s+(.+)$/i);
@@ -79,7 +80,7 @@ export async function POST(request) {
         return json({ people, managers: staffMgr, myRole: me.orgRole });
       }
       case "create": {
-        const role = ["employee", "planner", "supervisor"].includes(body.role) ? body.role : "employee";
+        const role = ["employee", "planner", "supervisor", "office"].includes(body.role) ? body.role : "employee";
         if (!allowed(me.orgRole, role)) return json({ error: "Eine Leitung kann nur der Inhaber anlegen." }, 403);
         const email = String(body.email || "").trim().toLowerCase();
         if (!EMAIL.test(email)) return json({ error: "Bitte eine gültige E-Mail-Adresse angeben." }, 400);
@@ -90,6 +91,10 @@ export async function POST(request) {
           const taken = await supabaseAdmin.from("memberships").select("user_id").eq("staff_id", st.data[0].id);
           if (taken.data && taken.data.length) return json({ error: "Diese Person hat schon einen Zugang." }, 409);
           person = st.data[0];
+        }
+        if (role === "office") {
+          const tp = await supabaseAdmin.from("org_products").select("enabled").eq("org_id", orgId).eq("product", "touren");
+          if (!tp.data || !tp.data.some((p) => p.enabled !== false)) return json({ error: "Touren ist für Ihre Firma nicht freigeschaltet." }, 403);
         }
         if (role === "employee") {
           const prod = await supabaseAdmin.from("org_products").select("enabled").eq("org_id", orgId).eq("product", "employee_app");

@@ -15,8 +15,10 @@ const PAPER = "#E9EEF8";
 const INK = "#1B2433";
 const MUTED = "#6B7588";
 const PRIMARY = "#243B6B";
-const PRODUCT_LABEL = { lab_planner: "Dienstplaner Labor", generic_planner: "Dienstplaner allgemein", employee_app: "Mitarbeiter-App", time_tracking: "Zeiterfassung" };
-const ROLE_LABEL = { owner: "Inhaber", supervisor: "Leitung", planner: "Schichtplaner", employee: "Mitarbeitende" };
+const PRODUCT_LABEL = { lab_planner: "Dienstplaner Labor", generic_planner: "Dienstplaner allgemein", employee_app: "Mitarbeiter-App", time_tracking: "Zeiterfassung", touren: "Touren" };
+const ROLE_LABEL = { owner: "Inhaber", supervisor: "Leitung", planner: "Schichtplaner", employee: "Mitarbeitende", office: "Büro" };
+// Planer-Seiten (supervisorOnly): nur diese Rollen. „office“ (Büro, Touren D3a) gehört bewusst NICHT dazu.
+const PLANNER_ROLES = ["owner", "supervisor", "planner"];
 
 const shell = { background: PAPER, color: INK, minHeight: "100vh", fontFamily: "system-ui, -apple-system, 'Segoe UI', sans-serif", padding: "20px 16px 60px" };
 const card = { background: "#fff", borderRadius: 18, padding: 16, marginBottom: 12 };
@@ -24,8 +26,9 @@ const card = { background: "#fff", borderRadius: 18, padding: 16, marginBottom: 
 // Wraps a product page. Nothing is shown until the person is logged in AND their company has this
 // product (and, for the planners, they are a boss). Then the page gets an OrgContext.
 //   product        'lab_planner' | 'generic_planner' | 'employee_app', or a list (any one of them is enough)
-//   supervisorOnly only owner/supervisor roles may open it (the planners)
-export default function ProductGate({ product, supervisorOnly = false, label, children }) {
+//   supervisorOnly only owner/supervisor/planner roles may open it (the planners)
+//   roles          optional list of roles that may open it (e.g. Touren: owner, supervisor, office)
+export default function ProductGate({ product, supervisorOnly = false, roles = null, label, children }) {
   const wanted = Array.isArray(product) ? product : [product];
   const wantedKey = wanted.join(",");
   const [session, setSession] = useState(undefined);
@@ -54,7 +57,7 @@ export default function ProductGate({ product, supervisorOnly = false, label, ch
       if (mem.error || prod.error) { setState({ status: "error", message: (mem.error || prod.error).message }); return; }
       const own = mem.data.filter((m) => m.user_id === session.user.id);
       const enabled = (orgId) => prod.data.filter((p) => p.org_id === orgId && p.enabled).map((p) => p.product);
-      const ok = own.find((m) => enabled(m.org_id).some((p) => wanted.includes(p)) && (!supervisorOnly || m.role !== "employee"));
+      const ok = own.find((m) => enabled(m.org_id).some((p) => wanted.includes(p)) && (!supervisorOnly || PLANNER_ROLES.includes(m.role)) && (!roles || roles.includes(m.role)));
       if (!ok) { setState({ status: "denied", own: own.map((m) => ({ name: m.organizations ? m.organizations.name : "Firma", role: m.role, products: enabled(m.org_id) })) }); return; }
       // Land & Sprache (Skript 45, Paket D1/D2). Fehlt die Spalte: Deutschland wie bisher.
       // Sprache der Firma gilt ab jetzt (und wird auf diesem Gerät für die Anmeldeseite gemerkt).
@@ -65,7 +68,7 @@ export default function ProductGate({ product, supervisorOnly = false, label, ch
       // Testphase (Skript 34): planner pages stay closed until the owner has accepted the current texts.
       // Only the planner pages (supervisorOnly); the employee app is not touched. Missing column = no test phase.
       let trialUntil = null;
-      if (supervisorOnly) {
+      if (supervisorOnly || roles) {
         const tr = await supabase.from("organizations").select("trial_until").eq("id", ok.org_id);
         if (!tr.error && tr.data && tr.data[0] && tr.data[0].trial_until) {
           trialUntil = tr.data[0].trial_until;
@@ -99,7 +102,7 @@ export default function ProductGate({ product, supervisorOnly = false, label, ch
       });
     })();
     return () => { cancelled = true; };
-  }, [session, wantedKey, supervisorOnly, reload]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [session, wantedKey, supervisorOnly, roles ? roles.join(",") : "", reload]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const what = tx(label) || wanted.map((p) => tx(PRODUCT_LABEL[p] || p)).join(" / ");
 
@@ -130,7 +133,7 @@ export default function ProductGate({ product, supervisorOnly = false, label, ch
             {getLang() === "en" ? <>Your account <b>{session.user.email}</b> may not open <b>{what}</b>.</> : <>Dein Konto <b>{session.user.email}</b> darf <b>{what}</b> nicht öffnen.</>}
           </div>
           <div style={{ fontSize: 13, color: MUTED }}>
-            {supervisorOnly ? tx("Dafür braucht deine Firma das Produkt und du brauchst die Rolle Schichtplaner, Leitung oder Inhaber.") : tx("Dafür muss deine Firma das Produkt gebucht haben.")}
+            {supervisorOnly ? tx("Dafür braucht deine Firma das Produkt und du brauchst die Rolle Schichtplaner, Leitung oder Inhaber.") : roles ? tx("Dafür braucht deine Firma das Produkt und du brauchst die Rolle Büro, Leitung oder Inhaber.") : tx("Dafür muss deine Firma das Produkt gebucht haben.")}
           </div>
           {state.own.length > 0 && (
             <div style={{ marginTop: 12, fontSize: 13 }}>
@@ -152,7 +155,7 @@ export default function ProductGate({ product, supervisorOnly = false, label, ch
   }
   return (
     <OrgContext.Provider value={state.ctx}>
-      {supervisorOnly && state.ctx.trialUntil && <TrialBanner supabase={supabase} orgId={state.ctx.orgId} role={state.ctx.role} trialUntil={state.ctx.trialUntil} timezone={state.ctx.timezone} />}
+      {(supervisorOnly || roles) && state.ctx.trialUntil && <TrialBanner supabase={supabase} orgId={state.ctx.orgId} role={state.ctx.role} trialUntil={state.ctx.trialUntil} timezone={state.ctx.timezone} />}
       {children}
     </OrgContext.Provider>
   );

@@ -11,8 +11,8 @@ const LEGAL_LABEL = { testphase: "Nutzungsbedingungen", avv: "AVV", fiktive_date
 const LEGAL_HREF = Object.fromEntries(LEGAL_DOCS.filter((d) => d.href).map((d) => [d.key, d.href]));
 
 const INK = "#1B2433", PRIMARY = "#243B6B", PAPER = "#E9EEF8", MUTED = "#6B7588", LINE = "#D9DEE7";
-const PRODUCT_LABEL = { lab_planner: "Dienstplaner Labor", generic_planner: "Dienstplaner allgemein", employee_app: "Mitarbeiter-App", time_tracking: "Zeiterfassung" };
-const ROLE_LABEL = { owner: "Inhaber", supervisor: "Leitung", planner: "Schichtplaner", employee: "Mitarbeitende" };
+const PRODUCT_LABEL = { lab_planner: "Dienstplaner Labor", generic_planner: "Dienstplaner allgemein", employee_app: "Mitarbeiter-App", time_tracking: "Zeiterfassung", touren: "Touren" };
+const ROLE_LABEL = { owner: "Inhaber", supervisor: "Leitung", planner: "Schichtplaner", employee: "Mitarbeitende", office: "Büro" };
 const card = { background: "#fff", borderRadius: 18, padding: 16, marginBottom: 12 };
 const btn = { border: 0, borderRadius: 12, background: PRIMARY, color: "#fff", fontSize: 15, fontWeight: 650, padding: "10px 14px", cursor: "pointer" };
 const ghost = { border: "1.5px solid #9AAED0", borderRadius: 10, background: "#fff", color: INK, fontSize: 14, fontWeight: 600, padding: "7px 10px", cursor: "pointer" };
@@ -397,7 +397,7 @@ export default function AdminDashboard({ view = "admin" }) {
                 <label style={{ fontSize: 12, color: MUTED }}>E-Mail<input type="email" value={mf.email} onChange={(e) => setMf({ ...mf, email: e.target.value })} style={fld} /></label>
                 <label style={{ fontSize: 12, color: MUTED }}>Rolle
                   <select value={mf.role} onChange={(e) => setMf({ ...mf, role: e.target.value, staffId: "" })} style={fld}>
-                    <option value="supervisor">Leitung</option><option value="employee">Mitarbeitende</option><option value="planner">Schichtplaner</option>
+                    <option value="supervisor">Leitung</option><option value="employee">Mitarbeitende</option><option value="planner">Schichtplaner</option><option value="office">Büro (Touren)</option>
                   </select>
                 </label>
                 {(

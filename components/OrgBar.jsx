@@ -13,10 +13,10 @@ import Schulung from "./Schulung";
 import { loadReview } from "../lib/review";
 import ScanStamp from "./ScanStamp";
 import EmployeeTimes from "./EmployeeTimes";
-import { CalendarDays, PencilLine, Heart, Inbox, CheckCircle2, Users, Download, Upload, Clock, KeyRound, GraduationCap, LogOut, Timer } from "lucide-react";
+import { CalendarDays, PencilLine, Heart, Inbox, CheckCircle2, Users, Download, Upload, Clock, KeyRound, GraduationCap, LogOut, Timer, MapPin } from "lucide-react";
 import { tx, loc, monthName, wdLong, wdShort, dm, dmy, isoDmy, dec } from "../lib/i18n";
 
-const ROLE_LABEL = { owner: "Inhaber", supervisor: "Leitung", planner: "Schichtplaner", employee: "Mitarbeitende" };
+const ROLE_LABEL = { owner: "Inhaber", supervisor: "Leitung", planner: "Schichtplaner", employee: "Mitarbeitende", office: "Büro" };
 const PRODUCT_LABEL = { lab_planner: "Dienstplaner Labor", generic_planner: "Dienstplaner allgemein", employee_app: "Mitarbeiter-App" };
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const SAMPLE_NAME = /^Mitarbeiter \d+$/;
@@ -369,6 +369,7 @@ export default function OrgBar({ onLoadStaff, staffList, toDb, onIdsChanged, yea
         {item({ icon: Heart, label: tx("Wünsche"), onClick: () => setWishesOpen(true), badge: openWishes > 0 ? tx("{0} offen", openWishes) : null, tone: "alert" })}
         {hasApp && item({ icon: Inbox, label: tx("Anträge"), onClick: () => setReqOpen(true), badge: openReq || null, tone: "alert" })}
         {item({ icon: CheckCircle2, label: "Freigaben & Archiv", href: "/freigaben", badge: openJumps > 0 ? openJumps : null, tone: "warn", title: openJumps > 0 ? tx("{0} Einspringen offen", openJumps) : undefined })}
+        {isLeader && (org.products || []).includes("touren") && item({ icon: MapPin, label: "Touren", href: "/touren" })}
       </div>
       <div className="dg-group">
         <div className="dg-group-label">{tx("Team")}</div>
