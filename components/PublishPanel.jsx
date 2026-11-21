@@ -2,6 +2,7 @@
 
 import React, { useContext, useEffect, useRef, useState } from "react";
 import { OrgContext } from "../lib/orgContext";
+import { tx, loc, monthName, wdLong, wdShort, dm, dmy, isoDmy, dec } from "../lib/i18n";
 
 const MONTHS = ["Januar", "Februar", "März", "April", "Mai", "Juni", "Juli", "August", "September", "Oktober", "November", "Dezember"];
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -16,7 +17,7 @@ function parseTimes(t) {
 function friendly(e) {
   const msg = e && e.message ? e.message : String(e);
   if (/Could not find the function|schema cache|does not exist/i.test(msg)) {
-    return "Die Datenbank ist noch nicht vollständig umgestellt. Bitte die SQL-Dateien (approval-archive, edit-month, changes, corrections, normal-changes) der Reihe nach im SQL Editor ausführen.";
+    return tx("Die Datenbank ist noch nicht vollständig umgestellt. Bitte die SQL-Dateien (approval-archive, edit-month, changes, corrections, normal-changes) der Reihe nach im SQL Editor ausführen.");
   }
   return msg;
 }
@@ -79,17 +80,17 @@ export default function PublishPanel({ conflicts = 0, schedule, staffList, year,
   const notFromDb = staffList.filter((s) => !UUID.test(String(s.id)));
   const direct = org.role !== "planner" || org.requireApproval === false;
   const mainAction = direct ? "publish" : "submit";
-  const mainLabel = direct ? "Veröffentlichen" : "Zur Freigabe einreichen";
+  const mainLabel = direct ? tx("Veröffentlichen") : tx("Zur Freigabe einreichen");
   const hasPublished = !!(row && row.published_at); // employees already see a version of this month
   const days = org.shortNoticeDays ?? 7;
 
   // 1) shift kinds + 2) the whole draft month in one database call
   async function persistDraft() {
-    if (notFromDb.length) throw new Error("Einige Personen stammen nicht aus der Datenbank. Bitte oben „Personen in Datenbank speichern“ benutzen und den Plan neu erstellen.");
+    if (notFromDb.length) throw new Error(tx("Einige Personen stammen nicht aus der Datenbank. Bitte oben „Personen in Datenbank speichern“ benutzen und den Plan neu erstellen."));
     const times = {};
     for (const s of shiftList) {
       const t = parseTimes(s.time);
-      if (!t) throw new Error(`Die Zeit der Schicht „${s.label}“ ist nicht lesbar (${s.time}).`);
+      if (!t) throw new Error(tx("Die Zeit der Schicht „{0}“ ist nicht lesbar ({1}).", s.label, s.time));
       times[s.key] = t;
     }
     const sb = org.supabase;
@@ -121,7 +122,7 @@ export default function PublishPanel({ conflicts = 0, schedule, staffList, year,
         }
       }
     }
-    if (!rows.length) throw new Error("Der Plan enthält keine Schichten.");
+    if (!rows.length) throw new Error(tx("Der Plan enthält keine Schichten."));
     r = await sb.rpc("save_draft", { p_org: org.orgId, p_year: year, p_month: month, p_shifts: rows, p_holidays: holidays || [] });
     if (r.error) throw r.error;
     return rows.length;
@@ -132,20 +133,20 @@ export default function PublishPanel({ conflicts = 0, schedule, staffList, year,
     setDialog(null); setPhase("working"); setInfo("");
     const savedDays = schedule.days; // exactly what is written below
     try {
-      setInfo("Speichern …");
+      setInfo(tx("Speichern …"));
       const n = await persistDraft();
-      let done = `Zwischengespeichert (${n} Schichten für ${MONTHS[monthIdx]} ${year}). Mitarbeitende sehen noch nichts davon.`;
+      let done = tx("Zwischengespeichert ({0} Schichten für {1} {2}). Mitarbeitende sehen noch nichts davon.", n, monthName(monthIdx), year);
       const note = (opts.reason || "").trim() || null;
       if (kind === "submit") {
-        setInfo("Einreichen …");
+        setInfo(tx("Einreichen …"));
         const r = await org.supabase.rpc("submit_month", { p_org: org.orgId, p_year: year, p_month: month, p_note: note, p_normal: !!opts.normal });
         if (r.error) throw r.error;
-        done = `Zur Freigabe eingereicht (${n} Schichten). Die Leitung kann den Plan unter „Freigaben & Archiv“ prüfen.`;
+        done = tx("Zur Freigabe eingereicht ({0} Schichten). Die Leitung kann den Plan unter „Freigaben & Archiv“ prüfen.", n);
       } else if (kind === "publish") {
-        setInfo("Veröffentlichen …");
+        setInfo(tx("Veröffentlichen …"));
         const r = await org.supabase.rpc("publish_month", { p_org: org.orgId, p_year: year, p_month: month, p_note: note, p_normal: !!opts.normal });
         if (r.error) throw r.error;
-        done = `${n} Schichten für ${MONTHS[monthIdx]} ${year} veröffentlicht.`;
+        done = tx("{0} Schichten für {1} {2} veröffentlicht.", n, monthName(monthIdx), year);
       }
       setPhase("done"); setInfo(done); setReason(""); setTick((t) => t + 1); if (onSaved) onSaved(savedDays); window.dispatchEvent(new Event("schedule-status-changed"));
     } catch (e) {
@@ -159,81 +160,78 @@ export default function PublishPanel({ conflicts = 0, schedule, staffList, year,
   const replacing = hasPublished && !editMode;
   function startMain() {
     // conflicts in the plan (red box): planned despite Urlaub / krank / Wunsch „Frei“ / befreit / doppelt – ask once before showing it to everyone
-    if (conflicts > 0 && !window.confirm(`${conflicts} ${conflicts === 1 ? "Konflikt" : "Konflikte"} im Plan (rot markiert): eingeteilt trotz Urlaub, Krankheit, Wunsch oder Befreiung.\n\nOK = trotzdem fortfahren\nAbbrechen = zurück und zuerst ändern`)) return;
+    if (conflicts > 0 && !window.confirm(tx("{0} {1} im Plan (rot markiert): eingeteilt trotz Urlaub, Krankheit, Wunsch oder Befreiung.\n\nOK = trotzdem fortfahren\nAbbrechen = zurück und zuerst ändern", conflicts, conflicts === 1 ? tx("Konflikt") : tx("Konflikte")))) return;
     setReason(""); setDialog({ step: hasPublished && editMode ? "choose" : "confirm", action: mainAction }); }
   const status = row ? row.status : null;
-  const chip = !status ? { t: "Noch nicht gespeichert", c: "bg-slate-100 text-slate-600" }
-    : status === "pending" ? { t: "Wartet auf Freigabe durch die Leitung", c: "bg-amber-100 text-amber-800" }
-    : status === "published" ? { t: row.has_newer_draft ? "Veröffentlicht · neuerer Entwurf noch nicht veröffentlicht" : "Veröffentlicht", c: "bg-emerald-100 text-emerald-800" }
-    : { t: "Entwurf", c: "bg-slate-100 text-slate-700" };
+  const chip = !status ? { t: tx("Noch nicht gespeichert"), c: "bg-slate-100 text-slate-600" }
+    : status === "pending" ? { t: tx("Wartet auf Freigabe durch die Leitung"), c: "bg-amber-100 text-amber-800" }
+    : status === "published" ? { t: row.has_newer_draft ? tx("Veröffentlicht · neuerer Entwurf noch nicht veröffentlicht") : tx("Veröffentlicht"), c: "bg-emerald-100 text-emerald-800" }
+    : { t: tx("Entwurf"), c: "bg-slate-100 text-slate-700" };
   const busy = phase === "working";
-  const confirmWord = dialog && dialog.action === "submit" ? "Einreichen" : "Veröffentlichen";
+  const confirmWord = dialog && dialog.action === "submit" ? tx("Einreichen") : tx("Veröffentlichen");
 
   return (
     <div className="mx-4 mt-3 rounded-xl border border-indigo-200 bg-indigo-50 p-3 text-xs text-indigo-900">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex flex-wrap items-center gap-2">
-          <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${chip.c}`}>{MONTHS[monthIdx]} {year}: {chip.t}</span>
-          <a href="/freigaben" className="text-indigo-700 underline">Freigaben &amp; Archiv</a>
+          <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${chip.c}`}>{monthName(monthIdx)} {year}: {chip.t}</span>
+          <a href="/freigaben" className="text-indigo-700 underline">{tx("Freigaben & Archiv")}</a>
         </div>
         <div className="flex flex-wrap gap-2">
-          <button onClick={() => run("draft")} disabled={busy} title="Sichert den Plan nur für dich. Mitarbeitende sehen ihn erst nach „Veröffentlichen“." className="rounded-lg border border-indigo-300 bg-white px-3 py-1.5 text-xs font-semibold text-indigo-700 hover:bg-indigo-100 disabled:opacity-60">Zwischenspeichern</button>
+          <button onClick={() => run("draft")} disabled={busy} title={tx("Sichert den Plan nur für dich. Mitarbeitende sehen ihn erst nach „Veröffentlichen“.")} className="rounded-lg border border-indigo-300 bg-white px-3 py-1.5 text-xs font-semibold text-indigo-700 hover:bg-indigo-100 disabled:opacity-60">{tx("Zwischenspeichern")}</button>
           <button onClick={startMain} disabled={busy} className="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700 disabled:opacity-60">{mainLabel}</button>
         </div>
       </div>
       {unsaved ? (
-        <div role="status" className="mt-2 rounded-lg border border-amber-300 bg-amber-50 px-2.5 py-1.5 text-[12px] font-semibold text-amber-900">
-          ● Nicht gespeicherte Änderungen (nur Entwurf in diesem Browser). Mitarbeitende sehen weiterhin {hasPublished ? "die veröffentlichte Fassung" : "nichts von diesem Plan"}.
-          <span className="font-normal"> „Zwischenspeichern“ sichert den Entwurf, „{mainLabel}“ macht ihn sichtbar, „Alle Änderungen verwerfen“ stellt alles wieder her wie vorher. Wer die Seite schließt, verliert die Änderungen.</span>
+        <div role="status" className="mt-2 rounded-lg border border-amber-300 bg-amber-50 px-2.5 py-1.5 text-[12px] font-semibold text-amber-900">{tx("● Nicht gespeicherte Änderungen (nur Entwurf in diesem Browser). Mitarbeitende sehen weiterhin ")}{hasPublished ? tx("die veröffentlichte Fassung") : tx("nichts von diesem Plan")}.
+          <span className="font-normal">{tx(" „Zwischenspeichern“ sichert den Entwurf, „")}{mainLabel}{tx("“ macht ihn sichtbar, „Alle Änderungen verwerfen“ stellt alles wieder her wie vorher. Wer die Seite schließt, verliert die Änderungen.")}</span>
         </div>
       ) : row && hasPublished && (row.has_newer_draft || status === "pending") ? (
-        <div className="mt-2 rounded-lg border border-indigo-200 bg-white px-2.5 py-1.5 text-[12px] text-indigo-800">✓ Entwurf gespeichert{status === "pending" ? " und eingereicht" : ""}. Mitarbeitende sehen noch die veröffentlichte Fassung.</div>
+        <div className="mt-2 rounded-lg border border-indigo-200 bg-white px-2.5 py-1.5 text-[12px] text-indigo-800">{tx("✓ Entwurf gespeichert")}{status === "pending" ? tx(" und eingereicht") : ""}{tx(". Mitarbeitende sehen noch die veröffentlichte Fassung.")}</div>
       ) : null}
-      <div className="mt-1.5 text-[11px] text-indigo-600">Zwischenspeichern sichert den Plan nur für dich. Mitarbeitende sehen ihn erst nach „{mainLabel}“{direct ? "" : " und der Freigabe"}.</div>
+      <div className="mt-1.5 text-[11px] text-indigo-600">{tx("Zwischenspeichern sichert den Plan nur für dich. Mitarbeitende sehen ihn erst nach „")}{mainLabel}“{direct ? "" : tx(" und der Freigabe")}.</div>
       {changeCount !== null && changeCount !== undefined && (
         <div className={`mt-1.5 text-[11px] ${changeCount > 0 ? "font-semibold text-amber-800" : "text-indigo-600"}`}>
-          {changeCount === 0 ? "Keine Änderung gegenüber der veröffentlichten Fassung." : `Gegenüber der veröffentlichten Fassung: ${changeCount} ${changeCount === 1 ? "Änderung" : "Änderungen"} (im Plan gelb markiert).`}
-          {changeCount > 15 && <span className="font-normal"> Das sind viele. Wurde der Plan neu erstellt? Für einzelne Korrekturen (z. B. Krankheit) besser „Plan bearbeiten“ und „Plan laden“ benutzen, dann bleibt der Rest unverändert.</span>}
+          {changeCount === 0 ? tx("Keine Änderung gegenüber der veröffentlichten Fassung.") : tx("Gegenüber der veröffentlichten Fassung: {0} {1} (im Plan gelb markiert).", changeCount, changeCount === 1 ? tx("Änderung") : tx("Änderungen"))}
+          {changeCount > 15 && <span className="font-normal">{tx(" Das sind viele. Wurde der Plan neu erstellt? Für einzelne Korrekturen (z. B. Krankheit) besser „Plan bearbeiten“ und „Plan laden“ benutzen, dann bleibt der Rest unverändert.")}</span>}
         </div>
       )}
       {notFromDb.length > 0 && phase === "idle" && (
-        <div className="mt-2 text-amber-800">Hinweis: {notFromDb.length} Person(en) sind noch nicht in der Datenbank. Zuerst „Personen in Datenbank speichern“.</div>
+        <div className="mt-2 text-amber-800">{tx("Hinweis: ")}{notFromDb.length}{tx(" Person(en) sind noch nicht in der Datenbank. Zuerst „Personen in Datenbank speichern“.")}</div>
       )}
-      {info && <div className={`mt-2 ${phase === "error" ? "font-medium text-rose-700" : phase === "done" ? "font-medium text-emerald-700" : "text-indigo-700"}`}>{info}</div>}
+      {info && <div className={`mt-2 ${phase === "error" ? "font-medium text-rose-700" : phase === "done" ? "font-medium text-emerald-700" : "text-indigo-700"}`}>{tx(info)}</div>}
 
       {dialog && dialog.step === "confirm" && (
-        <Dialog title={replacing ? "Veröffentlichte Fassung ersetzen?" : dialog.action === "submit" ? "Plan zur Freigabe einreichen?" : "Plan veröffentlichen?"} onClose={() => setDialog(null)}
+        <Dialog title={replacing ? tx("Veröffentlichte Fassung ersetzen?") : dialog.action === "submit" ? tx("Plan zur Freigabe einreichen?") : tx("Plan veröffentlichen?")} onClose={() => setDialog(null)}
           actions={<>
             <button className={primary} onClick={() => run(dialog.action, { normal: replacing })}>{confirmWord}</button>
-            <button className={ghost} onClick={() => setDialog(null)}>Abbrechen</button>
+            <button className={ghost} onClick={() => setDialog(null)}>{tx("Abbrechen")}</button>
           </>}>
           {replacing
-            ? `Für ${MONTHS[monthIdx]} ${year} gibt es schon eine veröffentlichte Fassung. Der neue Plan ersetzt sie${changeCount ? ` (${changeCount} Änderungen)` : ""}, die Mitarbeitenden sehen danach die neue Version. Das zählt als normale Planänderung, nicht als Einspringen. Für einzelne Korrekturen (z. B. Krankheit) besser „Plan bearbeiten“ benutzen.${dialog.action === "submit" ? " Sie sehen sie erst nach der Freigabe." : ""}`
+            ? tx("Für {0} {1} gibt es schon eine veröffentlichte Fassung. Der neue Plan ersetzt sie{2}, die Mitarbeitenden sehen danach die neue Version. Das zählt als normale Planänderung, nicht als Einspringen. Für einzelne Korrekturen (z. B. Krankheit) besser „Plan bearbeiten“ benutzen.{3}", monthName(monthIdx), year, changeCount ? tx(" ({0} Änderungen)", changeCount) : "", dialog.action === "submit" ? tx(" Sie sehen sie erst nach der Freigabe.") : "")
             : dialog.action === "submit"
-              ? `Die Leitung prüft den Plan für ${MONTHS[monthIdx]} ${year}. Mitarbeitende sehen ihn erst nach der Freigabe.`
-              : `Mitarbeitende von „${org.orgName}“ sehen den Plan für ${MONTHS[monthIdx]} ${year} danach in ihrer App.`}
+              ? tx("Die Leitung prüft den Plan für {0} {1}. Mitarbeitende sehen ihn erst nach der Freigabe.", monthName(monthIdx), year)
+              : tx("Mitarbeitende von „{0}“ sehen den Plan für {1} {2} danach in ihrer App.", org.orgName, monthName(monthIdx), year)}
         </Dialog>
       )}
       {dialog && dialog.step === "choose" && (
-        <Dialog title="Was für eine Änderung ist das?" onClose={() => setDialog(null)}
+        <Dialog title={tx("Was für eine Änderung ist das?")} onClose={() => setDialog(null)}
           actions={<>
-            <button className={primary} onClick={() => setDialog({ ...dialog, step: "reason" })}>Einspringen / kurzfristig (z. B. Krankheit)</button>
-            <button className={secondary} onClick={() => run(dialog.action, { normal: true })}>Normale Planänderung (kein Einspringen)</button>
-            <button className={ghost} onClick={() => setDialog(null)}>Abbrechen</button>
-          </>}>
-          Die Mitarbeitenden sehen diesen Monat schon. Wer eine Schicht kurzfristig übernimmt, wird der Leitung als „Einspringen“ angezeigt. Änderungen, die mehr als {days} Tage vor der Schicht liegen, zählen automatisch als normale Planänderung.
-        </Dialog>
+            <button className={primary} onClick={() => setDialog({ ...dialog, step: "reason" })}>{tx("Einspringen / kurzfristig (z. B. Krankheit)")}</button>
+            <button className={secondary} onClick={() => run(dialog.action, { normal: true })}>{tx("Normale Planänderung (kein Einspringen)")}</button>
+            <button className={ghost} onClick={() => setDialog(null)}>{tx("Abbrechen")}</button>
+          </>}>{tx("Die Mitarbeitenden sehen diesen Monat schon. Wer eine Schicht kurzfristig übernimmt, wird der Leitung als „Einspringen“ angezeigt. Änderungen, die mehr als ")}{days}{tx(" Tage vor der Schicht liegen, zählen automatisch als normale Planänderung.")}</Dialog>
       )}
       {dialog && dialog.step === "reason" && (
-        <Dialog title="Grund für das Einspringen" onClose={() => setDialog(null)}
+        <Dialog title={tx("Grund für das Einspringen")} onClose={() => setDialog(null)}
           actions={<>
             <button className={primary} disabled={!reason.trim()} onClick={() => run(dialog.action, { reason })}>{confirmWord}</button>
-            <button className={ghost} onClick={() => setDialog({ ...dialog, step: "choose" })}>Zurück</button>
+            <button className={ghost} onClick={() => setDialog({ ...dialog, step: "choose" })}>{tx("Zurück")}</button>
           </>}>
-          <input autoFocus value={reason} onChange={(e) => setReason(e.target.value)} maxLength={200} placeholder="z. B. Krankheit Anna 12.–15."
+          <input autoFocus value={reason} onChange={(e) => setReason(e.target.value)} maxLength={200} placeholder={tx("z. B. Krankheit Anna 12.–15.")}
             onKeyDown={(e) => { if (e.key === "Enter" && reason.trim()) run(dialog.action, { reason }); }}
             className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-800" />
-          <div className="mt-1 text-[11px] text-slate-500">Der Grund ist nur für Leitung und Inhaber sichtbar, nicht für Mitarbeitende.</div>
+          <div className="mt-1 text-[11px] text-slate-500">{tx("Der Grund ist nur für Leitung und Inhaber sichtbar, nicht für Mitarbeitende.")}</div>
         </Dialog>
       )}
     </div>

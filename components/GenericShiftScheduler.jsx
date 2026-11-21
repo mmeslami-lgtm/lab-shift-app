@@ -2,6 +2,7 @@
 
 import React, { useState, useMemo, useRef, useEffect } from "react";
 import { OrgContext } from "../lib/orgContext";
+import { tx, loc, monthName, wdShort, wdLong, dm, dmy, isoDmy, dec, getLang } from "../lib/i18n";
 import { holidaysOf } from "../lib/timesheet";
 import { overtimeMode, payoutMinutesByMonth, planCarryHours } from "../lib/overtime";
 import OrgBar from "./OrgBar";
@@ -37,8 +38,8 @@ class ErrorBoundary extends React.Component {
       return (
         <div dir="ltr" style={{ fontFamily: "system-ui, -apple-system, Segoe UI, sans-serif" }} className="min-h-screen bg-slate-50 flex items-center justify-center p-6">
           <div className="max-w-lg w-full bg-white border border-rose-200 rounded-2xl p-5">
-            <h2 className="text-rose-800 font-semibold text-sm mb-2">Es ist ein Fehler aufgetreten</h2>
-            <p className="text-xs text-slate-600 mb-3">Bitte diese Meldung weitergeben, damit sie behoben werden kann.</p>
+            <h2 className="text-rose-800 font-semibold text-sm mb-2">{tx("Es ist ein Fehler aufgetreten")}</h2>
+            <p className="text-xs text-slate-600 mb-3">{tx("Bitte diese Meldung weitergeben, damit sie behoben werden kann.")}</p>
             <pre className="text-[11px] font-mono whitespace-pre-wrap bg-rose-50 border border-rose-100 rounded-lg p-3 text-rose-800 max-h-64 overflow-auto">
               {this.state.error.message}
               {"\n\n"}
@@ -47,9 +48,7 @@ class ErrorBoundary extends React.Component {
             <button
               onClick={() => this.setState({ error: null })}
               className="mt-3 text-xs bg-teal-600 hover:bg-teal-700 text-white rounded-lg px-3 py-1.5"
-            >
-              Erneut versuchen
-            </button>
+            >{tx("Erneut versuchen")}</button>
           </div>
         </div>
       );
@@ -153,7 +152,7 @@ function generateSchedule(staffList, year, monthIdx, holidaySet, shiftHours, shi
   const nameOf = (id) => staffList.find((s) => s.id === id)?.name || id;
   const labelOf = (key) => shiftLabels[key] || key;
 
-  if (ids.length === 0) return { days, hours, satCount, sunCount, targetOf, warnings: ["Keine Mitarbeiter eingetragen."], notes };
+  if (ids.length === 0) return { days, hours, satCount, sunCount, targetOf, warnings: [tx("Keine Mitarbeiter eingetragen.")], notes };
 
   const fullTimeSet = new Set(staffList.filter((s) => (s.weeklyHours || 38.5) >= 35).map((s) => s.id));
   const FULLTIME_OVERTIME_CEILING = 190;
@@ -173,7 +172,7 @@ function generateSchedule(staffList, year, monthIdx, holidaySet, shiftHours, shi
     if (wDay && (wDay.isHoliday || wDay.isWeekend) && dailyKeys.includes(w.shiftType)) { droppedWishCount++; return; }
     validWishes.push(w);
   });
-  if (droppedWishCount > 0) notes.push(`${droppedWishCount} Schichtwunsch/-wünsche wurden wegen Urlaub/Krankheit oder Feiertagsregel ignoriert`);
+  if (droppedWishCount > 0) notes.push(tx("{0} Schichtwunsch/-wünsche wurden wegen Urlaub/Krankheit oder Feiertagsregel ignoriert", droppedWishCount));
 
   const nonRestWishes = validWishes.filter((w) => !restKeys.has(w.shiftType));
   nonRestWishes.forEach((w) => {
@@ -181,7 +180,7 @@ function generateSchedule(staffList, year, monthIdx, holidaySet, shiftHours, shi
     const desired = Math.max(1, perShiftCount[w.shiftType] || 1);
     if (day.shifts[w.shiftType].includes(w.staffId)) return;
     if (day.shifts[w.shiftType].length >= desired) {
-      notes.push(`Tag ${w.day}: Wunsch von ${nameOf(w.staffId)} für ${labelOf(w.shiftType)} konnte nicht berücksichtigt werden (Schicht bereits voll)`);
+      notes.push(tx("Tag {0}: Wunsch von {1} für {2} konnte nicht berücksichtigt werden (Schicht bereits voll)", w.day, nameOf(w.staffId), labelOf(w.shiftType)));
       return;
     }
     day.shifts[w.shiftType].push(w.staffId);
@@ -198,7 +197,7 @@ function generateSchedule(staffList, year, monthIdx, holidaySet, shiftHours, shi
     tailStreak[id] = st;
     if (st >= MAX_CONSECUTIVE_WORKDAYS) {
       forcedRest[id].add(0); if (total > 1) forcedRest[id].add(1);
-      notes.push(`Monatswechsel: ${nameOf(id)} hatte am Monatsende ${st} Arbeitstage in Folge → Tag 1 und 2 frei`);
+      notes.push(tx("Monatswechsel: {0} hatte am Monatsende {1} Arbeitstage in Folge → Tag 1 und 2 frei", nameOf(id), st));
     } else consecutiveWorkDays[id] = st;
   });
 
@@ -216,7 +215,7 @@ function generateSchedule(staffList, year, monthIdx, holidaySet, shiftHours, shi
     const of_ = Array.from({ length: total }, () => []);
     const usedToday = Array.from({ length: total }, () => new Set());
     let pool = staffList.filter((s) => !s.nightExempt).map((s) => s.id);
-    if (pool.length === 0) { pool = [...ids]; if (ids.length > 0) warnings.push(`Alle Mitarbeiter waren von „${labelOf(RKEY)}“ befreit; diese Einschränkung wurde ignoriert, um die Schicht zu besetzen`); }
+    if (pool.length === 0) { pool = [...ids]; if (ids.length > 0) warnings.push(tx("Alle Mitarbeiter waren von „{0}“ befreit; diese Einschränkung wurde ignoriert, um die Schicht zu besetzen", labelOf(RKEY))); }
 
     function capForDay(dIdx) {
       const day = days[dIdx];
@@ -244,12 +243,12 @@ function generateSchedule(staffList, year, monthIdx, holidaySet, shiftHours, shi
         for (let d = cont; d <= cont + 1 && d < total; d++) forcedRest[id].add(d);
         for (let d = cont; d <= cont + 1 + REST_COOLDOWN_EXTRA_DAYS && d < total; d++) restCooldown[id].add(d);
         notes.push(cont > 0
-          ? `Monatswechsel: ${nameOf(id)} setzt „${labelOf(RKEY)}“ aus dem Vormonat fort (${k} + ${cont} = ${k + cont}, bis Tag ${cont}), danach 2 Tage frei`
-          : `Monatswechsel: ${nameOf(id)} hatte bis Monatsende „${labelOf(RKEY)}“ (${k}) → Tag 1 und 2 frei`);
+          ? tx("Monatswechsel: {0} setzt „{1}“ aus dem Vormonat fort ({2} + {3} = {4}, bis Tag {5}), danach 2 Tage frei", nameOf(id), labelOf(RKEY), k, cont, k + cont, cont)
+          : tx("Monatswechsel: {0} hatte bis Monatsende „{1}“ ({2}) → Tag 1 und 2 frei", nameOf(id), labelOf(RKEY), k));
       } else if (tailKey(tail, id, 2) === RKEY && !restKeys.has(tailKey(tail, id, 1))) {
         forcedRest[id].add(0);
         for (let d = 0; d <= REST_COOLDOWN_EXTRA_DAYS && d < total; d++) restCooldown[id].add(d);
-        notes.push(`Monatswechsel: ${nameOf(id)} – Tag 1 ist der 2. freie Tag nach „${labelOf(RKEY)}“`);
+        notes.push(tx("Monatswechsel: {0} – Tag 1 ist der 2. freie Tag nach „{1}“", nameOf(id), labelOf(RKEY)));
       }
     });
 
@@ -271,7 +270,7 @@ function generateSchedule(staffList, year, monthIdx, holidaySet, shiftHours, shi
           if (wd === 0) sunCount[staffId]++;
         }
         const runLen = j - i + 1;
-        if (runLen < 2 || runLen > 4) notes.push(`${nameOf(staffId)}: Wunsch für „${labelOf(RKEY)}“ über ${runLen} Tag(e) (Tag ${sorted[i]} bis ${sorted[j]}) weicht von der üblichen 2-4-Tage-Blocklänge ab`);
+        if (runLen < 2 || runLen > 4) notes.push(tx("{0}: Wunsch für „{1}“ über {2} Tag(e) (Tag {3} bis {4}) weicht von der üblichen 2-4-Tage-Blocklänge ab", nameOf(staffId), labelOf(RKEY), runLen, sorted[i], sorted[j]));
         const lastDay = sorted[j];
         for (let d = lastDay; d <= lastDay + 1 && d < total; d++) forcedRest[staffId].add(d);
         for (let d = lastDay; d <= lastDay + 1 + REST_COOLDOWN_EXTRA_DAYS && d < total; d++) restCooldown[staffId].add(d);
@@ -347,18 +346,18 @@ function generateSchedule(staffList, year, monthIdx, holidaySet, shiftHours, shi
         let { best, bestFeasibleLen, fallback, fallbackFeasibleLen } = searchCandidate((c) => targetOf[c], false, true);
         if (best === null && fallback === null) {
           ({ best, bestFeasibleLen, fallback, fallbackFeasibleLen } = searchCandidate((c) => targetOf[c], false, false));
-          if (best !== null || fallback !== null) notes.push(`Tag ${dayIdx + 1}: „${labelOf(RKEY)}“ – mehr als der faire Anteil, weil sonst niemand verfügbar war`);
+          if (best !== null || fallback !== null) notes.push(tx("Tag {0}: „{1}“ – mehr als der faire Anteil, weil sonst niemand verfügbar war", dayIdx + 1, labelOf(RKEY)));
         }
         if (best === null && fallback === null) {
           let r = searchCandidate((c) => hardCapFor(c), true, false);
           if (r.best === null && r.fallback === null) r = searchCandidate((c) => hardCapFor(c), false, false);
           ({ best, bestFeasibleLen, fallback, fallbackFeasibleLen } = r);
-          if (best !== null || fallback !== null) warnings.push(`Tag ${dayIdx + 1}: persönliches Stundenziel für „${labelOf(RKEY)}“ überschritten, da niemand anders verfügbar war`);
+          if (best !== null || fallback !== null) warnings.push(tx("Tag {0}: persönliches Stundenziel für „{1}“ überschritten, da niemand anders verfügbar war", dayIdx + 1, labelOf(RKEY)));
         }
         const candidate = best !== null ? best : fallback;
         const feasibleLen = best !== null ? bestFeasibleLen : fallbackFeasibleLen;
         if (candidate === null || feasibleLen === 0) {
-          warnings.push(`Tag ${dayIdx + 1}: Keine verfügbare Person für „${labelOf(RKEY)}“ gefunden`);
+          warnings.push(tx("Tag {0}: Keine verfügbare Person für „{1}“ gefunden", dayIdx + 1, labelOf(RKEY)));
           dayIdx += 1;
           continue;
         }
@@ -370,7 +369,7 @@ function generateSchedule(staffList, year, monthIdx, holidaySet, shiftHours, shi
         else desiredLen = r2 < 0.33 ? 2 : r2 < 0.66 ? 3 : 4;
         let blockLen = Math.max(1, Math.min(desiredLen, feasibleLen, total - dayIdx));
         if (blockLen === 4 && days[dayIdx + 3] && days[dayIdx + 3].weekday === 6) blockLen = 3; // Saturday + Sunday stay together
-        if (blockLen < 2) notes.push(`Tag ${dayIdx + 1}: Block für „${labelOf(RKEY)}“ wurde auf 1 Tag begrenzt (wegen Urlaub/anstehender Einschränkung)`);
+        if (blockLen < 2) notes.push(tx("Tag {0}: Block für „{1}“ wurde auf 1 Tag begrenzt (wegen Urlaub/anstehender Einschränkung)", dayIdx + 1, labelOf(RKEY)));
         for (let d = dayIdx; d < dayIdx + blockLen; d++) {
           of_[d].push(candidate);
           usedToday[d].add(candidate);
@@ -414,7 +413,7 @@ function generateSchedule(staffList, year, monthIdx, holidaySet, shiftHours, shi
                 if (idx !== -1) {
                   arr.splice(idx, 1);
                   hours[s.id] -= shiftHours[OKEY];
-                  warnings.push(`Tag ${k + 1}: ${nameOf(s.id)} wurde aus „${labelOf(OKEY)}“ entfernt, da die Ruhezeit nach „${labelOf(RKEY)}“ sonst verletzt worden wäre`);
+                  warnings.push(tx("Tag {0}: {1} wurde aus „{2}“ entfernt, da die Ruhezeit nach „{3}“ sonst verletzt worden wäre", k + 1, nameOf(s.id), labelOf(OKEY), labelOf(RKEY)));
                 }
               });
             }
@@ -514,7 +513,7 @@ function generateSchedule(staffList, year, monthIdx, holidaySet, shiftHours, shi
           if (day.weekday === 6) satCount[person]++;
           if (day.weekday === 0) sunCount[person]++;
         } else {
-          notes.push(`Tag ${d + 1}: ${labelOf(qd.key)} konnte an diesem geplanten Tag nicht besetzt werden`);
+          notes.push(tx("Tag {0}: {1} konnte an diesem geplanten Tag nicht besetzt werden", d + 1, labelOf(qd.key)));
         }
       } else if (day.shifts[qd.key].length > 0) {
         day.shifts[qd.key].forEach((id) => shiftCount[id]++);
@@ -553,13 +552,13 @@ function generateSchedule(staffList, year, monthIdx, holidaySet, shiftHours, shi
         let relaxedNote = null;
         if (pool.length === 0 && k < minRequired) {
           pool = ids.filter((id) => !todayAssigned.has(id) && !forcedRest[id].has(d) && !isOnLeave(id, day.day) && hours[id] + shiftHours[shiftType] <= targetOf[id]);
-          if (pool.length > 0) relaxedNote = "Die Regel „nach Spätdienst kein Frühdienst am nächsten Tag\u201c wurde ignoriert";
+          if (pool.length > 0) relaxedNote = tx("Die Regel „nach Spätdienst kein Frühdienst am nächsten Tag“ wurde ignoriert");
         }
         if (pool.length === 0 && k < minRequired) {
           const overTargetPool = ids.filter((id) => !todayAssigned.has(id) && !forcedRest[id].has(d) && !isOnLeave(id, day.day) && hours[id] + shiftHours[shiftType] <= hardCapFor(id));
           const fullTimeFirst = overTargetPool.filter((id) => fullTimeSet.has(id));
           pool = fullTimeFirst.length > 0 ? fullTimeFirst : overTargetPool;
-          if (pool.length > 0) relaxedNote = "Das persönliche Stundenziel wurde überschritten (nur bei Vollzeit-Personal), da niemand anders verfügbar war";
+          if (pool.length > 0) relaxedNote = tx("Das persönliche Stundenziel wurde überschritten (nur bei Vollzeit-Personal), da niemand anders verfügbar war");
         }
         // Still short of the wanted number of people: full-time staff may go above their target, up to
         // the full-time ceiling (190 h) — otherwise the LAST days of the month stay short-staffed when the
@@ -581,7 +580,7 @@ function generateSchedule(staffList, year, monthIdx, holidaySet, shiftHours, shi
           if (sunOk.length > 0) pool = sunOk;
         }
         const chosen = pickBest(pool, day);
-        if (relaxedNote) warnings.push(`Tag ${d + 1} (${labelOf(shiftType)}): ${relaxedNote}`);
+        if (relaxedNote) warnings.push(tx("Tag {0} ({1}): {2}", d + 1, labelOf(shiftType), relaxedNote));
         day.shifts[shiftType].push(chosen);
         todayAssigned.add(chosen);
         hours[chosen] += shiftHours[shiftType];
@@ -591,9 +590,9 @@ function generateSchedule(staffList, year, monthIdx, holidaySet, shiftHours, shi
         filled++;
       }
       if (filled < minRequired) {
-        warnings.push(`Tag ${d + 1}: Schicht ${labelOf(shiftType)} war unbesetzt (starker Personalmangel)`);
+        warnings.push(tx("Tag {0}: Schicht {1} war unbesetzt (starker Personalmangel)", d + 1, labelOf(shiftType)));
       } else if (filled < desired) {
-        notes.push(`Tag ${d + 1}: ${labelOf(shiftType)} wurde mit ${filled} statt ${desired} Personen besetzt (Personalmangel/Urlaub)`);
+        notes.push(tx("Tag {0}: {1} wurde mit {2} statt {3} Personen besetzt (Personalmangel/Urlaub)", d + 1, labelOf(shiftType), filled, desired));
       }
       if (day.weekday === 6 && day.shifts[shiftType].length > 0) {
         weekendPairPick[shiftType] = day.shifts[shiftType][0];
@@ -615,7 +614,7 @@ function generateSchedule(staffList, year, monthIdx, holidaySet, shiftHours, shi
     }
   }
 
-  if (overtimeSlots > 0) notes.push(`${overtimeSlots} Schicht(en) wurden mit Überstunden besetzt, weil die Vertragsstunden für die gewünschte Besetzung nicht ganz reichen. Sie stehen in der Zusammenfassung unter „Differenz“ und werden nach „Monat abschließen“ im nächsten Monat ausgeglichen.`);
+  if (overtimeSlots > 0) notes.push(tx("{0} Schicht(en) wurden mit Überstunden besetzt, weil die Vertragsstunden für die gewünschte Besetzung nicht ganz reichen. Sie stehen in der Zusammenfassung unter „Differenz“ und werden nach „Monat abschließen“ im nächsten Monat ausgeglichen.", overtimeSlots));
   return { days, hours, satCount, sunCount, targetOf, warnings, notes };
 }
 
@@ -671,20 +670,20 @@ function computeStatsAndWarnings(days, staffList, leaveMap, shiftHours, allKeys,
   const openSun = days.filter((d) => d.weekday === 0 && !closedSet.has(d.day)).length;
   staffList.forEach((s) => {
     if (s.weekendExempt || openSat < 2 || openSun < 2) return; // weekend rule only when the company is open on weekends
-    if (satCount[s.id] < 2) warnings.push(`${s.name}: weniger als 2 Samstage gearbeitet (${satCount[s.id]})`);
-    if (sunCount[s.id] < 2) warnings.push(`${s.name}: weniger als 2 Sonntage gearbeitet (${sunCount[s.id]})`);
+    if (satCount[s.id] < 2) warnings.push(tx("{0}: weniger als 2 Samstage gearbeitet ({1})", s.name, satCount[s.id]));
+    if (sunCount[s.id] < 2) warnings.push(tx("{0}: weniger als 2 Sonntage gearbeitet ({1})", s.name, sunCount[s.id]));
   });
   staffList.forEach((s) => {
     const t = targetOf[s.id];
     const dev = t > 0 ? Math.abs(hours[s.id] - t) / t : 0;
-    if (dev > 0.15) warnings.push(`${s.name}: große Abweichung vom Stundenziel (${hours[s.id].toFixed(1)} von ${t.toFixed(1)} Std.)`);
+    if (dev > 0.15) warnings.push(tx("{0}: große Abweichung vom Stundenziel ({1} von {2} Std.)", s.name, hours[s.id].toFixed(1), t.toFixed(1)));
   });
   for (let d = 0; d < days.length; d++) {
     const prevS = new Set(d > 0 ? days[d - 1].shifts.S || [] : (tail.length && tail[tail.length - 1].shifts.S) || []);
     (days[d].shifts.F || []).forEach((id) => {
       if (prevS.has(id)) {
         const name = staffList.find((s) => s.id === id)?.name || id;
-        warnings.push(`Tag ${days[d].day}: ${name} hat nach dem Spätdienst am Vortag einen Frühdienst`);
+        warnings.push(tx("Tag {0}: {1} hat nach dem Spätdienst am Vortag einen Frühdienst", days[d].day, name));
       }
     });
   }
@@ -694,7 +693,7 @@ function computeStatsAndWarnings(days, staffList, leaveMap, shiftHours, allKeys,
         const endBack = tailKey(tail, s.id, 1) === RKEY ? 1 : tailKey(tail, s.id, 2) === RKEY ? 2 : 0; // block ended 1 or 2 days before day 1
         if (endBack) {
           const bad = [0, 1].slice(0, 3 - endBack).filter((k) => k < days.length && allKeys.some((st) => (days[k].shifts[st] || []).includes(s.id)));
-          if (bad.length) warnings.push(`${s.name}: nach „${labelOf(RKEY)}“ am Ende des Vormonats wurden nicht 2 Ruhetage eingehalten (Tag ${bad.map((k) => k + 1).join(", ")})`);
+          if (bad.length) warnings.push(tx("{0}: nach „{1}“ am Ende des Vormonats wurden nicht 2 Ruhetage eingehalten (Tag {2})", s.name, labelOf(RKEY), bad.map((k) => k + 1).join(", ")));
         }
       }
       let i = 0;
@@ -704,12 +703,12 @@ function computeStatsAndWarnings(days, staffList, leaveMap, shiftHours, allKeys,
           while (j < days.length && (days[j].shifts[RKEY] || []).includes(s.id)) j++;
           const before = i === 0 ? tailRun(tail, s.id, (x) => x === RKEY) : 0; // same block, last month
           const len = j - i + before;
-          if (len < 2 || len > 4) warnings.push(`${s.name}: Block für „${labelOf(RKEY)}“ über ${len} Tage (${before ? `${before} im Vormonat + ` : ""}Tag ${days[i].day} bis ${days[j - 1].day}) — sollte 2 bis 4 Tage sein`);
+          if (len < 2 || len > 4) warnings.push(tx("{0}: Block für „{1}“ über {2} Tage ({3}Tag {4} bis {5}) — sollte 2 bis 4 Tage sein", s.name, labelOf(RKEY), len, before ? tx("{0} im Vormonat + ", before) : "", days[i].day, days[j - 1].day));
           let restOk = true;
           for (let k = j; k < Math.min(j + 2, days.length); k++) {
             if (allKeys.some((st) => (days[k].shifts[st] || []).includes(s.id))) restOk = false;
           }
-          if (!restOk) warnings.push(`${s.name}: nach „${labelOf(RKEY)}“ bis Tag ${days[j - 1].day} wurden nicht mindestens 2 Ruhetage eingehalten`);
+          if (!restOk) warnings.push(tx("{0}: nach „{1}“ bis Tag {2} wurden nicht mindestens 2 Ruhetage eingehalten", s.name, labelOf(RKEY), days[j - 1].day));
           i = j;
         } else i++;
       }
@@ -717,7 +716,7 @@ function computeStatsAndWarnings(days, staffList, leaveMap, shiftHours, allKeys,
     staffList.forEach((s) => {
       if (s.nightExempt) {
         const works = days.some((d) => (d.shifts[RKEY] || []).includes(s.id));
-        if (works) warnings.push(`${s.name}: ist befreit von „${labelOf(RKEY)}“, hat aber eine Schicht davon im Plan`);
+        if (works) warnings.push(tx("{0}: ist befreit von „{1}“, hat aber eine Schicht davon im Plan", s.name, labelOf(RKEY)));
       }
     });
   });
@@ -727,16 +726,16 @@ function computeStatsAndWarnings(days, staffList, leaveMap, shiftHours, allKeys,
     staffList.forEach((s) => {
       for (let d = 0; d < days.length; d++) {
         const ks = keysOf(days[d].shifts, s.id);
-        if (ks.length > 1) warnings.push(`Tag ${days[d].day}: ${s.name} hat ${ks.length} Schichten (${ks.map(labelOf).join(", ")}) – nur eine Schicht pro Tag möglich`);
+        if (ks.length > 1) warnings.push(tx("Tag {0}: {1} hat {2} Schichten ({3}) – nur eine Schicht pro Tag möglich", days[d].day, s.name, ks.length, ks.map(labelOf).join(", ")));
         const prev = d > 0 ? keysOf(days[d - 1].shifts, s.id) : (tail.length ? keysOf(tail[tail.length - 1].shifts, s.id) : []);
         ks.forEach((k) => prev.forEach((pk) => {
           const a = multiCtx.times[pk], b = multiCtx.times[k];
           if (!a || !b) return;
           const end = a.e <= a.s ? a.e + 1440 : a.e; // ends after midnight
           const rest = 1440 + b.s - end;
-          if (rest < MIN_REST_MIN) warnings.push(`Tag ${days[d].day}: ${s.name} – nur ${fmtH(Math.max(0, rest))} Std. Ruhe zwischen „${labelOf(pk)}“ ${d > 0 ? "am Vortag" : "am Ende des Vormonats"} und „${labelOf(k)}“ (mindestens 11 Std.)`);
+          if (rest < MIN_REST_MIN) warnings.push(tx("Tag {0}: {1} – nur {2} Std. Ruhe zwischen „{3}“ {4} und „{5}“ (mindestens 11 Std.)", days[d].day, s.name, fmtH(Math.max(0, rest)), labelOf(pk), d > 0 ? tx("am Vortag") : tx("am Ende des Vormonats"), labelOf(k)));
         }));
-        if (multiCtx.inTeam) ks.forEach((k) => { if (!multiCtx.inTeam(k, s.id, days[d].day)) warnings.push(`Tag ${days[d].day}: ${s.name} ist nicht im Team für „${labelOf(k)}“`); });
+        if (multiCtx.inTeam) ks.forEach((k) => { if (!multiCtx.inTeam(k, s.id, days[d].day)) warnings.push(tx("Tag {0}: {1} ist nicht im Team für „{2}“", days[d].day, s.name, labelOf(k))); });
       }
     });
   }
@@ -748,7 +747,7 @@ function computeStatsAndWarnings(days, staffList, leaveMap, shiftHours, allKeys,
         let j = i;
         while (j < days.length && worksDay(j)) j++;
         const len = j - i;
-        if (len > 6) warnings.push(`${s.name}: ${len} Tage am Stück gearbeitet (Tag ${days[i].day} bis ${days[j - 1].day}) — sollte alle 5–7 Arbeitstage mindestens 2 freie Tage haben`);
+        if (len > 6) warnings.push(tx("{0}: {1} Tage am Stück gearbeitet (Tag {2} bis {3}) — sollte alle 5–7 Arbeitstage mindestens 2 freie Tage haben", s.name, len, days[i].day, days[j - 1].day));
         i = j;
       } else i++;
     }
@@ -1030,21 +1029,21 @@ function buildScheduleXlsx(input) {
   const num1 = "0.0";
 
   // ===== Sheet 1: nach Tag =====
-  const ws1 = xlsxSheet("Dienstplan", "134E4A");
+  const ws1 = xlsxSheet(tx("Dienstplan"), "134E4A");
   const nCols = 2 + input.columns.length + 1;
   ws1.cols = [6, 16, ...input.columns.map(() => 22), 30];
   xlsxSet(ws1, 1, 1, input.title, sTitle); xlsxMerge(ws1, 1, 1, 1, nCols, sTitle); ws1.rowH.set(1, 28);
   xlsxSet(ws1, 2, 1, input.subtitle, sSub); xlsxMerge(ws1, 2, 1, 2, nCols, sSub);
   ws1.rowH.set(3, 6);
-  xlsxSet(ws1, 4, 1, "Tag", sHead); xlsxSet(ws1, 4, 2, "Wochentag", sHeadLeft);
+  xlsxSet(ws1, 4, 1, tx("Tag"), sHead); xlsxSet(ws1, 4, 2, tx("Wochentag"), sHeadLeft);
   input.columns.forEach((col, i) => xlsxSet(ws1, 4, 3 + i, `${col.label}\n${col.time}`, shiftHead(shiftByKey[col.key])));
-  xlsxSet(ws1, 4, nCols, "Urlaub / Überstundenfrei", sHead);
+  xlsxSet(ws1, 4, nCols, tx("Urlaub / Überstundenfrei"), sHead);
   ws1.rowH.set(4, 36);
   input.days.forEach((d, di) => {
     const r = 5 + di;
     const reduced = d.isWeekend || d.isHoliday;
     xlsxSet(ws1, r, 1, d.day, d.isHoliday ? sDayNumHol : d.isWeekend ? sDayNumWk : sDayNum);
-    xlsxSet(ws1, r, 2, input.weekdayNames[d.weekday] + (d.isHoliday ? " (Feiertag)" : "") + (d.isClosed ? " (geschlossen)" : d.half === "am" ? " (nur vormittags)" : d.half === "pm" ? " (nur nachmittags)" : ""), d.isHoliday ? sWdHol : d.isWeekend || d.isClosed ? sWdWk : sWd);
+    xlsxSet(ws1, r, 2, input.weekdayNames[d.weekday] + (d.isHoliday ? tx(" (Feiertag)") : "") + (d.isClosed ? tx(" (geschlossen)") : d.half === "am" ? tx(" (nur vormittags)") : d.half === "pm" ? tx(" (nur nachmittags)") : ""), d.isHoliday ? sWdHol : d.isWeekend || d.isClosed ? sWdWk : sWd);
     input.columns.forEach((col, i) => {
       const s = shiftByKey[col.key];
       const id = (d.shifts[col.key] || [])[col.slotIndex];
@@ -1065,8 +1064,8 @@ function buildScheduleXlsx(input) {
   const legendFirst = 5, legendLast = 4 + nS;
   const nDays = input.days.length;
   const lastDayCol = xlsxCol(1 + nDays);
-  const sheet2Name = "Nach Mitarbeiter";
-  const sumName = "Zusammenfassung";
+  const sheet2Name = tx("Nach Mitarbeiter");
+  const sumName = tx("Zusammenfassung");
   const staffRow0 = 6;
 
   // cached values for formulas
@@ -1085,10 +1084,10 @@ function buildScheduleXlsx(input) {
   const ws2 = xlsxSheet(sheet2Name, "0F766E");
   ws2.cols = [24, ...input.days.map(() => 4.3), 9, 9, 9];
   const stdC = 2 + nDays, sollC = stdC + 1, diffC = stdC + 2;
-  xlsxSet(ws2, 1, 1, input.title + " — nach Mitarbeiter", sTitle); xlsxMerge(ws2, 1, 1, 1, diffC, sTitle); ws2.rowH.set(1, 28);
+  xlsxSet(ws2, 1, 1, input.title + tx(" — nach Mitarbeiter"), sTitle); xlsxMerge(ws2, 1, 1, 1, diffC, sTitle); ws2.rowH.set(1, 28);
   xlsxSet(ws2, 2, 1, input.subtitle, sSub); xlsxMerge(ws2, 2, 1, 2, diffC, sSub);
   ws2.rowH.set(3, 6);
-  xlsxSet(ws2, 4, 1, "Mitarbeiter", sHeadLeft); xlsxMerge(ws2, 4, 1, 5, 1, sHeadLeft);
+  xlsxSet(ws2, 4, 1, tx("Mitarbeiter"), sHeadLeft); xlsxMerge(ws2, 4, 1, 5, 1, sHeadLeft);
   const sDayHead = st.xf({ font: { b: true, color: WHITE }, fill: TEAL, border: box, al: center });
   const sDayHeadWk = st.xf({ font: { b: true, color: WHITE }, fill: "0F766E", border: box, al: center });
   input.days.forEach((d, i) => {
@@ -1096,7 +1095,7 @@ function buildScheduleXlsx(input) {
     xlsxSet(ws2, 4, 2 + i, d.day, wk ? sDayHeadWk : sDayHead);
     xlsxSet(ws2, 5, 2 + i, input.weekdayShort[d.weekday], wk ? sDayHeadWk : sDayHead);
   });
-  [["Std.", stdC], ["Soll", sollC], ["Diff.", diffC]].forEach(([t, c]) => { xlsxSet(ws2, 4, c, t, sHead); xlsxMerge(ws2, 4, c, 5, c, sHead); });
+  [["Std.", stdC], [tx("Soll"), sollC], ["Diff.", diffC]].forEach(([t, c]) => { xlsxSet(ws2, 4, c, t, sHead); xlsxMerge(ws2, 4, c, 5, c, sHead); });
   ws2.rowH.set(4, 20); ws2.rowH.set(5, 16);
   const sName = st.xf({ font: { b: true }, border: box, al: { h: "left", v: "center" } });
   const sEmpty = st.xf({ border: box, al: center });
@@ -1130,7 +1129,7 @@ function buildScheduleXlsx(input) {
   const lastStaffRow = staffRow0 + input.staff.length - 1;
   ws2.cf.push({ sqref: `${xlsxCol(diffC)}${staffRow0}:${xlsxCol(diffC)}${lastStaffRow}`, rules: [{ op: "lessThan", val: "-5", dxf: dxfRed }, { op: "greaterThan", val: "5", dxf: dxfGreen }] });
   const noteRow = lastStaffRow + 2;
-  xlsxSet(ws2, noteRow, 1, "Tipp: Ändere ein Kürzel im Plan (z. B. M → A), die Stunden rechnen sich neu. „Soll“ (blau) kommt aus der App und berücksichtigt Urlaub/Krankheit.", sSub);
+  xlsxSet(ws2, noteRow, 1, tx("Tipp: Ändere ein Kürzel im Plan (z. B. M → A), die Stunden rechnen sich neu. „Soll“ (blau) kommt aus der App und berücksichtigt Urlaub/Krankheit."), sSub);
   xlsxMerge(ws2, noteRow, 1, noteRow, diffC, sSub);
   ws2.freeze = [5, 1];
   ws2.titleRows = [4, 5];
@@ -1140,9 +1139,9 @@ function buildScheduleXlsx(input) {
   const countCols = input.shifts.length + 2; // shifts + U + K
   ws3.cols = [26, 14, 14, 14, 11, 11, ...Array(countCols).fill(10)];
   const totalCols = 6 + countCols;
-  xlsxSet(ws3, 1, 1, input.title + " — Zusammenfassung", sTitle); xlsxMerge(ws3, 1, 1, 1, totalCols, sTitle); ws3.rowH.set(1, 28);
-  xlsxSet(ws3, 2, 1, "Die Stunden pro Schicht (blau) kannst du ändern, alle Summen im Blatt „Nach Mitarbeiter“ rechnen neu.", sSub); xlsxMerge(ws3, 2, 1, 2, totalCols, sSub);
-  ["Kürzel", "Schicht", "Zeit", "Std. pro Schicht"].forEach((t, i) => xlsxSet(ws3, 4, 1 + i, t, sHead));
+  xlsxSet(ws3, 1, 1, input.title + tx(" — Zusammenfassung"), sTitle); xlsxMerge(ws3, 1, 1, 1, totalCols, sTitle); ws3.rowH.set(1, 28);
+  xlsxSet(ws3, 2, 1, tx("Die Stunden pro Schicht (blau) kannst du ändern, alle Summen im Blatt „Nach Mitarbeiter“ rechnen neu."), sSub); xlsxMerge(ws3, 2, 1, 2, totalCols, sSub);
+  [tx("Kürzel"), tx("Schicht"), tx("Zeit"), tx("Std. pro Schicht")].forEach((t, i) => xlsxSet(ws3, 4, 1 + i, t, sHead));
   ws3.rowH.set(4, 22);
   input.shifts.forEach((s, i) => {
     const r = legendFirst + i;
@@ -1151,10 +1150,10 @@ function buildScheduleXlsx(input) {
     xlsxSet(ws3, r, 3, s.time, st.xf({ border: box, al: center }));
     xlsxSet(ws3, r, 4, round2(s.hours), sInputHours);
   });
-  xlsxSet(ws3, legendLast + 1, 1, "U", sLeave); xlsxSet(ws3, legendLast + 1, 2, "Urlaub", st.xf({ border: box, al: { h: "left", v: "center" } }));
-  xlsxSet(ws3, legendLast + 2, 1, "K", sSick); xlsxSet(ws3, legendLast + 2, 2, "Krank", st.xf({ border: box, al: { h: "left", v: "center" } }));
+  xlsxSet(ws3, legendLast + 1, 1, "U", sLeave); xlsxSet(ws3, legendLast + 1, 2, tx("Urlaub"), st.xf({ border: box, al: { h: "left", v: "center" } }));
+  xlsxSet(ws3, legendLast + 2, 1, "K", sSick); xlsxSet(ws3, legendLast + 2, 2, tx("Krank"), st.xf({ border: box, al: { h: "left", v: "center" } }));
   const tHead = legendLast + 4;
-  const heads = ["Mitarbeiter", "Std. Ist", "Soll", "Differenz", "Samstage", "Sonntage", ...input.shifts.map((s) => s.code), "U", "K"];
+  const heads = [tx("Mitarbeiter"), tx("Std. Ist"), tx("Soll"), tx("Differenz"), tx("Samstage"), tx("Sonntage"), ...input.shifts.map((s) => s.code), "U", "K"];
   heads.forEach((t, i) => xlsxSet(ws3, tHead, 1 + i, t, i === 0 ? sHeadLeft : sHead));
   ws3.rowH.set(tHead, 22);
   const sNameS = st.xf({ font: { b: true }, border: box, al: { h: "left", v: "center" } });
@@ -1180,7 +1179,7 @@ function buildScheduleXlsx(input) {
     ws3.rowH.set(r, 20);
   });
   const firstP = tHead + 1, lastP = tHead + input.staff.length, totR = lastP + 1;
-  xlsxSet(ws3, totR, 1, "Gesamt", sTotLabel);
+  xlsxSet(ws3, totR, 1, tx("Gesamt"), sTotLabel);
   const sumOf = (fn) => input.staff.reduce((a, p) => a + fn(p), 0);
   xlsxSet(ws3, totR, 2, { f: `SUM(B${firstP}:B${lastP})`, v: round2(sumOf((p) => round2(stdOf[p.id]))) }, sNumTot);
   const sollTotal = round2(sumOf((p) => round2(input.targets[p.id] || 0)));
@@ -1198,14 +1197,14 @@ function buildScheduleXlsx(input) {
   const sheets = [ws1, ws2, ws3];
   const messages = [...(input.warnings || []).map((t) => ["Hinweis", t]), ...(input.notes || []).map((t) => ["Info", t])];
   if (messages.length) {
-    const ws4 = xlsxSheet("Hinweise", "F59E0B");
+    const ws4 = xlsxSheet(tx("Hinweise"), "F59E0B");
     ws4.cols = [12, 110];
-    xlsxSet(ws4, 1, 1, "Hinweise zum erstellten Plan", sTitle); xlsxMerge(ws4, 1, 1, 1, 2, sTitle); ws4.rowH.set(1, 28);
-    xlsxSet(ws4, 3, 1, "Art", sHeadLeft); xlsxSet(ws4, 3, 2, "Text", sHeadLeft);
+    xlsxSet(ws4, 1, 1, tx("Hinweise zum erstellten Plan"), sTitle); xlsxMerge(ws4, 1, 1, 1, 2, sTitle); ws4.rowH.set(1, 28);
+    xlsxSet(ws4, 3, 1, tx("Art"), sHeadLeft); xlsxSet(ws4, 3, 2, tx("Text"), sHeadLeft);
     const sWarn = st.xf({ font: { b: true, color: "B45309" }, fill: "FEF3C7", border: box, al: { h: "left", v: "center" } });
     const sInfo = st.xf({ font: { color: "475569" }, fill: "F1F5F9", border: box, al: { h: "left", v: "center" } });
     const sMsg = st.xf({ border: box, al: { h: "left", v: "center", wrap: true } });
-    messages.forEach(([kind, text], i) => { xlsxSet(ws4, 4 + i, 1, kind, kind === "Hinweis" ? sWarn : sInfo); xlsxSet(ws4, 4 + i, 2, text, sMsg); });
+    messages.forEach(([kind, text], i) => { xlsxSet(ws4, 4 + i, 1, tx(kind), kind === "Hinweis" ? sWarn : sInfo); xlsxSet(ws4, 4 + i, 2, text, sMsg); });
     ws4.landscape = false;
     sheets.push(ws4);
   }
@@ -1246,7 +1245,7 @@ async function downloadXlsx(bytes, filename) {
 function LabShiftSchedulerInner() {
   const [monthValue, setMonthValue] = useState(todayMonthValue());
   const [staffList, setStaffList] = useState(() =>
-    Array.from({ length: 9 }, (_, i) => ({ id: `s${i + 1}`, name: `Mitarbeiter ${i + 1}`, weeklyHours: 38.5, employmentType: "full", nightExempt: false, weekendExempt: false, isTeamLead: false, email: "" }))
+    Array.from({ length: 9 }, (_, i) => ({ id: `s${i + 1}`, name: tx("Mitarbeiter {0}", i + 1), weeklyHours: 38.5, employmentType: "full", nightExempt: false, weekendExempt: false, isTeamLead: false, email: "" }))
   );
   const nextIdRef = useRef(10);
   const nextEntryIdRef = useRef(1);
@@ -1260,10 +1259,11 @@ function LabShiftSchedulerInner() {
   // Spätdienst is NOT preset in the general planner (many practices only have one shift);
   // "+ Spätdienst" switches it on, a saved plan that has one switches it on by itself.
   const [useLate, setUseLate] = useState(false);
-  const [specialShifts, setSpecialShifts] = useState({
-    F: { label: "Frühdienst", time: "06:00-14:00" },
-    S: { label: "Spätdienst", time: "13:30-22:00" },
-  });
+  const [specialShifts, setSpecialShifts] = useState(() => ({
+    // default names only for a brand-new planner; afterwards the company's own names are used
+    F: { label: getLang() === "en" ? "Early shift" : "Frühdienst", time: "06:00-14:00" },
+    S: { label: getLang() === "en" ? "Late shift" : "Spätdienst", time: "13:30-22:00" },
+  }));
   // Every other shift is fully user-defined: add/remove/rename/retime freely, each either
   // "daily" or a monthly "quota", and each optionally flagged requiresRestAfter — that flag is
   // what used to be hardcoded to a single "Nachtdienst" slot. Now ANY shift (named whatever the
@@ -1418,7 +1418,7 @@ function LabShiftSchedulerInner() {
           night_short: x.nightExempt ? 0 : Math.round(Math.max(0, avgNightCount - nightCountOf[x.id]) * 100) / 100,
         }));
         const { error: balErr } = await orgCtx.supabase.rpc("save_month_balances", { p_org: orgCtx.orgId, p_year: year, p_month: monthIdx + 1, p_rows: rows });
-        if (balErr) throw new Error("Saldo nicht gespeichert: " + balErr.message);
+        if (balErr) throw new Error(tx("Saldo nicht gespeichert: ") + balErr.message);
         setBalanceBump((b) => b + 1);
         setArchiveState("saved");
         setSaveState("saved");
@@ -1926,7 +1926,7 @@ function LabShiftSchedulerInner() {
     };
   });
   const loadStaffFromDb = (rows) => {
-    if (unsaved && !window.confirm(LEAVE_MSG)) return false;
+    if (unsaved && !window.confirm(tx(LEAVE_MSG))) return false;
     setStaffList(rows.map((r) => ({
       id: r.id, name: r.name, weeklyHours: Number(r.weekly_hours) || 38.5, employmentType: r.employment_type || "full",
       nightExempt: !!r.night_exempt, weekendExempt: !!r.weekend_exempt, isTeamLead: !!r.is_team_lead, email: r.email || "", personnelNo: r.personnel_no || "",
@@ -1959,9 +1959,9 @@ function LabShiftSchedulerInner() {
     if (unknown.length) {
       const offKeys = [...new Set(unknown.map((r) => r.shift_key))];
       const placeOff = offKeys.map((k) => locShifts.find((x) => x.key === k)).filter(Boolean);
-      if (multiOn && placeOff.length) return { ok: false, message: `Der gespeicherte Plan enthält Schichten, die bei den Orten gerade entfernt oder inaktiv sind: ${placeOff.map((x) => placeLabel(locById[x.location_id], x.label)).join(", ")}. Bitte oben unter „Arbeitsorte“ wieder aktivieren und dann den Plan laden.` };
-      if (!multiOn && locShifts.some((x) => offKeys.includes(x.key))) return { ok: false, message: "Dieser Plan wurde mit „Mehrere Einsatzorte“ erstellt. Bitte oben unter „Arbeitsorte“ wieder „Mehrere Einsatzorte“ wählen." };
-      return { ok: false, message: `Der gespeicherte Plan enthält Schichtarten (${offKeys.join(", ")}), die zu den aktuellen Einstellungen dieses Dienstplaners nicht passen. Bitte im passenden Dienstplaner öffnen.` };
+      if (multiOn && placeOff.length) return { ok: false, message: tx("Der gespeicherte Plan enthält Schichten, die bei den Orten gerade entfernt oder inaktiv sind: {0}. Bitte oben unter „Arbeitsorte“ wieder aktivieren und dann den Plan laden.", placeOff.map((x) => placeLabel(locById[x.location_id], x.label)).join(", ")) };
+      if (!multiOn && locShifts.some((x) => offKeys.includes(x.key))) return { ok: false, message: tx("Dieser Plan wurde mit „Mehrere Einsatzorte“ erstellt. Bitte oben unter „Arbeitsorte“ wieder „Mehrere Einsatzorte“ wählen.") };
+      return { ok: false, message: tx("Der gespeicherte Plan enthält Schichtarten ({0}), die zu den aktuellen Einstellungen dieses Dienstplaners nicht passen. Bitte im passenden Dienstplaner öffnen.", offKeys.join(", ")) };
     }
     if (!multiOn) setUseLate(hasLate); // a saved plan with Spätdienst brings it back, one without keeps it off
     // paid hours per shift kind: time span minus the 30 minute break (same rule as the planner)
@@ -2042,12 +2042,12 @@ function LabShiftSchedulerInner() {
     staffList.forEach((p) => (inTeam(st, p.id, d.day) ? team : others).push(p));
     const opt = (p) => {
       const b = busyKey[p.id] && p.id !== val ? busyKey[p.id] : null;
-      return <option key={p.id} value={p.id} disabled={!!b}>{p.name}{b ? ` (schon ${shiftCodes[b] || b})` : ""}</option>;
+      return <option key={p.id} value={p.id} disabled={!!b}>{p.name}{b ? tx(" (schon {0})", shiftCodes[b] || b) : ""}</option>;
     };
     const code = (locById[(placeShiftByKey[st] || {}).location_id] || {}).code || "";
     return [
-      <optgroup key="t" label={team.length ? `Team ${code}` : `Team ${code}: noch niemand`}>{team.map(opt)}</optgroup>,
-      others.length ? <optgroup key="o" label="Nicht im Team">{others.map(opt)}</optgroup> : null,
+      <optgroup key="t" label={team.length ? tx("Team {0}", code) : tx("Team {0}: noch niemand", code)}>{team.map(opt)}</optgroup>,
+      others.length ? <optgroup key="o" label={tx("Nicht im Team")}>{others.map(opt)}</optgroup> : null,
     ];
   }
   useEffect(() => { if (placeTab !== "all" && !locations.some((l) => l.id === placeTab && l.active)) setPlaceTab("all"); }, [locations, placeTab]);
@@ -2081,19 +2081,19 @@ function LabShiftSchedulerInner() {
   }, [orgCtx, year, monthIdx, savedDays]);
   const cover = useMemo(() => coverIndex([...coverRows, ...draftPairs(schedule, baseline)], schedule), [coverRows, schedule, baseline]);
   const reasonOff = (id, day) => (offKind[id] && offKind[id][day])
-    || (cover.swapGone[`${id}|${day}`] ? `Tausch mit ${staffMap[cover.swapGone[`${id}|${day}`]] || "?"}` : "")
+    || (cover.swapGone[`${id}|${day}`] ? tx("Tausch mit {0}", staffMap[cover.swapGone[`${id}|${day}`]] || "?") : "")
     || shortNote((cover.byReplaced[`${id}|${day}`] || {}).note);
   // "Nach Mitarbeiter" + print: violet ⇄ = getauscht, red ↺ = eingesprungen (or a new draft change). { kind, text } | null
   const coverInfo = (id, day, code) => {
     if (!code || code === "U" || code === "K") return null;
     const k = `${id}|${day}`;
     const sw = cover.swapBy[k];
-    if (sw) return { kind: "swap", text: `Getauscht mit ${staffMap[sw.with] || "?"}${sw.draft ? " – noch nicht veröffentlicht" : ""}` };
+    if (sw) return { kind: "swap", text: tx("Getauscht mit {0}{1}", staffMap[sw.with] || "?", sw.draft ? tx(" – noch nicht veröffentlicht") : "") };
     const c = cover.byStaff[k];
     if (!c) return null;
-    if (c.draft) return { kind: "draft", text: `Neu eingeteilt${c.replacedId ? ` für ${staffMap[c.replacedId] || "?"}` : ""} – noch nicht veröffentlicht` };
+    if (c.draft) return { kind: "draft", text: tx("Neu eingeteilt{0} – noch nicht veröffentlicht", c.replacedId ? tx(" für {0}", staffMap[c.replacedId] || "?") : "") };
     const why = c.replacedId ? reasonOff(c.replacedId, day) : shortNote(c.note);
-    return { kind: "rep", text: `Eingesprungen${c.replacedId ? ` für ${staffMap[c.replacedId] || "?"}` : ""}${why ? ` (${why})` : ""}` };
+    return { kind: "rep", text: tx("Eingesprungen") + (c.replacedId ? tx(" für {0}", staffMap[c.replacedId] || "?") : "") + (why ? ` (${tx(why)})` : "") };
   };
   // absences in the plan, grouped per person and following days -> "Krankmeldung / Ausfall" pre-filled
   const absentGroups = useMemo(() => {
@@ -2152,13 +2152,13 @@ function LabShiftSchedulerInner() {
 
   function addStaff() {
     const id = `s${nextIdRef.current++}`;
-    setStaffList((prev) => [...prev, { id, name: `Mitarbeiter ${prev.length + 1}`, weeklyHours: 38.5, employmentType: "full", nightExempt: false, weekendExempt: false, isTeamLead: false, email: "" }]);
+    setStaffList((prev) => [...prev, { id, name: tx("Mitarbeiter {0}", prev.length + 1), weeklyHours: 38.5, employmentType: "full", nightExempt: false, weekendExempt: false, isTeamLead: false, email: "" }]);
   }
   async function removeStaff(id) {
     if (orgCtx && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(id))) {
-      if (!window.confirm("Diese Person ist in der Datenbank gespeichert. Wirklich entfernen? Sie wird deaktiviert und erscheint nicht mehr in der Liste. Bisherige Schichten bleiben erhalten.")) return;
+      if (!window.confirm(tx("Diese Person ist in der Datenbank gespeichert. Wirklich entfernen? Sie wird deaktiviert und erscheint nicht mehr in der Liste. Bisherige Schichten bleiben erhalten."))) return;
       const res = await orgCtx.supabase.from("staff").update({ active: false }).eq("id", id);
-      if (res.error) { window.alert("Fehler: " + res.error.message); return; }
+      if (res.error) { window.alert(tx("Fehler: ") + tx(res.error.message)); return; }
     }
     setStaffList((prev) => prev.filter((s) => s.id !== id));
     setLeaveEntries((prev) => prev.filter((e) => e.staffId !== id));
@@ -2193,7 +2193,7 @@ function LabShiftSchedulerInner() {
       }
       setList((prev) => prev.map((e) => (e.id === entry.id ? { ...e, absIds: ids, ym: ymNow } : e)));
     } catch (err) {
-      window.alert(`Nicht in der Datenbank gespeichert (${(err && err.message) || err}). Der Eintrag gilt nur in diesem Browser.`);
+      window.alert(tx("Nicht in der Datenbank gespeichert ({0}). Der Eintrag gilt nur in diesem Browser.", tx((err && err.message) || String(err))));
     }
   }
   async function cancelAbsence(entry) {
@@ -2310,8 +2310,8 @@ function LabShiftSchedulerInner() {
 
   // Mehrere Standorte (Paket A): no automatic plan yet – an empty month to fill in by hand, place by place
   function createEmptyPlan() {
-    if (schedule && !window.confirm("Der Plan auf dem Bildschirm wird durch einen leeren Plan ersetzt. Fortfahren?")) return;
-    if (schedule) pushUndo("Leeren Plan anlegen");
+    if (schedule && !window.confirm(tx("Der Plan auf dem Bildschirm wird durch einen leeren Plan ersetzt. Fortfahren?"))) return;
+    if (schedule) pushUndo(tx("Leeren Plan anlegen"));
     const days = [];
     for (let d = 1; d <= totalDays; d++) {
       const weekday = new Date(year, monthIdx, d).getDay(); const shifts = {};
@@ -2324,7 +2324,7 @@ function LabShiftSchedulerInner() {
 
   function runGenerate() {
     if (multiOn) return; // Mehrere Standorte: automatic plan comes with package B
-    if (schedule) pushUndo("Neu generieren");
+    if (schedule) pushUndo(tx("Neu generieren"));
     if (staffList.length === 0) return;
     setGenerateError(null);
     try {
@@ -2381,7 +2381,7 @@ function LabShiftSchedulerInner() {
   }
 
   function applySickCover(option, sickId, from, to, kind) {
-    pushUndo(`Krankmeldung: ${option.title}`);
+    pushUndo(tx("Krankmeldung: {0}", option.title));
     setSchedule((prev) => {
       if (!prev) return prev;
       const days = prev.days.map((d) => {
@@ -2401,7 +2401,7 @@ function LabShiftSchedulerInner() {
       persistAbsence(entry, "krank", setSickEntries);
     }
     setSickCoverOpen(false); setSickInit(null);
-    setSickCoverMsg(`„${option.title}“ übernommen – die Änderungen sind gelb markiert. Erst „Veröffentlichen“ zeigt sie den Mitarbeitenden.`);
+    setSickCoverMsg(tx("„{0}“ übernommen – die Änderungen sind gelb markiert. Erst „Veröffentlichen“ zeigt sie den Mitarbeitenden.", option.title));
     setTimeout(() => setSickCoverMsg(""), 12000);
   }
 
@@ -2417,7 +2417,7 @@ function LabShiftSchedulerInner() {
     setUndoCount(undoRef.current.length);
     if (!snap) return;
     setSchedule(snap.schedule);
-    setUndoMsg(`Rückgängig: ${snap.label}`);
+    setUndoMsg(tx("Rückgängig: {0}", snap.label));
     setTimeout(() => setUndoMsg(""), 4000);
   }
   // „Änderungen verwerfen“: everything as before the editing started. With a published version: back to it, and a
@@ -2432,16 +2432,16 @@ function LabShiftSchedulerInner() {
     }
     const storedDraft = !!(baseline && st && (st.has_newer_draft || st.status === "pending"));
     const question = baseline
-      ? "Alle Änderungen verwerfen?\n\nDer Plan wird wieder so angezeigt, wie die Mitarbeitenden ihn sehen (veröffentlichte Fassung)."
-        + (storedDraft ? `\n\nAuch der gespeicherte Entwurf${st.status === "pending" ? ", der auf Freigabe wartet," : ""} wird gelöscht. Das lässt sich nicht rückgängig machen.` : "\n\nDas kann mit „Rückgängig“ wieder aufgehoben werden.")
-      : "Alle nicht gespeicherten Änderungen verwerfen?\n\nDer Plan wird wieder so angezeigt, wie er zuletzt gespeichert wurde.";
+      ? tx("Alle Änderungen verwerfen?\n\nDer Plan wird wieder so angezeigt, wie die Mitarbeitenden ihn sehen (veröffentlichte Fassung).")
+        + (storedDraft ? tx("\n\nAuch der gespeicherte Entwurf{0} wird gelöscht. Das lässt sich nicht rückgängig machen.", st.status === "pending" ? tx(", der auf Freigabe wartet,") : "") : tx("\n\nDas kann mit „Rückgängig“ wieder aufgehoben werden."))
+      : tx("Alle nicht gespeicherten Änderungen verwerfen?\n\nDer Plan wird wieder so angezeigt, wie er zuletzt gespeichert wurde.");
     if (!window.confirm(question)) return;
     if (storedDraft) {
       const r = await orgCtx.supabase.rpc("discard_draft", { p_org: orgCtx.orgId, p_year: year, p_month: monthIdx + 1 });
-      if (r.error) { window.alert("Der Entwurf konnte nicht verworfen werden: " + r.error.message); return; }
+      if (r.error) { window.alert(tx("Der Entwurf konnte nicht verworfen werden: ") + tx(r.error.message)); return; }
       window.dispatchEvent(new Event("schedule-status-changed"));
     }
-    pushUndo("Alle Änderungen verwerfen");
+    pushUndo(tx("Alle Änderungen verwerfen"));
     let days;
     if (baseline) {
       days = schedule.days.map((d) => {
@@ -2453,7 +2453,7 @@ function LabShiftSchedulerInner() {
     } else days = cloneDays(savedDays);
     setSchedule({ days, ...computeStatsAndWarnings(days, staffList, buildLeaveMap(), shiftHours, dayOrderedKeys, restRequiringKeys, shiftLabels, closedSet, openCount, carryMap(), halfMap, tailFor(year, monthIdx)) });
     if (baseline) setSavedDays(cloneDays(days)); // the database holds exactly the published version now
-    setUndoMsg(baseline ? "Zurück zur veröffentlichten Fassung" : "Zurück zum gespeicherten Stand");
+    setUndoMsg(baseline ? tx("Zurück zur veröffentlichten Fassung") : tx("Zurück zum gespeicherten Stand"));
     setTimeout(() => setUndoMsg(""), 4000);
   }
   useEffect(() => {
@@ -2471,9 +2471,9 @@ function LabShiftSchedulerInner() {
     if (multiOn && newId && schedule) { // never two shifts on one day (at any place)
       const d = schedule.days[dayIndex];
       const other = dayOrderedKeys.find((k) => (d.shifts[k] || []).some((id, i) => id === newId && !(k === shiftType && i === slotIndex)));
-      if (other) { window.alert(`${staffMap[newId] || "Diese Person"} hat am ${d.day}. schon „${shiftLabels[other] || other}“. Eine Person kann an einem Tag nur eine Schicht haben.`); return; }
+      if (other) { window.alert(tx("{0} hat am {1}. schon „{2}“. Eine Person kann an einem Tag nur eine Schicht haben.", staffMap[newId] || tx("Diese Person"), d.day, shiftLabels[other] || other)); return; }
     }
-    pushUndo(`Tag ${dayIndex + 1}, ${shiftLabels[shiftType] || shiftType}`);
+    pushUndo(tx("Tag {0}, {1}", dayIndex + 1, shiftLabels[shiftType] || shiftType));
     setSchedule((prev) => {
       if (!prev) return prev;
       const days = prev.days.map((d, i) => {
@@ -2528,21 +2528,21 @@ function LabShiftSchedulerInner() {
     if (!schedule) return "";
     const lines = [];
     if (viewMode === "byStaff") {
-      lines.push(`Wunschplan ${MONTH_DE[monthIdx]} ${year} — nach Mitarbeiter`);
-      const header = ["Mitarbeiter", ...schedule.days.map((d) => `${d.day} ${WEEKDAY_DE[d.weekday].slice(0, 2)}`)];
+      lines.push(tx("Wunschplan {0} {1} — nach Mitarbeiter", monthName(monthIdx), year));
+      const header = [tx("Mitarbeiter"), ...schedule.days.map((d) => `${d.day} ${wdLong(d.weekday).slice(0, 2)}`)];
       lines.push(header.join("\t"));
       staffList.forEach((s) => {
         const row = [s.name, ...schedule.days.map((d) => staffDayMatrix[s.id]?.[d.day] || "")];
         lines.push(row.join("\t"));
       });
     } else {
-      lines.push(`Wunschplan ${MONTH_DE[monthIdx]} ${year}`);
-      const header = ["Tag", "Wochentag"];
+      lines.push(tx("Wunschplan {0} {1}", monthName(monthIdx), year));
+      const header = [tx("Tag"), tx("Wochentag")];
       columnPlan.forEach((col) => header.push(`${shiftMeta[col.shiftType].label} ${shiftMeta[col.shiftType].time}`));
-      header.push("Urlaub/Überstundenfrei");
+      header.push(tx("Urlaub/Überstundenfrei"));
       lines.push(header.join("\t"));
       schedule.days.forEach((d) => {
-        const row = [d.day, WEEKDAY_DE[d.weekday]];
+        const row = [d.day, wdLong(d.weekday)];
         columnPlan.forEach((col) => {
           const id = (d.shifts[col.shiftType] || [])[col.slotIndex];
           const isSkippedOnHoliday = multiOn ? (!id && col.slotIndex >= wantOn(d, col.shiftType)) : ((dailyDayShiftKeys.has(col.shiftType) && (d.isHoliday || d.isWeekend)) || closedSet.has(d.day) || blockedHalf(d.day, col.shiftType));
@@ -2553,8 +2553,8 @@ function LabShiftSchedulerInner() {
       });
     }
     lines.push("");
-    lines.push("Gesamtstunden pro Mitarbeiter:");
-    staffList.forEach((s) => lines.push(`${s.name}\t${(schedule.hours[s.id] || 0).toFixed(1)} Std. (Ziel ${(schedule.targetOf[s.id] || 0).toFixed(1)})\tSamstag:${schedule.satCount[s.id] || 0}\tSonntag:${schedule.sunCount[s.id] || 0}`));
+    lines.push(tx("Gesamtstunden pro Mitarbeiter:"));
+    staffList.forEach((s) => lines.push(tx("{0}\t{1} Std. (Ziel {2})\tSamstag:{3}\tSonntag:{4}", s.name, (schedule.hours[s.id] || 0).toFixed(1), (schedule.targetOf[s.id] || 0).toFixed(1), schedule.satCount[s.id] || 0, schedule.sunCount[s.id] || 0)));
     return lines.join("\n");
   }
 
@@ -2565,11 +2565,11 @@ function LabShiftSchedulerInner() {
     const columns = columnPlan.map((c) => ({ key: c.shiftType, label: shiftMeta[c.shiftType].label, time: shiftMeta[c.shiftType].time, slotIndex: c.slotIndex }));
     const now = new Date();
     return {
-      monthName: MONTH_DE[monthIdx],
-      title: `Dienstplan — ${MONTH_DE[monthIdx]} ${year}`,
-      subtitle: `Erstellt am ${String(now.getDate()).padStart(2, "0")}.${String(now.getMonth() + 1).padStart(2, "0")}.${now.getFullYear()} · ${staffList.length} Mitarbeitende`,
-      weekdayNames: WEEKDAY_DE,
-      weekdayShort: WEEKDAY_DE.map((x) => x.slice(0, 2)),
+      monthName: monthName(monthIdx),
+      title: tx("Dienstplan — {0} {1}", monthName(monthIdx), year),
+      subtitle: tx("Erstellt am {0}.{1}.{2} · {3} Mitarbeitende", String(now.getDate()).padStart(2, "0"), String(now.getMonth() + 1).padStart(2, "0"), now.getFullYear(), staffList.length),
+      weekdayNames: [0, 1, 2, 3, 4, 5, 6].map((i) => wdLong(i)),
+      weekdayShort: [0, 1, 2, 3, 4, 5, 6].map((i) => wdLong(i).slice(0, 2)),
       staff: staffList.map((s) => ({ id: s.id, name: s.name })),
       days: schedule.days.map((d) => ({ ...d, isClosed: closedSet.has(d.day), half: halfMap[d.day] || null, blockedKeys: Object.keys(shiftParts).filter((k) => blockedHalf(d.day, k)),
         ...(multiOn ? { skipKeys: dayOrderedKeys.filter((k) => wantOn(d, k) === 0) } : {}) })), // places: shift not needed that day
@@ -2609,14 +2609,14 @@ function LabShiftSchedulerInner() {
   // "Drucken / PDF": clean A4 sheets for the notice board (no absences, no vacation, no sickness)
   function printPlan() {
     if (!schedule) return;
-    if (orgCtx && changeCount > 0 && !window.confirm(`Dieser Plan hat ${changeCount} Änderung${changeCount === 1 ? "" : "en"}, die noch nicht veröffentlicht ${changeCount === 1 ? "ist" : "sind"}.\n\nTrotzdem drucken? Auf dem Ausdruck steht dann „Entwurf“.`)) return;
+    if (orgCtx && changeCount > 0 && !window.confirm(changeCount === 1 ? tx("Dieser Plan hat 1 Änderung, die noch nicht veröffentlicht ist.\n\nTrotzdem drucken? Auf dem Ausdruck steht dann „Entwurf“.") : tx("Dieser Plan hat {0} Änderungen, die noch nicht veröffentlicht sind.\n\nTrotzdem drucken? Auf dem Ausdruck steht dann „Entwurf“.", changeCount))) return;
     setPrintState("busy");
     try {
       const status = !orgCtx ? "" : changeCount === 0 ? "published" : "draft";
       const input = exportInput();
       // Krank on the board = health data visible to everybody: only when the Leitung says so for this print
       const hasSick = Object.values(input.matrix || {}).some((m) => Object.values(m || {}).includes("K"));
-      input.showSick = hasSick && window.confirm("Krankheitstage im Ausdruck als „K – Krank“ zeigen?\n\nDer Aushang ist für alle sichtbar (Gesundheitsdaten, DSGVO).\n\nOK = „K – Krank“ zeigen · Abbrechen = nur „A – abwesend“");
+      input.showSick = hasSick && window.confirm(tx("Krankheitstage im Ausdruck als „K – Krank“ zeigen?\n\nDer Aushang ist für alle sichtbar (Gesundheitsdaten, DSGVO).\n\nOK = „K – Krank“ zeigen · Abbrechen = nur „A – abwesend“"));
       const ok = openPrintView(input, { year, monthIdx, orgName: orgCtx ? orgCtx.orgName : "", status });
       setPrintState(ok ? "done" : "blocked");
     } catch (err) {
@@ -2640,32 +2640,32 @@ function LabShiftSchedulerInner() {
     // it still lines up like a table in most mail apps, while staying short enough that long
     // mailto: links don't silently fail to open.
     const lines = [];
-    lines.push(`Hallo ${staff.name},`);
+    lines.push(tx("Hallo {0},", staff.name));
     lines.push("");
-    lines.push(`Dienstplan ${MONTH_DE[monthIdx]} ${year}:`);
+    lines.push(tx("Dienstplan {0} {1}:", monthName(monthIdx), year));
     lines.push("");
-    lines.push("Tag  Wochentag   Schicht");
+    lines.push(tx("Tag  Wochentag   Schicht"));
     lines.push("---  ----------  -----------");
     schedule.days.forEach((d) => {
       dayOrderedKeys.forEach((st) => {
         if ((d.shifts[st] || []).includes(staff.id)) {
-          lines.push(`${String(d.day).padEnd(5)}${WEEKDAY_DE[d.weekday].padEnd(12)}${shiftMeta[st].label}`);
+          lines.push(`${String(d.day).padEnd(5)}${wdLong(d.weekday).padEnd(12)}${shiftMeta[st].label}`);
         }
       });
     });
     lines.push("");
     const h = schedule.hours[staff.id] || 0;
     const t = schedule.targetOf[staff.id] || 0;
-    lines.push(`Stunden: ${h.toFixed(1)} / ${t.toFixed(1)} (Ziel)`);
-    lines.push(`Samstage: ${schedule.satCount[staff.id] || 0}   Sonntage: ${schedule.sunCount[staff.id] || 0}`);
+    lines.push(tx("Stunden: {0} / {1} (Ziel)", h.toFixed(1), t.toFixed(1)));
+    lines.push(tx("Samstage: {0}   Sonntage: {1}", schedule.satCount[staff.id] || 0, schedule.sunCount[staff.id] || 0));
     lines.push("");
-    lines.push("Gruß");
+    lines.push(tx("Gruß"));
     return lines.join("\n");
   }
 
   function buildMailtoUrl(staff) {
     if (!schedule || !staff.email) return "";
-    const subject = `Dienstplan ${MONTH_DE[monthIdx]} ${year}`;
+    const subject = tx("Dienstplan {0} {1}", monthName(monthIdx), year);
     const body = buildStaffEmailBody(staff);
     return `mailto:${encodeURIComponent(staff.email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
   }
@@ -2676,7 +2676,7 @@ function LabShiftSchedulerInner() {
   // href open a blank e-mail with just the subject filled in — the admin pastes the table in
   // themselves, which works regardless of size and avoids programmatic-navigation blocking.
   function fullTableMailtoUrl() {
-    const subject = `Dienstplan ${MONTH_DE[monthIdx]} ${year}${viewMode === "byStaff" ? " — nach Mitarbeiter" : ""}`;
+    const subject = tx("Dienstplan {0} {1}", monthName(monthIdx), year) + (viewMode === "byStaff" ? tx(" — nach Mitarbeiter") : "");
     return `mailto:?subject=${encodeURIComponent(subject)}`;
   }
   function copyFullTableForEmail() {
@@ -2692,10 +2692,10 @@ function LabShiftSchedulerInner() {
       <PlannerShell sidebar={orgCtx ? <OrgBar onLoadStaff={loadStaffFromDb} staffList={staffList} toDb={staffToDb} onIdsChanged={applyStaffIds} year={year} monthIdx={monthIdx} onLoadPlan={applyLoadedPlan} hasPlan={!!schedule} onImportWishes={importWishes} onImportRequests={importRequests} /> : null}>
         <header className="dg-pagehead">
           <div>
-            <h1>Dienstplan</h1>
-            <p>Frei definierbare Schichten unter Berücksichtigung der Wochenstunden, der Nachtdienstrotation und der Wochenendquote – nach dem Erstellen manuell bearbeitbar.</p>
+            <h1>{tx("Dienstplan")}</h1>
+            <p>{tx("Frei definierbare Schichten unter Berücksichtigung der Wochenstunden, der Nachtdienstrotation und der Wochenendquote – nach dem Erstellen manuell bearbeitbar.")}</p>
           </div>
-          {!orgCtx && <span className="text-sm text-slate-500">Ohne Anmeldung: Plan nur in diesem Browser</span>}
+          {!orgCtx && <span className="text-sm text-slate-500">{tx("Ohne Anmeldung: Plan nur in diesem Browser")}</span>}
         </header>
 
         {/* Mehrere Standorte: only when /admin released it for this company */}
@@ -2707,18 +2707,17 @@ function LabShiftSchedulerInner() {
         {/* Archive */}
         {archiveList.length > 0 && (
           <section className="bg-white border border-slate-200 rounded-2xl shadow-sm p-4">
-            <h2 className="text-sm font-semibold text-slate-700 mb-2">Archiv gespeicherter Monate</h2>
+            <h2 className="text-sm font-semibold text-slate-700 mb-2">{tx("Archiv gespeicherter Monate")}</h2>
             <div className="flex flex-wrap gap-1.5">
               {archiveList.map((a) => {
                 const [ay, am] = a.monthValue.split("-").map((n) => parseInt(n, 10));
-                const label = `${MONTH_DE[am - 1]} ${ay}`;
+                const label = `${monthName(am - 1)} ${ay}`;
                 const isOpen = viewingArchive?.monthValue === a.monthValue;
                 return (
                   <span key={a.monthValue} className={`inline-flex items-center gap-1.5 border text-xs rounded-full pl-1 pr-2.5 py-1 ${isOpen ? "bg-sky-100 border-sky-300 text-sky-800" : "bg-slate-50 border-slate-200 text-slate-600"}`}>
                     <button onClick={() => (isOpen ? setViewingArchive(null) : loadArchivedMonth(a.monthValue))} className="hover:underline">
-                      {label} ({a.staffCount} MA)
-                    </button>
-                    <button onClick={() => deleteArchivedMonth(a.monthValue)} className="hover:text-rose-600 rounded-full p-0.5" aria-label="Löschen">
+                      {label} ({a.staffCount}{tx(" MA)")}</button>
+                    <button onClick={() => deleteArchivedMonth(a.monthValue)} className="hover:text-rose-600 rounded-full p-0.5" aria-label={tx("Löschen")}>
                       <Trash2 size={12} />
                     </button>
                   </span>
@@ -2729,14 +2728,13 @@ function LabShiftSchedulerInner() {
             {viewingArchive && (
               <div className="mt-4 border-t border-slate-100 pt-4">
                 <h3 className="text-xs font-semibold text-slate-600 mb-2">
-                  {(() => { const [ay, am] = viewingArchive.monthValue.split("-").map((n) => parseInt(n, 10)); return `${MONTH_DE[am - 1]} ${ay}`; })()} — nur zur Ansicht (nicht bearbeitbar)
-                </h3>
+                  {(() => { const [ay, am] = viewingArchive.monthValue.split("-").map((n) => parseInt(n, 10)); return `${monthName(am - 1)} ${ay}`; })()}{tx(" — nur zur Ansicht (nicht bearbeitbar)")}</h3>
                 <div className="overflow-x-auto">
                   <table className="w-full text-xs">
                     <thead>
                       <tr className="bg-slate-50 text-slate-500 border-b border-slate-100">
-                        <th className="px-2 py-1.5 text-left font-medium whitespace-nowrap">Tag</th>
-                        <th className="px-2 py-1.5 text-left font-medium whitespace-nowrap">Wochentag</th>
+                        <th className="px-2 py-1.5 text-left font-medium whitespace-nowrap">{tx("Tag")}</th>
+                        <th className="px-2 py-1.5 text-left font-medium whitespace-nowrap">{tx("Wochentag")}</th>
                         {dayOrderedKeys.map((st) => (
                           <th key={st} className="px-2 py-1.5 text-left font-medium whitespace-nowrap">{shiftMeta[st].label}</th>
                         ))}
@@ -2748,7 +2746,7 @@ function LabShiftSchedulerInner() {
                         return (
                           <tr key={d.day} className="border-b border-slate-50">
                             <td className="px-2 py-1 whitespace-nowrap font-medium">{d.day}</td>
-                            <td className="px-2 py-1 whitespace-nowrap text-slate-500">{WEEKDAY_DE[d.weekday]}</td>
+                            <td className="px-2 py-1 whitespace-nowrap text-slate-500">{wdLong(d.weekday)}</td>
                             {dayOrderedKeys.map((st) => (
                               <td key={st} className="px-2 py-1 whitespace-nowrap">{(d.shifts[st] || []).map(nameOfArchived).filter(Boolean).join(", ")}</td>
                             ))}
@@ -2768,26 +2766,23 @@ function LabShiftSchedulerInner() {
           <div className="grid sm:grid-cols-2 gap-4">
             <div>
               <label className="flex items-center gap-1.5 text-sm font-medium text-slate-700 mb-1.5">
-                <Calendar size={16} /> Planungsmonat
-              </label>
+                <Calendar size={16} />{tx(" Planungsmonat")}</label>
               <input
                 type="month"
                 value={monthValue}
-                onChange={(e) => { if (unsaved && !window.confirm(LEAVE_MSG)) return; setMonthValue(e.target.value); setSchedule(null); setSavedDays(null); setEditMode(false); }}
+                onChange={(e) => { if (unsaved && !window.confirm(tx(LEAVE_MSG))) return; setMonthValue(e.target.value); setSchedule(null); setSavedDays(null); setEditMode(false); }}
                 className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
               />
-              <p className="text-xs text-slate-400 mt-1">{MONTH_DE[monthIdx]} {year} — {totalDays} Tage</p>
-              {tailInfo && <p className="text-xs text-teal-700 mt-1" title="Nachtdienst-Blöcke laufen weiter (höchstens 4 Nächte) oder es folgen 2 freie Tage; endet der Vormonat an einem Samstag, bekommt der Sonntag dieselbe Schicht; kein Frühdienst nach Spätdienst; höchstens 6 Tage in Folge.">↪ Monatsübergang: Ende {tailInfo.label} wird berücksichtigt</p>}
+              <p className="text-xs text-slate-400 mt-1">{monthName(monthIdx)} {year} — {totalDays}{tx(" Tage")}</p>
+              {tailInfo && <p className="text-xs text-teal-700 mt-1" title={tx("Nachtdienst-Blöcke laufen weiter (höchstens 4 Nächte) oder es folgen 2 freie Tage; endet der Vormonat an einem Samstag, bekommt der Sonntag dieselbe Schicht; kein Frühdienst nach Spätdienst; höchstens 6 Tage in Folge.")}>{tx("↪ Monatsübergang: Ende ")}{tailInfo.label}{tx(" wird berücksichtigt")}</p>}
             </div>
 
             {multiOn ? (
               <div className="text-xs text-slate-600 rounded-lg bg-teal-50 border border-teal-100 p-3">
-                <div className="font-medium text-slate-700 mb-1">Mehrere Einsatzorte</div>
-                Schichten, Besetzung und Teams stehen oben bei den Orten. Im Plan unten gibt es eine Spalte je Schicht und Ort; über die Reiter lässt sich ein Ort allein anzeigen.
-              </div>
+                <div className="font-medium text-slate-700 mb-1">{tx("Mehrere Einsatzorte")}</div>{tx("Schichten, Besetzung und Teams stehen oben bei den Orten. Im Plan unten gibt es eine Spalte je Schicht und Ort; über die Reiter lässt sich ein Ort allein anzeigen.")}</div>
             ) : (
             <div>
-              <label className="text-sm font-medium text-slate-700 mb-1.5 block">Benötigte Personen je Schicht (gleichzeitig)</label>
+              <label className="text-sm font-medium text-slate-700 mb-1.5 block">{tx("Benötigte Personen je Schicht (gleichzeitig)")}</label>
               <div className="grid grid-cols-4 gap-2">
                 {["F", ...dayShiftDefs.filter((d) => d.frequency !== "quota").map((d) => d.key), ...(useLate ? ["S"] : [])].map((st) => (
                   <div key={st} className="text-center">
@@ -2805,8 +2800,7 @@ function LabShiftSchedulerInner() {
               </div>
               {dayShiftDefs.some((d) => d.frequency === "quota") && (
                 <p className="text-[11px] text-slate-400 mt-1.5">
-                  {dayShiftDefs.filter((d) => d.frequency === "quota").map((d) => `${d.label} (${d.quotaCount || 9}x/Monat)`).join(", ")} laufen separat, bevorzugt die Teamleitung, sonst wer am wenigsten Schichten hat.
-                </p>
+                  {dayShiftDefs.filter((d) => d.frequency === "quota").map((d) => tx("{0} ({1}x/Monat)", d.label, d.quotaCount || 9)).join(", ")}{tx(" laufen separat, bevorzugt die Teamleitung, sonst wer am wenigsten Schichten hat.")}</p>
               )}
             </div>
             )}
@@ -2817,7 +2811,7 @@ function LabShiftSchedulerInner() {
               renameable/retimeable; every other shift is freely add/remove/editable, and the
               system always ASKS (via the checkbox below) whether a given shift needs the 2-day
               mandatory rest afterward — that's no longer tied to any fixed "night" slot. */}
-          <Fold title="Schichtzeiten" hint={`${dayOrderedKeys.length} Schicht${dayOrderedKeys.length === 1 ? "" : "en"}`}><div>
+          <Fold title={tx("Schichtzeiten")} hint={dayOrderedKeys.length === 1 ? tx("1 Schicht") : tx("{0} Schichten", dayOrderedKeys.length)}><div>
             <div className="space-y-2">
               {["F", ...(useLate ? ["S"] : [])].map((key) => (
                 <div key={key} className="grid grid-cols-[auto,1fr,1fr,auto,auto] gap-1.5 items-center bg-slate-50/60 rounded-lg p-2">
@@ -2833,16 +2827,15 @@ function LabShiftSchedulerInner() {
                     placeholder="06:00-14:00"
                     className="border border-slate-300 rounded-lg px-2.5 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-teal-500"
                   />
-                  <span className="text-[11px] text-slate-400 font-mono whitespace-nowrap">{shiftMeta[key].hours.toFixed(1)} Std.</span>
+                  <span className="text-[11px] text-slate-400 font-mono whitespace-nowrap">{shiftMeta[key].hours.toFixed(1)}{tx(" Std.")}</span>
                   {key === "S" ? (
-                    <button type="button" onClick={() => setUseLate(false)} title="Spätdienst entfernen" aria-label="Spätdienst entfernen" className="text-slate-400 hover:text-rose-600 p-1 active:translate-y-px"><Trash2 size={14} /></button>
+                    <button type="button" onClick={() => setUseLate(false)} title={tx("Spätdienst entfernen")} aria-label={tx("Spätdienst entfernen")} className="text-slate-400 hover:text-rose-600 p-1 active:translate-y-px"><Trash2 size={14} /></button>
                   ) : <span />}
                 </div>
               ))}
               {!useLate && (
                 <button type="button" onClick={() => setUseLate(true)} className="inline-flex items-center gap-1 text-sm text-teal-700 hover:text-teal-800 font-medium px-2 py-1.5 rounded-lg border border-dashed border-teal-300 active:translate-y-px">
-                  <Plus size={15} /> Spätdienst hinzufügen
-                </button>
+                  <Plus size={15} />{tx(" Spätdienst hinzufügen")}</button>
               )}
               {dayShiftDefs.map((def, idx) => {
                 const guessedNight = /nacht|night|graveyard/i.test(def.label || "") || (() => {
@@ -2856,7 +2849,7 @@ function LabShiftSchedulerInner() {
                       value={def.label}
                       onChange={(e) => setDayShiftDefs((prev) => prev.map((d, i) => (i === idx ? { ...d, label: e.target.value } : d)))}
                       className="border border-slate-300 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
-                      placeholder="Name"
+                      placeholder={tx("Name")}
                     />
                     <input
                       value={def.time}
@@ -2869,8 +2862,8 @@ function LabShiftSchedulerInner() {
                       onChange={(e) => setDayShiftDefs((prev) => prev.map((d, i) => (i === idx ? { ...d, frequency: e.target.value } : d)))}
                       className="border border-slate-300 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-teal-500"
                     >
-                      <option value="daily">Täglich</option>
-                      <option value="quota">Kontingent/Monat</option>
+                      <option value="daily">{tx("Täglich")}</option>
+                      <option value="quota">{tx("Kontingent/Monat")}</option>
                     </select>
                     {def.frequency === "quota" ? (
                       <div className="flex items-center gap-1.5">
@@ -2880,17 +2873,15 @@ function LabShiftSchedulerInner() {
                           value={def.quotaCount || 9}
                           onChange={(e) => setDayShiftDefs((prev) => prev.map((d, i) => (i === idx ? { ...d, quotaCount: Math.max(1, parseInt(e.target.value) || 1) } : d)))}
                           className="w-16 border border-slate-300 rounded-lg px-2 py-1.5 text-xs text-center focus:outline-none focus:ring-2 focus:ring-teal-500"
-                          title="Wie oft pro Monat"
+                          title={tx("Wie oft pro Monat")}
                         />
-                        <label className="flex items-center gap-1 text-[10px] text-fuchsia-700 whitespace-nowrap" title="Bevorzugt die als „Teamleitung“ markierte Person">
-                          <input type="checkbox" checked={!!def.preferLead} onChange={(e) => setDayShiftDefs((prev) => prev.map((d, i) => (i === idx ? { ...d, preferLead: e.target.checked } : d)))} />
-                          Leitung
-                        </label>
+                        <label className="flex items-center gap-1 text-[10px] text-fuchsia-700 whitespace-nowrap" title={tx("Bevorzugt die als „Teamleitung“ markierte Person")}>
+                          <input type="checkbox" checked={!!def.preferLead} onChange={(e) => setDayShiftDefs((prev) => prev.map((d, i) => (i === idx ? { ...d, preferLead: e.target.checked } : d)))} />{tx("Leitung")}</label>
                       </div>
                     ) : (
-                      <span className="text-[11px] text-slate-400 font-mono">{computeShiftHours(def.time).toFixed(1)} Std.</span>
+                      <span className="text-[11px] text-slate-400 font-mono">{computeShiftHours(def.time).toFixed(1)}{tx(" Std.")}</span>
                     )}
-                    <button onClick={() => setDayShiftDefs((prev) => prev.filter((_, i) => i !== idx))} className="justify-self-end text-slate-400 hover:text-rose-600 p-1.5 rounded-lg hover:bg-rose-50" aria-label="Entfernen">
+                    <button onClick={() => setDayShiftDefs((prev) => prev.filter((_, i) => i !== idx))} className="justify-self-end text-slate-400 hover:text-rose-600 p-1.5 rounded-lg hover:bg-rose-50" aria-label={tx("Entfernen")}>
                       <Trash2 size={15} />
                     </button>
                   </div>
@@ -2902,9 +2893,7 @@ function LabShiftSchedulerInner() {
                         checked={!!def.requiresRestAfter}
                         onChange={(e) => setDayShiftDefs((prev) => prev.map((d, i) => (i === idx ? { ...d, requiresRestAfter: e.target.checked } : d)))}
                       />
-                      <span>
-                        Braucht diese Schicht danach mindestens 2 Tage Pause? (z. B. bei Nachtschichten)
-                        {guessedNight && !def.requiresRestAfter && <span className="text-indigo-500"> — sieht nach einer Nachtschicht aus, evtl. ankreuzen?</span>}
+                      <span>{tx("Braucht diese Schicht danach mindestens 2 Tage Pause? (z. B. bei Nachtschichten)")}{guessedNight && !def.requiresRestAfter && <span className="text-indigo-500">{tx(" — sieht nach einer Nachtschicht aus, evtl. ankreuzen?")}</span>}
                       </span>
                     </label>
                   )}
@@ -2913,22 +2902,21 @@ function LabShiftSchedulerInner() {
               })}
             </div>
             <button
-              onClick={() => setDayShiftDefs((prev) => [...prev, { key: `custom${Date.now()}`, label: "Neue Schicht", time: "08:00-16:00", frequency: "daily", requiresRestAfter: false }])}
+              onClick={() => setDayShiftDefs((prev) => [...prev, { key: `custom${Date.now()}`, label: tx("Neue Schicht"), time: "08:00-16:00", frequency: "daily", requiresRestAfter: false }])}
               className="dg-add mt-2 inline-flex items-center gap-1 text-sm text-teal-700 hover:text-teal-800 font-medium"
             >
-              <Plus size={15} /> Schicht hinzufügen
-            </button>
+              <Plus size={15} />{tx(" Schicht hinzufügen")}</button>
           </div></Fold>
 
           </>)}
 
           {/* Staff list */}
-          <Fold title="Mitarbeiter" hint={`${staffList.length} Person${staffList.length === 1 ? "" : "en"}`}><div>
+          <Fold title={tx("Mitarbeiter")} hint={staffList.length === 1 ? tx("1 Person") : tx("{0} Personen", staffList.length)}><div>
             <div className="hidden sm:grid grid-cols-[1.1fr,1.3fr,0.8fr,1.6fr,auto] gap-2 text-[11px] text-slate-400 px-1 mb-1">
-              <span>Name</span>
-              <span>E-Mail (für Dienstplan-Versand)</span>
-              <span>Wochenstunden</span>
-              <span>Beschäftigungsart / Ausnahmen</span>
+              <span>{tx("Name")}</span>
+              <span>{tx("E-Mail (für Dienstplan-Versand)")}</span>
+              <span>{tx("Wochenstunden")}</span>
+              <span>{tx("Beschäftigungsart / Ausnahmen")}</span>
               <span></span>
             </div>
             <div className="space-y-2">
@@ -2943,14 +2931,14 @@ function LabShiftSchedulerInner() {
                     type="email"
                     value={s.email || ""}
                     onChange={(e) => updateStaffField(s.id, "email", e.target.value)}
-                    placeholder="name@firma.de"
+                    placeholder={tx("name@firma.de")}
                     className="border border-slate-300 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
                   />
                   <input
                     value={s.personnelNo || ""}
                     onChange={(e) => updateStaffField(s.id, "personnelNo", e.target.value.slice(0, 30))}
-                    placeholder="Personal-Nr."
-                    aria-label={`Personalnummer ${s.name}`}
+                    placeholder={tx("Personal-Nr.")}
+                    aria-label={tx("Personalnummer {0}", s.name)}
                     className="w-28 border border-slate-300 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
                   />
                   <div className="flex items-center gap-1">
@@ -2962,7 +2950,7 @@ function LabShiftSchedulerInner() {
                       onChange={(e) => setStaffList((prev) => prev.map((p) => (p.id === s.id ? { ...p, weeklyHours: Math.max(0, parseFloat(e.target.value) || 0), employmentType: null } : p)))}
                       className="w-20 border border-slate-300 rounded-lg px-2 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-teal-500"
                     />
-                    <span className="text-[11px] text-slate-400">Std.</span>
+                    <span className="text-[11px] text-slate-400">{tx("Std.")}</span>
                   </div>
                   <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px]">
                     <div className="flex gap-1">
@@ -2983,33 +2971,26 @@ function LabShiftSchedulerInner() {
                                 : "border-slate-200 text-slate-500 hover:bg-slate-100"
                             }`}
                           >
-                            {opt.label}
+                            {tx(opt.label)}
                           </button>
                         );
                       })}
                     </div>
                     <label className="flex items-center gap-1 text-slate-500">
-                      <input type="checkbox" checked={!!s.nightExempt} onChange={(e) => updateStaffField(s.id, "nightExempt", e.target.checked)} />
-                      Befreit von Nachtschichten (Schichten mit Ruhepflicht)
-                    </label>
+                      <input type="checkbox" checked={!!s.nightExempt} onChange={(e) => updateStaffField(s.id, "nightExempt", e.target.checked)} />{tx("Befreit von Nachtschichten (Schichten mit Ruhepflicht)")}</label>
                     <label className="flex items-center gap-1 text-slate-500">
-                      <input type="checkbox" checked={!!s.weekendExempt} onChange={(e) => updateStaffField(s.id, "weekendExempt", e.target.checked)} />
-                      Befreit von Wochenendquote
-                    </label>
+                      <input type="checkbox" checked={!!s.weekendExempt} onChange={(e) => updateStaffField(s.id, "weekendExempt", e.target.checked)} />{tx("Befreit von Wochenendquote")}</label>
                     <label className="flex items-center gap-1 text-fuchsia-700">
-                      <input type="checkbox" checked={!!s.isTeamLead} onChange={(e) => updateStaffField(s.id, "isTeamLead", e.target.checked)} />
-                      Teamleitung (bevorzugt für Kontingent-Schichten)
-                    </label>
+                      <input type="checkbox" checked={!!s.isTeamLead} onChange={(e) => updateStaffField(s.id, "isTeamLead", e.target.checked)} />{tx("Teamleitung (bevorzugt für Kontingent-Schichten)")}</label>
                   </div>
-                  <button onClick={() => removeStaff(s.id)} className="justify-self-end sm:justify-self-auto text-slate-400 hover:text-rose-600 p-1.5 rounded-lg hover:bg-rose-50" aria-label="Entfernen">
+                  <button onClick={() => removeStaff(s.id)} className="justify-self-end sm:justify-self-auto text-slate-400 hover:text-rose-600 p-1.5 rounded-lg hover:bg-rose-50" aria-label={tx("Entfernen")}>
                     <Trash2 size={15} />
                   </button>
                 </div>
               ))}
             </div>
             <button onClick={addStaff} className="dg-add mt-2 inline-flex items-center gap-1 text-sm text-teal-700 hover:text-teal-800 font-medium">
-              <Plus size={15} /> Mitarbeiter hinzufügen
-            </button>
+              <Plus size={15} />{tx(" Mitarbeiter hinzufügen")}</button>
             <button
               onClick={() => setStaffList((prev) => {
                 // fill only the EMPTY ones: next free number after the highest one (start 1001); existing numbers stay
@@ -3018,20 +2999,18 @@ function LabShiftSchedulerInner() {
                 return prev.map((x) => (String(x.personnelNo || "").trim() ? x : { ...x, personnelNo: String(next++) }));
               })}
               className="mt-2 ml-4 inline-flex items-center gap-1 text-sm text-slate-600 hover:text-slate-800"
-              title="Nur Personen ohne Personalnummer bekommen eine; vorhandene bleiben. Danach „Personen speichern“."
-            >
-              # Fehlende Personalnummern vergeben
-            </button>
+              title={tx("Nur Personen ohne Personalnummer bekommen eine; vorhandene bleiben. Danach „Personen speichern“.")}
+            >{tx("# Fehlende Personalnummern vergeben")}</button>
           </div></Fold>
 
           {/* Leave (Urlaub) */}
-          <Fold title="Urlaub" hint={leaveEntries.length ? `${leaveEntries.length} Eintr${leaveEntries.length === 1 ? "ag" : "äge"}` : "keiner"}><div>
+          <Fold title={tx("Urlaub")} hint={leaveEntries.length ? (leaveEntries.length === 1 ? tx("1 Eintrag") : tx("{0} Einträge", leaveEntries.length)) : tx("keiner")}><div>
             <div className="flex flex-wrap gap-1.5 mb-2">
-              {leaveEntries.length === 0 && <span className="text-xs text-slate-400">Bisher ist kein Urlaub eingetragen</span>}
+              {leaveEntries.length === 0 && <span className="text-xs text-slate-400">{tx("Bisher ist kein Urlaub eingetragen")}</span>}
               {leaveEntries.map((e) => (
                 <span key={e.id} className="inline-flex items-center gap-1.5 bg-sky-50 border border-sky-200 text-sky-800 text-xs rounded-full pl-1 pr-2.5 py-1">
-                  {staffMap[e.staffId] || "?"} — Tag <span className="font-mono">{e.days}</span>
-                  <button onClick={() => removeLeaveEntry(e.id)} className="text-sky-400 hover:text-rose-600 rounded-full p-0.5" aria-label="Entfernen">
+                  {staffMap[e.staffId] || "?"}{tx(" — Tag ")}<span className="font-mono">{e.days}</span>
+                  <button onClick={() => removeLeaveEntry(e.id)} className="text-sky-400 hover:text-rose-600 rounded-full p-0.5" aria-label={tx("Entfernen")}>
                     <Trash2 size={12} />
                   </button>
                 </span>
@@ -3043,7 +3022,7 @@ function LabShiftSchedulerInner() {
                 onChange={(e) => setLeaveDraft((d) => ({ ...d, staffId: e.target.value }))}
                 className="border border-slate-300 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
               >
-                <option value="">Mitarbeiter auswählen...</option>
+                <option value="">{tx("Mitarbeiter auswählen...")}</option>
                 {staffList.map((s) => (
                   <option key={s.id} value={s.id}>{s.name}</option>
                 ))}
@@ -3051,23 +3030,22 @@ function LabShiftSchedulerInner() {
               <input
                 value={leaveDraft.days}
                 onChange={(e) => setLeaveDraft((d) => ({ ...d, days: e.target.value }))}
-                placeholder="Tage, z. B. 5,6,7 oder 5-9"
+                placeholder={tx("Tage, z. B. 5,6,7 oder 5-9")}
                 className="border border-slate-300 rounded-lg px-2.5 py-1.5 text-sm font-mono w-44 focus:outline-none focus:ring-2 focus:ring-teal-500"
               />
               <button onClick={addLeaveEntry} className="dg-add inline-flex items-center gap-1 text-sm text-teal-700 hover:text-teal-800 font-medium px-2 py-1.5">
-                <Plus size={15} /> Hinzufügen
-              </button>
+                <Plus size={15} />{tx(" Hinzufügen")}</button>
             </div>
           </div></Fold>
 
           {/* Sick (Krank) */}
-          <Fold title="Krank" hint={sickEntries.length ? `${sickEntries.length} Eintr${sickEntries.length === 1 ? "ag" : "äge"}` : "niemand"}><div>
+          <Fold title={tx("Krank")} hint={sickEntries.length ? (sickEntries.length === 1 ? tx("1 Eintrag") : tx("{0} Einträge", sickEntries.length)) : tx("niemand")}><div>
             <div className="flex flex-wrap gap-1.5 mb-2">
-              {sickEntries.length === 0 && <span className="text-xs text-slate-400">Bisher ist niemand krankgemeldet</span>}
+              {sickEntries.length === 0 && <span className="text-xs text-slate-400">{tx("Bisher ist niemand krankgemeldet")}</span>}
               {sickEntries.map((e) => (
                 <span key={e.id} className="inline-flex items-center gap-1.5 bg-orange-50 border border-orange-200 text-orange-800 text-xs rounded-full pl-1 pr-2.5 py-1">
-                  {staffMap[e.staffId] || "?"} — Tag <span className="font-mono">{e.days}</span>
-                  <button onClick={() => removeSickEntry(e.id)} className="text-orange-400 hover:text-rose-600 rounded-full p-0.5" aria-label="Entfernen">
+                  {staffMap[e.staffId] || "?"}{tx(" — Tag ")}<span className="font-mono">{e.days}</span>
+                  <button onClick={() => removeSickEntry(e.id)} className="text-orange-400 hover:text-rose-600 rounded-full p-0.5" aria-label={tx("Entfernen")}>
                     <Trash2 size={12} />
                   </button>
                 </span>
@@ -3079,7 +3057,7 @@ function LabShiftSchedulerInner() {
                 onChange={(e) => setSickDraft((d) => ({ ...d, staffId: e.target.value }))}
                 className="border border-slate-300 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
               >
-                <option value="">Mitarbeiter auswählen...</option>
+                <option value="">{tx("Mitarbeiter auswählen...")}</option>
                 {staffList.map((s) => (
                   <option key={s.id} value={s.id}>{s.name}</option>
                 ))}
@@ -3087,27 +3065,26 @@ function LabShiftSchedulerInner() {
               <input
                 value={sickDraft.days}
                 onChange={(e) => setSickDraft((d) => ({ ...d, days: e.target.value }))}
-                placeholder="Tage, z. B. 5,6,7 oder 5-9"
+                placeholder={tx("Tage, z. B. 5,6,7 oder 5-9")}
                 className="border border-slate-300 rounded-lg px-2.5 py-1.5 text-sm font-mono w-44 focus:outline-none focus:ring-2 focus:ring-teal-500"
               />
               <button onClick={addSickEntry} className="dg-add inline-flex items-center gap-1 text-sm text-teal-700 hover:text-teal-800 font-medium px-2 py-1.5">
-                <Plus size={15} /> Hinzufügen
-              </button>
+                <Plus size={15} />{tx(" Hinzufügen")}</button>
             </div>
           </div></Fold>
 
           {/* Wishes (Wünsche): fixed shift requests, honored before the rest is auto-scheduled */}
-          <Fold title="Wünsche" hint={wishEntries.length ? `${wishEntries.length} Eintr${wishEntries.length === 1 ? "ag" : "äge"}` : "keine"}><div>
+          <Fold title={tx("Wünsche")} hint={wishEntries.length ? (wishEntries.length === 1 ? tx("1 Eintrag") : tx("{0} Einträge", wishEntries.length)) : tx("keine")}><div>
             <div className="flex flex-wrap gap-1.5 mb-2">
-              {wishEntries.length === 0 && <span className="text-xs text-slate-400">Noch keine Schichtwünsche eingetragen</span>}
+              {wishEntries.length === 0 && <span className="text-xs text-slate-400">{tx("Noch keine Schichtwünsche eingetragen")}</span>}
               {wishEntries.map((e) => {
                 const isFrei = e.shiftType === "Frei";
                 const chipClass = isFrei ? "bg-slate-100 text-slate-700 border-slate-300" : shiftMeta[e.shiftType] ? shiftMeta[e.shiftType].chip : "bg-slate-50 text-slate-400 border-slate-200";
-                const label = isFrei ? "Frei" : shiftMeta[e.shiftType] ? shiftMeta[e.shiftType].label : "Schicht nicht mehr im Plan";
+                const label = isFrei ? tx("Frei") : shiftMeta[e.shiftType] ? shiftMeta[e.shiftType].label : tx("Schicht nicht mehr im Plan");
                 return (
                   <span key={e.id} className={`inline-flex items-center gap-1.5 border text-xs rounded-full pl-1 pr-2.5 py-1 ${chipClass}`}>
-                    {staffMap[e.staffId] || "?"} — {label}, Tag <span className="font-mono">{e.days}</span>
-                    <button onClick={() => removeWishEntry(e.id)} className="hover:text-rose-600 rounded-full p-0.5" aria-label="Entfernen">
+                    {staffMap[e.staffId] || "?"} — {label}{tx(", Tag ")}<span className="font-mono">{e.days}</span>
+                    <button onClick={() => removeWishEntry(e.id)} className="hover:text-rose-600 rounded-full p-0.5" aria-label={tx("Entfernen")}>
                       <Trash2 size={12} />
                     </button>
                   </span>
@@ -3120,7 +3097,7 @@ function LabShiftSchedulerInner() {
                 onChange={(e) => setWishDraft((d) => ({ ...d, staffId: e.target.value }))}
                 className="border border-slate-300 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
               >
-                <option value="">Mitarbeiter auswählen...</option>
+                <option value="">{tx("Mitarbeiter auswählen...")}</option>
                 {staffList.map((s) => (
                   <option key={s.id} value={s.id}>{s.name}</option>
                 ))}
@@ -3133,93 +3110,88 @@ function LabShiftSchedulerInner() {
                 {dayOrderedKeys.map((st) => (
                   <option key={st} value={st}>{shiftMeta[st].label}</option>
                 ))}
-                <option value="Frei">Frei (kein Dienst, keine Schicht)</option>
+                <option value="Frei">{tx("Frei (kein Dienst, keine Schicht)")}</option>
               </select>
               <input
                 value={wishDraft.days}
                 onChange={(e) => setWishDraft((d) => ({ ...d, days: e.target.value }))}
-                placeholder="Tage, z. B. 5,6,7 oder 5-9"
+                placeholder={tx("Tage, z. B. 5,6,7 oder 5-9")}
                 className="border border-slate-300 rounded-lg px-2.5 py-1.5 text-sm font-mono w-44 focus:outline-none focus:ring-2 focus:ring-teal-500"
               />
               <button onClick={addWishEntry} className="dg-add inline-flex items-center gap-1 text-sm text-teal-700 hover:text-teal-800 font-medium px-2 py-1.5">
-                <Plus size={15} /> Hinzufügen
-              </button>
+                <Plus size={15} />{tx(" Hinzufügen")}</button>
             </div>
-            <p className="text-[11px] text-slate-400 mt-1.5">Diese Schichten werden zuerst fest eingetragen; alle übrigen Schichten plant der Algorithmus automatisch drumherum.</p>
+            <p className="text-[11px] text-slate-400 mt-1.5">{tx("Diese Schichten werden zuerst fest eingetragen; alle übrigen Schichten plant der Algorithmus automatisch drumherum.")}</p>
           </div></Fold>
 
           {/* Öffnungstage & Betriebsschließung */}
-          <Fold defaultOpen title="Öffnungstage & Betriebsschließung" hint={`${openWeekdays.length} von 7 Tagen geöffnet`}><div>
+          <Fold defaultOpen title={tx("Öffnungstage & Betriebsschließung")} hint={tx("{0} von 7 Tagen geöffnet", openWeekdays.length)}><div>
             <div className="flex flex-wrap items-baseline justify-between gap-2">
-              <label className="text-sm font-medium text-slate-700">Öffnungstage</label>
-              {openingMsg && <span role="status" className={`text-xs ${openingMsg.startsWith("Nicht") || openingMsg.startsWith("Mindestens") ? "text-rose-700" : "text-teal-700"}`}>{openingMsg}</span>}
+              <label className="text-sm font-medium text-slate-700">{tx("Öffnungstage")}</label>
+              {openingMsg && <span role="status" className={`text-xs ${openingMsg.startsWith("Nicht") || openingMsg.startsWith("Mindestens") ? "text-rose-700" : "text-teal-700"}`}>{tx(openingMsg)}</span>}
             </div>
             <div className="mt-2 flex flex-wrap gap-1.5">
               {[1, 2, 3, 4, 5, 6, 0].map((wd) => {
                 const on = openWeekdays.includes(wd);
                 const mode = on ? (halfWeekdays[wd] || "full") : "closed";
-                const word = { full: "ganztags", am: "nur vorm.", pm: "nur nachm.", closed: "geschlossen" }[mode];
+                const word = { full: tx("ganztags"), am: tx("nur vorm."), pm: tx("nur nachm."), closed: tx("geschlossen") }[mode];
                 const look = mode === "full" ? "bg-teal-600 border-teal-600 text-white"
                   : mode === "closed" ? "bg-white border-slate-300 text-slate-400"
                   : "bg-teal-50 border-teal-300 text-teal-800";
                 return (
                   <button key={wd} type="button" disabled={!canEditOpening} onClick={() => cycleWeekday(wd)}
-                    aria-label={`${WEEKDAY_DE[wd]}: ${word}. Klicken für die nächste Einstellung`}
-                    title="Klicken: ganztags → nur vormittags → nur nachmittags → geschlossen"
+                    aria-label={tx("{0}: {1}. Klicken für die nächste Einstellung", wdLong(wd), word)}
+                    title={tx("Klicken: ganztags → nur vormittags → nur nachmittags → geschlossen")}
                     className={`min-w-[64px] rounded-lg border px-2 py-1.5 font-medium leading-tight active:translate-y-px disabled:cursor-not-allowed ${look}`}>
-                    <span className={`block text-xs ${mode === "closed" ? "line-through" : ""}`}>{WEEKDAY_DE[wd].slice(0, 2)}</span>
+                    <span className={`block text-xs ${mode === "closed" ? "line-through" : ""}`}>{wdLong(wd).slice(0, 2)}</span>
                     <span className="block text-[10px] font-normal opacity-90">{word}</span>
                   </button>
                 );
               })}
             </div>
-            <p className="text-[11px] text-slate-400 mt-1">Ein Klick auf einen Tag wechselt: ganztags → nur vormittags → nur nachmittags → geschlossen.</p>
+            <p className="text-[11px] text-slate-400 mt-1">{tx("Ein Klick auf einen Tag wechselt: ganztags → nur vormittags → nur nachmittags → geschlossen.")}</p>
             <label className="mt-2 flex items-center gap-2 text-xs text-slate-600">
-              <input type="checkbox" checked={closedOnHolidays} disabled={!canEditOpening} onChange={(e) => saveOpening(openWeekdays, e.target.checked)} />
-              An Feiertagen geschlossen
-            </label>
+              <input type="checkbox" checked={closedOnHolidays} disabled={!canEditOpening} onChange={(e) => saveOpening(openWeekdays, e.target.checked)} />{tx("An Feiertagen geschlossen")}</label>
             {(Object.keys(halfWeekdays).length > 0 || monthAm.length > 0 || monthPm.length > 0) && (
               <div className="mt-3 rounded-lg bg-slate-50 p-2">
-                <div className="text-xs font-medium text-slate-700 mb-1">An halben Tagen gehört die Schicht zu …</div>
+                <div className="text-xs font-medium text-slate-700 mb-1">{tx("An halben Tagen gehört die Schicht zu …")}</div>
                 {dayOrderedKeys.map((k) => (
                   <div key={k} className="flex flex-wrap items-center gap-2 py-0.5">
                     <span className="text-xs text-slate-700 min-w-[9rem]">{shiftMeta[k].label} <span className="text-slate-400">{shiftMeta[k].time}</span></span>
-                    {[["am", "Vormittag"], ["pm", "Nachmittag"]].map(([part, word]) => (
+                    {[["am", tx("Vormittag")], ["pm", tx("Nachmittag")]].map(([part, word]) => (
                       <button key={part} type="button" disabled={!canEditOpening} aria-pressed={shiftParts[k] === part}
                         onClick={() => saveOpening(openWeekdays, closedOnHolidays, halfWeekdays, { ...shiftPartChoice, [k]: part })}
                         className={`text-xs rounded-md border px-2 py-1 active:translate-y-px ${shiftParts[k] === part ? "bg-teal-600 border-teal-600 text-white" : "bg-white border-slate-300 text-slate-600"}`}>{word}</button>
                     ))}
                   </div>
                 ))}
-                <p className="text-[11px] text-slate-400 mt-1">Ohne Auswahl: Beginn vor 12:00 Uhr = Vormittag.</p>
+                <p className="text-[11px] text-slate-400 mt-1">{tx("Ohne Auswahl: Beginn vor 12:00 Uhr = Vormittag.")}</p>
               </div>
             )}
-            {!canEditOpening && <p className="text-[11px] text-slate-400 mt-1">Öffnungstage ändern nur Leitung oder Inhaber.</p>}
+            {!canEditOpening && <p className="text-[11px] text-slate-400 mt-1">{tx("Öffnungstage ändern nur Leitung oder Inhaber.")}</p>}
             <div className="mt-3">
-              <label className="text-xs font-medium text-slate-700 block mb-1">Ganzer Betrieb geschlossen in diesem Monat (z. B. Betriebsurlaub)</label>
+              <label className="text-xs font-medium text-slate-700 block mb-1">{tx("Ganzer Betrieb geschlossen in diesem Monat (z. B. Betriebsurlaub)")}</label>
               <div className="flex flex-wrap items-center gap-2">
                 <input value={monthClosedText} onChange={(e) => { setMonthClosedText(e.target.value); setClosedMsg(""); }} onKeyDown={(e) => { if (e.key === "Enter") saveMonthClosed(); }}
-                  placeholder="z. B. 24-31" className="border border-slate-300 rounded-lg px-2.5 py-1.5 text-sm font-mono w-44 focus:outline-none focus:ring-2 focus:ring-teal-500" />
-                <button type="button" onClick={saveMonthClosed} disabled={closedMsg === "Moment …"} className="text-sm text-teal-700 hover:text-teal-800 font-medium px-2 py-1.5 rounded-lg border border-teal-200 bg-teal-50 hover:bg-teal-100 active:translate-y-px disabled:opacity-60">{closedMsg === "Moment …" ? "Moment …" : "Übernehmen"}</button>
-                {closedMsg && closedMsg !== "Moment …" && <span role="status" className={`text-xs ${closedMsg.startsWith("Nicht") || closedMsg.startsWith("Bitte") ? "text-rose-700" : "text-teal-700"}`}>{closedMsg}</span>}
+                  placeholder={tx("z. B. 24-31")} className="border border-slate-300 rounded-lg px-2.5 py-1.5 text-sm font-mono w-44 focus:outline-none focus:ring-2 focus:ring-teal-500" />
+                <button type="button" onClick={saveMonthClosed} disabled={closedMsg === "Moment …"} className="text-sm text-teal-700 hover:text-teal-800 font-medium px-2 py-1.5 rounded-lg border border-teal-200 bg-teal-50 hover:bg-teal-100 active:translate-y-px disabled:opacity-60">{closedMsg === "Moment …" ? tx("Moment …") : tx("Übernehmen")}</button>
+                {closedMsg && closedMsg !== "Moment …" && <span role="status" className={`text-xs ${closedMsg.startsWith("Nicht") || closedMsg.startsWith("Bitte") ? "text-rose-700" : "text-teal-700"}`}>{tx(closedMsg)}</span>}
               </div>
               <div className="mt-2 grid gap-2 sm:grid-cols-2">
-                <label className="text-xs font-medium text-slate-700">Nur vormittags geöffnet (dieser Monat)
-                  <input value={monthAmText} onChange={(e) => { setMonthAmText(e.target.value); setClosedMsg(""); }} onKeyDown={(e) => { if (e.key === "Enter") saveMonthClosed(); }}
-                    placeholder="z. B. 24, 31" className="mt-1 block border border-slate-300 rounded-lg px-2.5 py-1.5 text-sm font-mono w-44 focus:outline-none focus:ring-2 focus:ring-teal-500" />
+                <label className="text-xs font-medium text-slate-700">{tx("Nur vormittags geöffnet (dieser Monat)")}<input value={monthAmText} onChange={(e) => { setMonthAmText(e.target.value); setClosedMsg(""); }} onKeyDown={(e) => { if (e.key === "Enter") saveMonthClosed(); }}
+                    placeholder={tx("z. B. 24, 31")} className="mt-1 block border border-slate-300 rounded-lg px-2.5 py-1.5 text-sm font-mono w-44 focus:outline-none focus:ring-2 focus:ring-teal-500" />
                 </label>
-                <label className="text-xs font-medium text-slate-700">Nur nachmittags geöffnet (dieser Monat)
-                  <input value={monthPmText} onChange={(e) => { setMonthPmText(e.target.value); setClosedMsg(""); }} onKeyDown={(e) => { if (e.key === "Enter") saveMonthClosed(); }}
-                    placeholder="z. B. 2" className="mt-1 block border border-slate-300 rounded-lg px-2.5 py-1.5 text-sm font-mono w-44 focus:outline-none focus:ring-2 focus:ring-teal-500" />
+                <label className="text-xs font-medium text-slate-700">{tx("Nur nachmittags geöffnet (dieser Monat)")}<input value={monthPmText} onChange={(e) => { setMonthPmText(e.target.value); setClosedMsg(""); }} onKeyDown={(e) => { if (e.key === "Enter") saveMonthClosed(); }}
+                    placeholder={tx("z. B. 2")} className="mt-1 block border border-slate-300 rounded-lg px-2.5 py-1.5 text-sm font-mono w-44 focus:outline-none focus:ring-2 focus:ring-teal-500" />
                 </label>
               </div>
-              <p className="text-[11px] text-slate-400 mt-1">„Übernehmen“ speichert alle drei Felder.</p>
+              <p className="text-[11px] text-slate-400 mt-1">{tx("„Übernehmen“ speichert alle drei Felder.")}</p>
             </div>
-            <p className="text-[11px] text-slate-400 mt-2">An geschlossenen Tagen wird niemand eingeplant, an halben Tagen nur die passenden Schichten; das Stundenziel zählt nur die offenen Tage (halber Tag = halb). Gilt für neu erstellte Pläne – ein bestehender Plan ändert sich nicht von selbst.</p>
+            <p className="text-[11px] text-slate-400 mt-2">{tx("An geschlossenen Tagen wird niemand eingeplant, an halben Tagen nur die passenden Schichten; das Stundenziel zählt nur die offenen Tage (halber Tag = halb). Gilt für neu erstellte Pläne – ein bestehender Plan ändert sich nicht von selbst.")}</p>
           </div></Fold>
 
           {/* Holidays */}
-          {/* Feiertage */}<Fold title="Feiertage" hint={holidays.length ? `${holidays.length} in diesem Monat` : "keine in diesem Monat"}><div>
+          {/* Feiertage */}<Fold title={tx("Feiertage")} hint={holidays.length ? tx("{0} in diesem Monat", holidays.length) : tx("keine in diesem Monat")}><div>
             <div className="flex flex-wrap gap-1.5">
               {Array.from({ length: totalDays }, (_, i) => i + 1).map((d) => {
                 const wd = new Date(year, monthIdx, d).getDay();
@@ -3236,7 +3208,7 @@ function LabShiftSchedulerInner() {
                         ? "bg-slate-300 border-slate-400 text-slate-800 font-semibold hover:bg-slate-400" // weekend: visible, but not too dark (user 8 Nov 2026)
                         : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
                     }`}
-                    title={WEEKDAY_DE[wd]}
+                    title={wdLong(wd)}
                   >
                     {d}
                   </button>
@@ -3248,16 +3220,16 @@ function LabShiftSchedulerInner() {
           {/* Carried-over balances from previous months */}
           {balancesLoaded && Object.values(balances).some((v) => Math.abs(v.hours || 0) > 0.05 || (v.satDeficit || 0) > 0 || (v.sunDeficit || 0) > 0 || (v.nightDeficit || 0) > 0) && (
             // collapsible (user 8 Nov 2026): closed by default, the number of people in the title
-            <Fold title="Saldo aus Vormonaten" hint={`${Object.values(balances).filter((v) => Math.abs(v.hours || 0) > 0.05 || (v.satDeficit || 0) > 0 || (v.sunDeficit || 0) > 0 || (v.nightDeficit || 0) > 0).length} Personen · wird berücksichtigt`}><div className="text-xs">
+            <Fold title={tx("Saldo aus Vormonaten")} hint={tx("{0} Personen · wird berücksichtigt", Object.values(balances).filter((v) => Math.abs(v.hours || 0) > 0.05 || (v.satDeficit || 0) > 0 || (v.sunDeficit || 0) > 0 || (v.nightDeficit || 0) > 0).length)}><div className="text-xs">
               <div className="flex flex-wrap gap-1.5">
                 {Object.entries(balances)
                   .filter(([, v]) => Math.abs(v.hours || 0) > 0.05 || (v.satDeficit || 0) > 0 || (v.sunDeficit || 0) > 0 || (v.nightDeficit || 0) > 0)
                   .map(([name, v]) => {
                     const parts = [];
-                    if (Math.abs(v.hours || 0) > 0.05) parts.push(v.hours < 0 ? `${(-v.hours).toFixed(1)} Überstunden (Ziel kleiner)` : `${v.hours.toFixed(1)} Minusstunden (Ziel größer)`);
-                    if ((v.satDeficit || 0) > 0) parts.push(`${v.satDeficit.toFixed(1)} Sa offen`);
-                    if ((v.sunDeficit || 0) > 0) parts.push(`${v.sunDeficit.toFixed(1)} So offen`);
-                    if ((v.nightDeficit || 0) > 0) parts.push(`${v.nightDeficit.toFixed(1)} Nächte offen`);
+                    if (Math.abs(v.hours || 0) > 0.05) parts.push(v.hours < 0 ? tx("{0} Überstunden (Ziel kleiner)", (-v.hours).toFixed(1)) : tx("{0} Minusstunden (Ziel größer)", v.hours.toFixed(1)));
+                    if ((v.satDeficit || 0) > 0) parts.push(tx("{0} Sa offen", v.satDeficit.toFixed(1)));
+                    if ((v.sunDeficit || 0) > 0) parts.push(tx("{0} So offen", v.sunDeficit.toFixed(1)));
+                    if ((v.nightDeficit || 0) > 0) parts.push(tx("{0} Nächte offen", v.nightDeficit.toFixed(1)));
                     return (
                       <span key={name} className={`rounded-full px-2.5 py-1 border ${(v.hours || 0) > 0.05 ? "bg-white border-amber-300 text-amber-800" : (v.hours || 0) < -0.05 ? "bg-white border-sky-300 text-sky-800" : "bg-white border-slate-200 text-slate-700"}`}>
                         {name}: {parts.join(", ")}
@@ -3265,7 +3237,7 @@ function LabShiftSchedulerInner() {
                     );
                   })}
               </div>
-              {!orgCtx && <button onClick={resetBalances} className="mt-2 text-violet-500 hover:text-rose-600 underline">Alle Salden löschen</button>}
+              {!orgCtx && <button onClick={resetBalances} className="mt-2 text-violet-500 hover:text-rose-600 underline">{tx("Alle Salden löschen")}</button>}
             </div></Fold>
           )}
 
@@ -3273,41 +3245,40 @@ function LabShiftSchedulerInner() {
           <div className="flex flex-wrap items-center gap-3">
             <button onClick={createEmptyPlan} disabled={staffList.length === 0 || dayOrderedKeys.length === 0}
               className="inline-flex items-center gap-2 bg-teal-600 hover:bg-teal-700 disabled:bg-slate-300 text-white font-medium text-sm px-4 py-2.5 rounded-xl transition-colors active:translate-y-px">
-              <Plus size={16} /> {schedule ? "Neuen leeren Plan anlegen" : "Leeren Plan anlegen"}
+              <Plus size={16} /> {schedule ? tx("Neuen leeren Plan anlegen") : tx("Leeren Plan anlegen")}
             </button>
-            <span className="text-xs text-slate-500">{dayOrderedKeys.length === 0 ? "Zuerst oben bei den Orten Schichten anlegen." : "Die automatische Planung für mehrere Orte kommt mit dem nächsten Paket. Bis dahin die Schichten in der Tabelle eintragen – zuerst wird das Team des Ortes angeboten."}</span>
+            <span className="text-xs text-slate-500">{dayOrderedKeys.length === 0 ? tx("Zuerst oben bei den Orten Schichten anlegen.") : tx("Die automatische Planung für mehrere Orte kommt mit dem nächsten Paket. Bis dahin die Schichten in der Tabelle eintragen – zuerst wird das Team des Ortes angeboten.")}</span>
           </div>
           ) : (
           <div className="flex flex-wrap items-center gap-3">
             <button
               onClick={() => { if (genBusy) return;
                 // 8 Nov 2026 (user): a plan already there -> always warn; a published one -> say it is published
-                if (baseline && !window.confirm("⚠ Ihr Plan ist schon veröffentlicht.\n\nBei „Neu generieren“ wird der GESAMTE Plan neu erstellt – fast alle Schichten ändern sich, auch für die Mitarbeitenden (nach dem nächsten Veröffentlichen).\n\nNur Urlaub/Krank nachtragen? Dann besser „Urlaub/Krank einarbeiten“ – es ändern sich nur die betroffenen Tage.\n\nOK = trotzdem alles neu · Abbrechen = zurück")) return;
-                if (!baseline && schedule && !window.confirm("⚠ Der gesamte Plan wird neu erstellt – alle Schichten können sich ändern, auch Ihre Änderungen von Hand.\n\nOK = neu erstellen · Abbrechen = zurück")) return;
+                if (baseline && !window.confirm(tx("⚠ Ihr Plan ist schon veröffentlicht.\n\nBei „Neu generieren“ wird der GESAMTE Plan neu erstellt – fast alle Schichten ändern sich, auch für die Mitarbeitenden (nach dem nächsten Veröffentlichen).\n\nNur Urlaub/Krank nachtragen? Dann besser „Urlaub/Krank einarbeiten“ – es ändern sich nur die betroffenen Tage.\n\nOK = trotzdem alles neu · Abbrechen = zurück"))) return;
+                if (!baseline && schedule && !window.confirm(tx("⚠ Der gesamte Plan wird neu erstellt – alle Schichten können sich ändern, auch Ihre Änderungen von Hand.\n\nOK = neu erstellen · Abbrechen = zurück"))) return;
                 setGenBusy(true); setGenInfo(null); setTimeout(() => { try { runGenerate(); } finally { setGenBusy(false); } }, 40); }}
               disabled={staffList.length === 0 || genBusy}
               aria-busy={genBusy}
-              title={schedule ? "Erstellt den GESAMTEN Plan neu – fast alle Schichten ändern sich" : "Erstellt den Plan für diesen Monat"}
+              title={schedule ? tx("Erstellt den GESAMTEN Plan neu – fast alle Schichten ändern sich") : tx("Erstellt den Plan für diesen Monat")}
               className={`inline-flex items-center gap-2 ${schedule ? "bg-amber-500 hover:bg-amber-600" : "bg-teal-600 hover:bg-teal-700"} disabled:bg-slate-300 text-white font-medium text-sm px-4 py-2.5 rounded-xl transition-colors active:translate-y-px`}
             >
-              <RefreshCw size={16} className={genBusy ? "animate-spin" : ""} /> {genBusy ? "Moment …" : schedule ? "Neu generieren" : "Generieren"} {/* user 8 Nov 2026: "Generieren" for the first plan; "Neu generieren" (amber, with warning) when a plan is there */}
+              <RefreshCw size={16} className={genBusy ? "animate-spin" : ""} /> {genBusy ? tx("Moment …") : schedule ? tx("Neu generieren") : tx("Generieren")} {/* user 8 Nov 2026: "Generieren" for the first plan; "Neu generieren" (amber, with warning) when a plan is there */}
             </button>
-            {schedule && baseline && <span className="text-xs font-semibold text-amber-800">⚠ Plan veröffentlicht – „Neu generieren“ ändert den ganzen Plan</span>}
+            {schedule && baseline && <span className="text-xs font-semibold text-amber-800">{tx("⚠ Plan veröffentlicht – „Neu generieren“ ändert den ganzen Plan")}</span>}
             {/* 8 Nov 2026: Urlaub/Krank entered after the plan -> only the affected days, not the whole month */}
             {schedule && !multiOn && absentGroups.length > 0 && (
-              <button onClick={() => openSick(absentGroups[0])} className="inline-flex items-center gap-2 bg-rose-600 hover:bg-rose-700 text-white font-medium text-sm px-4 py-2.5 rounded-xl active:translate-y-px" title="Ersatz nur für die Tage mit Urlaub / Krank – der übrige Plan bleibt">
-                <AlertTriangle size={16} /> Urlaub/Krank einarbeiten ({absentGroups.length})
+              <button onClick={() => openSick(absentGroups[0])} className="inline-flex items-center gap-2 bg-rose-600 hover:bg-rose-700 text-white font-medium text-sm px-4 py-2.5 rounded-xl active:translate-y-px" title={tx("Ersatz nur für die Tage mit Urlaub / Krank – der übrige Plan bleibt")}>
+                <AlertTriangle size={16} />{tx(" Urlaub/Krank einarbeiten (")}{absentGroups.length})
               </button>
             )}
             {provisionalPrev != null && (
-              <span role="note" className="text-xs text-amber-900 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5" title="Wird automatisch ersetzt, sobald der Vormonat abgeschlossen ist">
-                ⓘ {new Date(Math.floor(provisionalPrev / 12), provisionalPrev % 12, 1).toLocaleDateString("de-DE", { month: "long", year: "numeric" })} noch nicht abgeschlossen – vorläufiger Übertrag aus dem veröffentlichten Plan
-              </span>
+              <span role="note" className="text-xs text-amber-900 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5" title={tx("Wird automatisch ersetzt, sobald der Vormonat abgeschlossen ist")}>
+                ⓘ {new Date(Math.floor(provisionalPrev / 12), provisionalPrev % 12, 1).toLocaleDateString(loc(), { month: "long", year: "numeric" })}{tx(" noch nicht abgeschlossen – vorläufiger Übertrag aus dem veröffentlichten Plan")}</span>
             )}
             {genInfo && !genBusy && (
               <span role="status" className="text-xs text-teal-800 bg-teal-50 border border-teal-200 rounded-lg px-2.5 py-1.5">
-                {genInfo.first ? "Plan erstellt" : "Neu erstellt"} um {String(genInfo.at.getHours()).padStart(2, "0")}:{String(genInfo.at.getMinutes()).padStart(2, "0")}:{String(genInfo.at.getSeconds()).padStart(2, "0")} Uhr{genInfo.variants ? ` · beste von ${genInfo.variants} Varianten` : ""}
-                {!genInfo.first && (genInfo.changed > 0 ? ` – ${genInfo.changed} Einträge anders als vorher` : " – gleiches Ergebnis (mit diesen Personen und Regeln gibt es keine andere Verteilung)")}
+                {genInfo.first ? tx("Plan erstellt") : tx("Neu erstellt")}{tx(" um ")}{String(genInfo.at.getHours()).padStart(2, "0")}:{String(genInfo.at.getMinutes()).padStart(2, "0")}:{String(genInfo.at.getSeconds()).padStart(2, "0")}{tx(" Uhr")}{genInfo.variants ? tx(" · beste von {0} Varianten", genInfo.variants) : ""}
+                {!genInfo.first && (genInfo.changed > 0 ? tx(" – {0} Einträge anders als vorher", genInfo.changed) : tx(" – gleiches Ergebnis (mit diesen Personen und Regeln gibt es keine andere Verteilung)"))}
               </span>
             )}
           </div>
@@ -3315,9 +3286,9 @@ function LabShiftSchedulerInner() {
 
           {generateError && (
             <div className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs text-rose-800">
-              <strong>Fehler beim Erstellen des Plans:</strong>
-              <div className="mt-1 font-mono whitespace-pre-wrap">{generateError}</div>
-              <div className="mt-1 text-rose-600">Bitte diese Meldung weitergeben, damit sie behoben werden kann.</div>
+              <strong>{tx("Fehler beim Erstellen des Plans:")}</strong>
+              <div className="mt-1 font-mono whitespace-pre-wrap">{tx(generateError)}</div>
+              <div className="mt-1 text-rose-600">{tx("Bitte diese Meldung weitergeben, damit sie behoben werden kann.")}</div>
             </div>
           )}
         </section>
@@ -3328,35 +3299,27 @@ function LabShiftSchedulerInner() {
             <div className="bg-teal-50 border border-teal-200 rounded-2xl p-4 flex gap-3 text-sm text-teal-900">
               <Info size={18} className="shrink-0 mt-0.5" />
               <div className="space-y-1">
-                <p>
-                  Bei <span className="font-mono">{staffList.length}</span> Mitarbeitern und der aktuellen Schichtbesetzung liegt die tatsächliche Durchschnittsstundenzahl pro Person bei
-                  <span className="font-mono font-semibold"> {demandSummary.avgActual.toFixed(1)} </span>
-                  Std.; das durchschnittliche Stundenziel pro Person (unter Berücksichtigung von Vollzeit/Teilzeit/Minijob) liegt bei <span className="font-mono font-semibold">{demandSummary.avgTarget.toFixed(1)}</span> Std.
-                </p>
+                <p>{tx("Bei ")}<span className="font-mono">{staffList.length}</span>{tx(" Mitarbeitern und der aktuellen Schichtbesetzung liegt die tatsächliche Durchschnittsstundenzahl pro Person bei")}<span className="font-mono font-semibold"> {demandSummary.avgActual.toFixed(1)} </span>{tx("Std.; das durchschnittliche Stundenziel pro Person (unter Berücksichtigung von Vollzeit/Teilzeit/Minijob) liegt bei ")}<span className="font-mono font-semibold">{demandSummary.avgTarget.toFixed(1)}</span>{tx(" Std.")}</p>
                 {demandSummary.avgTarget > 0 && Math.abs(demandSummary.avgActual - demandSummary.avgTarget) / demandSummary.avgTarget > 0.1 && (
-                  <p className="text-teal-700">
-                    Um das Stundenziel mit der aktuellen Schichtbesetzung genau zu erreichen, wären etwa
-                    <span className="font-mono font-semibold"> {demandSummary.suggestedStaff} </span>
-                    Mitarbeiter empfohlen. Alternativ können Sie die Anzahl der Personen je Schicht erhöhen oder diese Abweichung als Überlappung/Teilzeitarbeit akzeptieren.
-                  </p>
+                  <p className="text-teal-700">{tx("Um das Stundenziel mit der aktuellen Schichtbesetzung genau zu erreichen, wären etwa")}<span className="font-mono font-semibold"> {demandSummary.suggestedStaff} </span>{tx("Mitarbeiter empfohlen. Alternativ können Sie die Anzahl der Personen je Schicht erhöhen oder diese Abweichung als Überlappung/Teilzeitarbeit akzeptieren.")}</p>
                 )}
               </div>
             </div>
 
             {conflicts.length > 0 && (
               <div role="alert" className="rounded-2xl border-2 border-rose-300 bg-rose-50 p-4">
-                <div className="flex items-center gap-2 text-sm font-semibold text-rose-800"><AlertTriangle size={16} /> {conflicts.length} {conflicts.length === 1 ? "Konflikt" : "Konflikte"} im Plan: eingeteilt trotz Urlaub, Krankheit, Wunsch oder Befreiung</div>
+                <div className="flex items-center gap-2 text-sm font-semibold text-rose-800"><AlertTriangle size={16} /> {conflicts.length} {conflicts.length === 1 ? tx("Konflikt") : tx("Konflikte")}{tx(" im Plan: eingeteilt trotz Urlaub, Krankheit, Wunsch oder Befreiung")}</div>
                 <ul className="mt-2 max-h-40 space-y-1 overflow-y-auto text-xs text-rose-800">
                   {conflicts.map((c, i) => (
-                    <li key={i}>• {WEEKDAY_DE[c.weekday]} {String(c.day).padStart(2, "0")}.{String(monthIdx + 1).padStart(2, "0")}. · <b>{staffMap[c.staffId] || "?"}</b> · {(shiftMeta[c.st] && shiftMeta[c.st].label) || c.st} – {c.kind}</li>
+                    <li key={i}>• {wdLong(c.weekday)} {String(c.day).padStart(2, "0")}.{String(monthIdx + 1).padStart(2, "0")}. · <b>{staffMap[c.staffId] || "?"}</b> · {(shiftMeta[c.st] && shiftMeta[c.st].label) || c.st} – {tx(c.kind)}</li>
                   ))}
                 </ul>
-                <div className="mt-2 text-xs text-rose-700">Im Plan unten rot markiert: dort eine andere Person wählen (oder „— leer —“){!multiOn && absentGroups.length > 0 ? " – oder hier Ersatz vorschlagen lassen:" : "."}</div>
+                <div className="mt-2 text-xs text-rose-700">{tx("Im Plan unten rot markiert: dort eine andere Person wählen (oder „— leer —“)")}{!multiOn && absentGroups.length > 0 ? tx(" – oder hier Ersatz vorschlagen lassen:") : "."}</div>
                 {!multiOn && absentGroups.length > 0 && (
                   <div className="mt-2 flex flex-wrap gap-1.5">
                     {absentGroups.map((g) => (
                       <button key={`${g.staffId}-${g.from}`} onClick={() => openSick(g)} className="inline-flex items-center gap-1 rounded-lg border border-rose-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-rose-800 hover:bg-rose-100 active:translate-y-px">
-                        <AlertTriangle size={13} /> Ersatz für {staffMap[g.staffId] || "?"} · {g.from === g.to ? `${g.from}.` : `${g.from}.–${g.to}.`} ({g.kind})
+                        <AlertTriangle size={13} />{tx(" Ersatz für ")}{staffMap[g.staffId] || "?"} · {g.from === g.to ? `${g.from}.` : `${g.from}.–${g.to}.`} ({tx(g.kind)})
                       </button>
                     ))}
                   </div>
@@ -3368,7 +3331,7 @@ function LabShiftSchedulerInner() {
             <div className={`rounded-2xl border p-4 ${schedule.warnings.length ? "bg-amber-50 border-amber-200" : "bg-emerald-50 border-emerald-200"}`}>
               <div className={`flex items-center gap-2 text-sm font-medium ${schedule.warnings.length ? "text-amber-800" : "text-emerald-800"}`}>
                 {schedule.warnings.length ? <AlertTriangle size={16} /> : <Check size={16} />}
-                {schedule.warnings.length ? `${schedule.warnings.length} Punkte müssen überprüft werden` : "Alle Regeln eingehalten"}
+                {schedule.warnings.length ? tx("{0} Punkte müssen überprüft werden", schedule.warnings.length) : tx("Alle Regeln eingehalten")}
               </div>
               {schedule.warnings.length > 0 && (
                 <ul className="mt-2 space-y-1 text-xs text-amber-800 max-h-40 overflow-y-auto">
@@ -3382,8 +3345,7 @@ function LabShiftSchedulerInner() {
             {schedule.notes && schedule.notes.length > 0 && (
               <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
                 <div className="flex items-center gap-2 text-sm font-medium text-slate-600">
-                  <Info size={16} /> {schedule.notes.length} Tage wurden wegen Personalmangel/Urlaub mit weniger als der idealen Personenzahl besetzt
-                </div>
+                  <Info size={16} /> {schedule.notes.length}{tx(" Tage wurden wegen Personalmangel/Urlaub mit weniger als der idealen Personenzahl besetzt")}</div>
                 <ul className="mt-2 space-y-1 text-xs text-slate-500 max-h-32 overflow-y-auto">
                   {schedule.notes.map((n, i) => (
                     <li key={i}>• {n}</li>
@@ -3396,20 +3358,16 @@ function LabShiftSchedulerInner() {
             <section className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
               <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 gap-2 flex-wrap">
                 <div className="flex items-center gap-3">
-                  <h2 className="text-sm font-semibold text-slate-700">Dienstplan — {MONTH_DE[monthIdx]} {year}</h2>
+                  <h2 className="text-sm font-semibold text-slate-700">{tx("Dienstplan — ")}{monthName(monthIdx)} {year}</h2>
                   <div className="inline-flex rounded-lg border border-slate-200 overflow-hidden text-xs">
                     <button
                       onClick={() => setViewMode("byDay")}
                       className={`px-2.5 py-1 ${viewMode === "byDay" ? "bg-teal-600 text-white" : "bg-white text-slate-600 hover:bg-slate-50"}`}
-                    >
-                      Nach Tag
-                    </button>
+                    >{tx("Nach Tag")}</button>
                     <button
                       onClick={() => setViewMode("byStaff")}
                       className={`px-2.5 py-1 ${viewMode === "byStaff" ? "bg-teal-600 text-white" : "bg-white text-slate-600 hover:bg-slate-50"}`}
-                    >
-                      Nach Mitarbeiter
-                    </button>
+                    >{tx("Nach Mitarbeiter")}</button>
                   </div>
                 </div>
                 <div className="flex items-center gap-2 flex-wrap">
@@ -3417,30 +3375,25 @@ function LabShiftSchedulerInner() {
                     onClick={finalizeMonth}
                     disabled={archiveState === "saving" || !isMonthOver()}
                     className="inline-flex items-center gap-1.5 text-xs text-sky-700 hover:text-sky-800 border border-sky-200 bg-sky-50 rounded-lg px-2.5 py-1.5 hover:bg-sky-100 disabled:opacity-60 disabled:cursor-not-allowed"
-                    title={isMonthOver() ? "Archiviert den Monat und überträgt automatisch Stunden-, Wochenend- und Nachtdienst-Saldo für den nächsten Monat" : `Erst möglich, wenn der Monat vorbei ist (ab 01.${String(((monthIdx + 1) % 12) + 1).padStart(2, "0")}.)`}
+                    title={isMonthOver() ? tx("Archiviert den Monat und überträgt automatisch Stunden-, Wochenend- und Nachtdienst-Saldo für den nächsten Monat") : tx("Erst möglich, wenn der Monat vorbei ist (ab 01.{0}.)", String(((monthIdx + 1) % 12) + 1).padStart(2, "0"))}
                   >
                     {archiveState === "saved" ? <Check size={14} /> : <ClipboardList size={14} />}
-                    {archiveState === "saving" ? "Wird gespeichert..." : archiveState === "saved" ? "Gespeichert & Saldo übertragen" : archiveState === "error" ? "Fehler, bitte erneut versuchen" : isMonthOver() ? "Monat abschließen & archivieren" : `Monat abschließen – ab 01.${String(((monthIdx + 1) % 12) + 1).padStart(2, "0")}.`}
+                    {archiveState === "saving" ? tx("Wird gespeichert...") : archiveState === "saved" ? tx("Gespeichert & Saldo übertragen") : archiveState === "error" ? tx("Fehler, bitte erneut versuchen") : isMonthOver() ? tx("Monat abschließen & archivieren") : tx("Monat abschließen – ab 01.{0}.", String(((monthIdx + 1) % 12) + 1).padStart(2, "0"))}
                   </button>
-                  <button onClick={downloadExcel} title="Schön formatierte Excel-Datei mit Plan, Mitarbeiter-Übersicht und Zusammenfassung" className="inline-flex items-center gap-1.5 text-xs text-emerald-800 hover:text-emerald-900 border border-emerald-200 bg-emerald-50 rounded-lg px-2.5 py-1.5 hover:bg-emerald-100">
+                  <button onClick={downloadExcel} title={tx("Schön formatierte Excel-Datei mit Plan, Mitarbeiter-Übersicht und Zusammenfassung")} className="inline-flex items-center gap-1.5 text-xs text-emerald-800 hover:text-emerald-900 border border-emerald-200 bg-emerald-50 rounded-lg px-2.5 py-1.5 hover:bg-emerald-100">
                     {excelState === "done" ? <Check size={14} /> : <Copy size={14} />}
-                    {excelState === "done" ? "Excel-Datei erstellt" : excelState === "error" ? "Excel-Export fehlgeschlagen" : "Als Excel herunterladen (.xlsx)"}
+                    {excelState === "done" ? tx("Excel-Datei erstellt") : excelState === "error" ? tx("Excel-Export fehlgeschlagen") : tx("Als Excel herunterladen (.xlsx)")}
                   </button>
-                  <button onClick={printPlan} disabled={printState === "busy"} title="Saubere A4-Seiten für den Aushang: nach Schicht und nach Mitarbeitenden. Im Druckfenster auch als PDF speicherbar." className="inline-flex items-center gap-1.5 text-xs text-indigo-800 hover:text-indigo-900 border border-indigo-200 bg-indigo-50 rounded-lg px-2.5 py-1.5 hover:bg-indigo-100 active:translate-y-px disabled:opacity-60">
+                  <button onClick={printPlan} disabled={printState === "busy"} title={tx("Saubere A4-Seiten für den Aushang: nach Schicht und nach Mitarbeitenden. Im Druckfenster auch als PDF speicherbar.")} className="inline-flex items-center gap-1.5 text-xs text-indigo-800 hover:text-indigo-900 border border-indigo-200 bg-indigo-50 rounded-lg px-2.5 py-1.5 hover:bg-indigo-100 active:translate-y-px disabled:opacity-60">
                     {printState === "done" ? <Check size={14} /> : <Printer size={14} />}
-                    {printState === "busy" ? "Moment …" : printState === "done" ? "Druckansicht geöffnet" : printState === "blocked" ? "Pop-up blockiert – bitte erlauben" : printState === "error" ? "Druckansicht fehlgeschlagen" : "Drucken / PDF (Aushang)"}
+                    {printState === "busy" ? tx("Moment …") : printState === "done" ? tx("Druckansicht geöffnet") : printState === "blocked" ? tx("Pop-up blockiert – bitte erlauben") : printState === "error" ? tx("Druckansicht fehlgeschlagen") : tx("Drucken / PDF (Aushang)")}
                   </button>
-                  <button onClick={undoLast} disabled={undoCount === 0} title="Letzte Änderung zurücknehmen (Strg+Z)" className="inline-flex items-center gap-1.5 text-xs text-slate-700 border border-slate-200 bg-white rounded-lg px-2.5 py-1.5 hover:bg-slate-50 active:translate-y-px disabled:opacity-40 disabled:cursor-not-allowed">
-                    ↶ Rückgängig
-                  </button>
-                  <button onClick={discardChanges} disabled={!((baseline && changeCount > 0) || (unsaved && savedDays))} title={baseline ? "Alles wieder so, wie die Mitarbeitenden es sehen (veröffentlichte Fassung)" : "Zurück zum zuletzt gespeicherten Stand"} className="inline-flex items-center gap-1.5 text-xs text-slate-700 border border-slate-200 bg-white rounded-lg px-2.5 py-1.5 hover:bg-slate-50 active:translate-y-px disabled:opacity-40 disabled:cursor-not-allowed">
-                    Alle Änderungen verwerfen
-                  </button>
+                  <button onClick={undoLast} disabled={undoCount === 0} title={tx("Letzte Änderung zurücknehmen (Strg+Z)")} className="inline-flex items-center gap-1.5 text-xs text-slate-700 border border-slate-200 bg-white rounded-lg px-2.5 py-1.5 hover:bg-slate-50 active:translate-y-px disabled:opacity-40 disabled:cursor-not-allowed">{tx("↶ Rückgängig")}</button>
+                  <button onClick={discardChanges} disabled={!((baseline && changeCount > 0) || (unsaved && savedDays))} title={baseline ? tx("Alles wieder so, wie die Mitarbeitenden es sehen (veröffentlichte Fassung)") : tx("Zurück zum zuletzt gespeicherten Stand")} className="inline-flex items-center gap-1.5 text-xs text-slate-700 border border-slate-200 bg-white rounded-lg px-2.5 py-1.5 hover:bg-slate-50 active:translate-y-px disabled:opacity-40 disabled:cursor-not-allowed">{tx("Alle Änderungen verwerfen")}</button>
                   {undoMsg && <span role="status" className="text-xs text-slate-600 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5">{undoMsg}</span>}
                   {!multiOn && (
                     <button onClick={() => openSick()} className="inline-flex items-center gap-1.5 text-xs text-rose-800 border border-rose-200 bg-rose-50 rounded-lg px-2.5 py-1.5 hover:bg-rose-100 active:translate-y-px">
-                      <AlertTriangle size={14} /> Krankmeldung / Ausfall
-                    </button>
+                      <AlertTriangle size={14} />{tx(" Krankmeldung / Ausfall")}</button>
                   )}
                   {sickCoverMsg && <span role="status" className="w-full text-xs text-teal-800 bg-teal-50 border border-teal-200 rounded-lg px-2.5 py-1.5">{sickCoverMsg}</span>}
                   {sickCoverOpen && (
@@ -3454,20 +3407,17 @@ function LabShiftSchedulerInner() {
               {(archiveState === "error" || saveState === "error") && (
                 <div className="mx-4 mt-3 rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs text-rose-800">
                   {archiveState === "error" && (
-                    <div className="mb-1"><strong>Archivieren fehlgeschlagen:</strong> <span className="font-mono">{archiveErrorMsg}</span></div>
+                    <div className="mb-1"><strong>{tx("Archivieren fehlgeschlagen:")}</strong> <span className="font-mono">{archiveErrorMsg}</span></div>
                   )}
                   {saveState === "error" && (
-                    <div className="mb-1"><strong>Speichern fehlgeschlagen:</strong> <span className="font-mono">{saveErrorMsg}</span></div>
+                    <div className="mb-1"><strong>{tx("Speichern fehlgeschlagen:")}</strong> <span className="font-mono">{saveErrorMsg}</span></div>
                   )}
-                  <div className="text-rose-600">
-                    Diese Funktionen speichern Daten lokal in diesem Browser. In einem anderen Browser oder auf einem anderen Gerät sind sie nicht sichtbar.
-                    Bis das geklärt ist, am besten „Als Excel herunterladen" nutzen, um die Daten extern zu sichern.
-                  </div>
+                  <div className="text-rose-600">{tx("Diese Funktionen speichern Daten lokal in diesem Browser. In einem anderen Browser oder auf einem anderen Gerät sind sie nicht sichtbar. Bis das geklärt ist, am besten „Als Excel herunterladen\" nutzen, um die Daten extern zu sichern.")}</div>
                 </div>
               )}
               {multiOn && viewMode !== "byStaff" && (
-                <div role="tablist" aria-label="Ort" className="flex flex-wrap gap-1.5 px-4 pt-3">
-                  {[{ id: "all", code: "Alle", name: "alle Orte" }, ...locations.filter((l) => l.active && placeShifts.some((x) => x.location_id === l.id))].map((l) => (
+                <div role="tablist" aria-label={tx("Ort")} className="flex flex-wrap gap-1.5 px-4 pt-3">
+                  {[{ id: "all", code: tx("Alle"), name: tx("alle Orte") }, ...locations.filter((l) => l.active && placeShifts.some((x) => x.location_id === l.id))].map((l) => (
                     <button key={l.id} role="tab" aria-selected={placeTab === l.id} onClick={() => setPlaceTab(l.id)} title={l.name}
                       className={`rounded-lg px-3 py-1.5 text-xs font-semibold border ${placeTab === l.id ? "bg-slate-800 text-white border-slate-800" : "bg-white text-slate-700 border-slate-300 hover:bg-slate-50"}`}>
                       {l.code}{l.id !== "all" && <span className="ml-1 font-normal opacity-75">{l.name}</span>}
@@ -3480,11 +3430,11 @@ function LabShiftSchedulerInner() {
                 <table className="text-xs border-collapse">
                   <thead>
                     <tr className="bg-slate-50 text-slate-500 border-b border-slate-100">
-                      <th className="sticky left-0 bg-slate-50 px-2 py-2 text-left font-medium whitespace-nowrap z-10 border-r border-slate-200">Mitarbeiter</th>
+                      <th className="sticky left-0 bg-slate-50 px-2 py-2 text-left font-medium whitespace-nowrap z-10 border-r border-slate-200">{tx("Mitarbeiter")}</th>
                       {schedule.days.map((d) => (
                         <th key={d.day} className={`px-1.5 py-2 text-center font-medium whitespace-nowrap w-9 ${d.isWeekend || d.isHoliday ? "bg-slate-100" : ""}`}>
                           <div>{d.day}</div>
-                          <div className="text-[9px] text-slate-400 font-normal">{WEEKDAY_DE[d.weekday].slice(0, 2)}</div>
+                          <div className="text-[9px] text-slate-400 font-normal">{wdLong(d.weekday).slice(0, 2)}</div>
                         </th>
                       ))}
                     </tr>
@@ -3512,23 +3462,22 @@ function LabShiftSchedulerInner() {
                   </tbody>
                 </table>
                 <p className="text-[11px] text-slate-400 mt-2 px-2">
-                  {dayOrderedKeys.map((k) => `${shiftCodes[k]} = ${shiftMeta[k].label}`).join(" · ")} · U = Urlaub · K = Krank
-                </p>
+                  {dayOrderedKeys.map((k) => `${shiftCodes[k]} = ${shiftMeta[k].label}`).join(" · ")}{tx(" · U = Urlaub · K = Krank")}</p>
               </div>
               ) : (
               <div className="overflow-auto plan-scroll">
                 <table className="w-full text-xs">
                   <thead>
                     <tr className="bg-slate-50 text-slate-500 border-b border-slate-100">
-                      <th className="px-2 py-2 text-left font-medium whitespace-nowrap">Tag</th>
-                      <th className="px-2 py-2 text-left font-medium whitespace-nowrap">Wochentag</th>
+                      <th className="px-2 py-2 text-left font-medium whitespace-nowrap">{tx("Tag")}</th>
+                      <th className="px-2 py-2 text-left font-medium whitespace-nowrap">{tx("Wochentag")}</th>
                       {visibleCols.map((col, ci) => (
                         <th key={ci} className={`px-2 py-2 text-left font-medium whitespace-nowrap ${shiftMeta[col.shiftType].text}`}>
                           <span dir="ltr">{shiftMeta[col.shiftType].label}</span>
                           <div className="font-normal text-slate-400">{shiftMeta[col.shiftType].time}</div>
                         </th>
                       ))}
-                      <th className="px-2 py-2 text-left font-medium whitespace-nowrap text-slate-600">Urlaub/Überstundenfrei</th>
+                      <th className="px-2 py-2 text-left font-medium whitespace-nowrap text-slate-600">{tx("Urlaub/Überstundenfrei")}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -3539,10 +3488,10 @@ function LabShiftSchedulerInner() {
                       >
                         <td className="px-2 py-1.5 whitespace-nowrap align-top font-semibold">{d.day}</td>
                         <td className="px-2 py-1.5 whitespace-nowrap align-top text-slate-500">
-                          {WEEKDAY_DE[d.weekday]}
-                          {d.isHoliday && <div className="text-rose-600 font-medium text-[10px]">Feiertag</div>}
-                          {closedSet.has(d.day) && <div className="text-slate-500 font-medium text-[10px]">geschlossen</div>}
-                          {halfMap[d.day] && <div className="text-teal-700 font-medium text-[10px]">{halfMap[d.day] === "am" ? "nur vormittags" : "nur nachmittags"}</div>}
+                          {wdLong(d.weekday)}
+                          {d.isHoliday && <div className="text-rose-600 font-medium text-[10px]">{tx("Feiertag")}</div>}
+                          {closedSet.has(d.day) && <div className="text-slate-500 font-medium text-[10px]">{tx("geschlossen")}</div>}
+                          {halfMap[d.day] && <div className="text-teal-700 font-medium text-[10px]">{halfMap[d.day] === "am" ? tx("nur vormittags") : tx("nur nachmittags")}</div>}
                         </td>
                         {visibleCols.map((col, ci) => {
                           const { shiftType: st, slotIndex } = col;
@@ -3567,17 +3516,17 @@ function LabShiftSchedulerInner() {
                                   onChange={(e) => updateSlot(di, st, slotIndex, e.target.value)}
                                   className={`w-full text-[11px] rounded-md border px-1.5 py-1 ${val ? shiftMeta[st].chip : "bg-slate-50 border-slate-200 text-slate-400"} ${isNewHere ? "ring-2 ring-amber-400" : saved ? (saved.kind === "swap" ? "ring-2 ring-violet-500" : "ring-2 ring-rose-500") : ""} ${val && conflictMap[conflictKey(d.day, st, val)] ? "!border-rose-500 ring-2 ring-rose-400" : ""}`}
                                 >
-                                  <option value="">— leer —</option>
+                                  <option value="">{tx("— leer —")}</option>
                                   {multiOn ? placeOptions(d, st, val) : staffList.map((s) => (
                                     <option key={s.id} value={s.id}>{s.name}</option>
                                   ))}
                                 </select>
                               )}
-                              {multiOn && val && !inTeam(st, val, d.day) && <div className="mt-0.5 text-[10px] font-semibold text-rose-700">nicht im Team</div>}
-                              {val && conflictMap[conflictKey(d.day, st, val)] && <div className="mt-0.5 text-[10px] font-semibold text-rose-700">⚠ {conflictMap[conflictKey(d.day, st, val)]}</div>}
-                              {isNewHere && <div className="mt-0.5 text-[10px] font-semibold text-amber-700">Geändert</div>}
+                              {multiOn && val && !inTeam(st, val, d.day) && <div className="mt-0.5 text-[10px] font-semibold text-rose-700">{tx("nicht im Team")}</div>}
+                              {val && conflictMap[conflictKey(d.day, st, val)] && <div className="mt-0.5 text-[10px] font-semibold text-rose-700">⚠ {tx(conflictMap[conflictKey(d.day, st, val)])}</div>}
+                              {isNewHere && <div className="mt-0.5 text-[10px] font-semibold text-amber-700">{tx("Geändert")}</div>}
                               {saved && <div className={`mt-0.5 text-[10px] font-semibold ${saved.kind === "swap" ? "text-violet-700" : "text-rose-700"}`}>{saved.kind === "swap" ? "⇄" : "↺"} {saved.text}</div>}
-                              {goneHere.length > 0 && <div className="mt-0.5 text-[10px] text-amber-700">entfällt: {goneHere.map((id) => { const why = reasonOff(id, d.day); return `${nameById(id)}${why ? ` (${why})` : ""}`; }).join(", ")}</div>}
+                              {goneHere.length > 0 && <div className="mt-0.5 text-[10px] text-amber-700">{tx("entfällt: ")}{goneHere.map((id) => { const why = reasonOff(id, d.day); return `${nameById(id)}${why ? ` (${tx(why)})` : ""}`; }).join(", ")}</div>}
                             </td>
                           );
                         })}
@@ -3594,19 +3543,19 @@ function LabShiftSchedulerInner() {
 
             {/* Per-staff summary */}
             <section className="bg-white border border-slate-200 rounded-2xl shadow-sm p-4">
-              <h2 className="text-sm font-semibold text-slate-700 mb-3">Zusammenfassung pro Mitarbeiter</h2>
+              <h2 className="text-sm font-semibold text-slate-700 mb-3">{tx("Zusammenfassung pro Mitarbeiter")}</h2>
               <div className="overflow-x-auto">
                 <table className="w-full text-xs">
                   <thead>
                     <tr className="text-slate-500 border-b border-slate-100">
-                      <th className="px-2 py-2 text-left font-medium">Name</th>
-                      <th className="px-2 py-2 text-left font-medium" title="Wie im Zeitkonto der Mitarbeitenden: − = Minusstunden (bekommt jetzt mehr Schichten), + = Überstunden (bekommt jetzt weniger)">Saldo Vormonat<div className="text-[10px] font-normal text-slate-400">− Minus · + Über</div></th>
-                      <th className="px-2 py-2 text-left font-medium">Geleistete Std.</th>
-                      <th className="px-2 py-2 text-left font-medium" title="Vertragsstunden dieses Monats (Wochenstunden ÷ Öffnungstage pro Woche × offene Tage, ohne Urlaub) ± Saldo aus Vormonaten">Ziel</th>
-                      <th className="px-2 py-2 text-left font-medium">Differenz</th>
-                      <th className="px-2 py-2 text-left font-medium">Samstage</th>
-                      <th className="px-2 py-2 text-left font-medium">Sonntage</th>
-                      <th className="px-2 py-2 text-left font-medium">E-Mail</th>
+                      <th className="px-2 py-2 text-left font-medium">{tx("Name")}</th>
+                      <th className="px-2 py-2 text-left font-medium" title={tx("Wie im Zeitkonto der Mitarbeitenden: − = Minusstunden (bekommt jetzt mehr Schichten), + = Überstunden (bekommt jetzt weniger)")}>{tx("Saldo Vormonat")}<div className="text-[10px] font-normal text-slate-400">{tx("− Minus · + Über")}</div></th>
+                      <th className="px-2 py-2 text-left font-medium">{tx("Geleistete Std.")}</th>
+                      <th className="px-2 py-2 text-left font-medium" title={tx("Vertragsstunden dieses Monats (Wochenstunden ÷ Öffnungstage pro Woche × offene Tage, ohne Urlaub) ± Saldo aus Vormonaten")}>{tx("Ziel")}</th>
+                      <th className="px-2 py-2 text-left font-medium">{tx("Differenz")}</th>
+                      <th className="px-2 py-2 text-left font-medium">{tx("Samstage")}</th>
+                      <th className="px-2 py-2 text-left font-medium">{tx("Sonntage")}</th>
+                      <th className="px-2 py-2 text-left font-medium">{tx("E-Mail")}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -3622,7 +3571,7 @@ function LabShiftSchedulerInner() {
                       return (
                         <tr key={s.id} className="border-b border-slate-50">
                           <td className="px-2 py-2 font-medium">{s.name}</td>
-                          <td className={`px-2 py-2 font-mono ${Math.abs(carriedHours) > 0.05 ? (carriedHours < 0 ? "text-amber-700" : "text-sky-700") : "text-slate-300"}`} title={Math.abs(carriedHours) > 0.05 ? (carriedHours < 0 ? "Überstunden aus Vormonaten – das Ziel ist darum kleiner" : "Minusstunden aus Vormonaten – das Ziel ist darum größer") : ""}>
+                          <td className={`px-2 py-2 font-mono ${Math.abs(carriedHours) > 0.05 ? (carriedHours < 0 ? "text-amber-700" : "text-sky-700") : "text-slate-300"}`} title={Math.abs(carriedHours) > 0.05 ? (carriedHours < 0 ? tx("Überstunden aus Vormonaten – das Ziel ist darum kleiner") : tx("Minusstunden aus Vormonaten – das Ziel ist darum größer")) : ""}>
                             {Math.abs(carriedHours) > 0.05 ? `${carriedHours < 0 ? "+" : "−"}${Math.abs(carriedHours).toFixed(1)}` : "—"}
                           </td>
                           <td className={`px-2 py-2 font-mono ${bigDev ? "text-amber-700 font-semibold" : ""}`}>{h.toFixed(1)}</td>
@@ -3634,18 +3583,16 @@ function LabShiftSchedulerInner() {
                             {s.email ? (
                               <a
                                 href={buildMailtoUrl(s)}
-                                title={`Dienstplan an ${s.email} senden`}
+                                title={tx("Dienstplan an {0} senden", s.email)}
                                 className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] border border-teal-200 bg-teal-50 text-teal-700 hover:bg-teal-100 no-underline"
                               >
-                                <Info size={12} /> Senden
-                              </a>
+                                <Info size={12} />{tx(" Senden")}</a>
                             ) : (
                               <span
-                                title="Keine E-Mail hinterlegt"
+                                title={tx("Keine E-Mail hinterlegt")}
                                 className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] border border-slate-200 bg-slate-50 text-slate-300 cursor-not-allowed"
                               >
-                                <Info size={12} /> Senden
-                              </span>
+                                <Info size={12} />{tx(" Senden")}</span>
                             )}
                           </td>
                         </tr>
@@ -3658,9 +3605,7 @@ function LabShiftSchedulerInner() {
           </>
         )}
 
-        <footer className="text-center text-[11px] text-slate-400 pb-4">
-          Dieses Tool erstellt eine erste Verteilung nach den festgelegten Regeln; verbleibende Punkte im Bereich „zu überprüfen" können Sie direkt in der Tabelle korrigieren.
-        </footer>
+        <footer className="text-center text-[11px] text-slate-400 pb-4">{tx("Dieses Tool erstellt eine erste Verteilung nach den festgelegten Regeln; verbleibende Punkte im Bereich „zu überprüfen\" können Sie direkt in der Tabelle korrigieren.")}</footer>
       </PlannerShell>
     </div>
   );
