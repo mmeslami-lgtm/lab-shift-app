@@ -14,6 +14,7 @@ import { loadReview } from "../lib/review";
 import ScanStamp from "./ScanStamp";
 import EmployeeTimes from "./EmployeeTimes";
 import { CalendarDays, PencilLine, Heart, Inbox, CheckCircle2, Users, Download, Upload, Clock, KeyRound, GraduationCap, LogOut, Timer } from "lucide-react";
+import { tx, loc, monthName, wdLong, wdShort, dm, dmy, isoDmy, dec } from "../lib/i18n";
 
 const ROLE_LABEL = { owner: "Inhaber", supervisor: "Leitung", planner: "Schichtplaner", employee: "Mitarbeitende" };
 const PRODUCT_LABEL = { lab_planner: "Dienstplaner Labor", generic_planner: "Dienstplaner allgemein", employee_app: "Mitarbeiter-App" };
@@ -103,8 +104,8 @@ export default function OrgBar({ onLoadStaff, staffList, toDb, onIdsChanged, yea
         });
         const res = onImportRequests(list, { sync: true, ym });
         const parts = [];
-        if (res && res.added) parts.push(`${res.added} genehmigte Abwesenheit(en) für ${pad(monthIdx + 1)}/${year} automatisch übernommen (Urlaub/Krank)`);
-        if (res && res.removed) parts.push(`${res.removed} stornierte entfernt – bitte den Plan für diese Tage prüfen`);
+        if (res && res.added) parts.push(tx("{0} genehmigte Abwesenheit(en) für {1}/{2} automatisch übernommen (Urlaub/Krank)", res.added, pad(monthIdx + 1), year));
+        if (res && res.removed) parts.push(tx("{0} stornierte entfernt – bitte den Plan für diese Tage prüfen", res.removed));
         if (autoYmRef.current !== ym) { autoYmRef.current = ym; setAutoMsg(parts.join(" · ")); } // new month: fresh notice
         else if (parts.length) setAutoMsg(parts.join(" · "));            // same month: keep the last notice unless something changed
       } catch (e) { /* the manual button in „Anträge“ still works */ }
@@ -206,13 +207,13 @@ export default function OrgBar({ onLoadStaff, staffList, toDb, onIdsChanged, yea
     setEditYear(year !== undefined ? year : new Date().getFullYear());
     setEditOpen((o) => !o);
   }
-  const STATUS_TXT = { draft: "Entwurf", pending: "wartet auf Freigabe", published: "veröffentlicht" };
+  const STATUS_TXT = { draft: tx("Entwurf"), pending: tx("wartet auf Freigabe"), published: tx("veröffentlicht") };
   const yearOptions = [...new Set([...saved.map((x) => x.year), new Date().getFullYear() - 1, new Date().getFullYear(), new Date().getFullYear() + 1])].sort();
 
   // Reopen a saved month (the newest draft, otherwise the published version) in the editor
   async function loadPlan() {
     const y = Number(editYear), m = Number(editMonth);
-    if (hasPlan && !window.confirm("Der Plan im Editor wird durch den gespeicherten Plan ersetzt. Nicht gespeicherte Änderungen gehen verloren. Fortfahren?")) return;
+    if (hasPlan && !window.confirm(tx("Der Plan im Editor wird durch den gespeicherten Plan ersetzt. Nicht gespeicherte Änderungen gehen verloren. Fortfahren?"))) return;
     setBusy("plan"); setMsg("");
     try {
       const from = `${y}-${String(m).padStart(2, "0")}-01`;
@@ -227,7 +228,7 @@ export default function OrgBar({ onLoadStaff, staffList, toDb, onIdsChanged, yea
         // an archived published version, e.g. the one from before a mistake
         const v = await sb.from("schedule_versions").select("snapshot, created_at").eq("id", versionId);
         if (v.error) throw v.error;
-        if (!v.data[0]) { setMsg("Diese Fassung wurde nicht gefunden."); setBusy(""); return; }
+        if (!v.data[0]) { setMsg(tx("Diese Fassung wurde nicht gefunden.")); setBusy(""); return; }
         source = "version";
         rows = (v.data[0].snapshot.shifts || []).map((x) => ({ staff_id: x.staff_id, shift_date: x.date, shift_key: x.key }));
       } else {
@@ -235,7 +236,7 @@ export default function OrgBar({ onLoadStaff, staffList, toDb, onIdsChanged, yea
         source = first; rows = await q(first);
         if (!rows.length) { source = first === "draft" ? "published" : "draft"; rows = await q(source); }
       }
-      if (!rows.length) { setMsg(`Für ${MONTHS[m - 1]} ${y} ist kein gespeicherter Plan vorhanden.`); setBusy(""); return; }
+      if (!rows.length) { setMsg(tx("Für {0} {1} ist kein gespeicherter Plan vorhanden.", monthName(m - 1), y)); setBusy(""); return; }
       const defCols = "key, label, start_time, end_time, frequency, quota_per_month, prefer_team_lead, requires_rest_after, sort_order";
       let d = source === "version" ? { data: [], error: null } : await sb.from("shift_definitions").select(defCols + ", location_id").eq("org_id", org.orgId).eq("active", true);
       if (d.error && /location_id/.test(d.error.message || "")) d = await sb.from("shift_definitions").select(defCols).eq("org_id", org.orgId).eq("active", true); // script 32 not run
@@ -252,13 +253,13 @@ export default function OrgBar({ onLoadStaff, staffList, toDb, onIdsChanged, yea
         defs: [...d.data].sort((a, b) => a.sort_order - b.sort_order), staffRows,
       });
       if (res && res.ok) {
-        const what = source === "version" ? "frühere veröffentlichte Fassung; Unterschiede zur jetzt gültigen sind markiert" : source === "published" ? "veröffentlichte Fassung" : info.status === "pending" ? "Entwurf, der auf Freigabe wartet" : info.status === "published" ? "neuerer, noch nicht veröffentlichter Entwurf" : "gespeicherter Entwurf";
-        setMsg(`${MONTHS[m - 1]} ${y} geladen (${what}). Schichten in der Tabelle ändern, dann „Entwurf speichern“ oder „Zur Freigabe einreichen“. Mitarbeitende sehen Änderungen erst nach Veröffentlichung.`);
+        const what = source === "version" ? tx("frühere veröffentlichte Fassung; Unterschiede zur jetzt gültigen sind markiert") : source === "published" ? tx("veröffentlichte Fassung") : info.status === "pending" ? tx("Entwurf, der auf Freigabe wartet") : info.status === "published" ? tx("neuerer, noch nicht veröffentlichter Entwurf") : tx("gespeicherter Entwurf");
+        setMsg(tx("{0} {1} geladen ({2}). Schichten in der Tabelle ändern, dann „Entwurf speichern“ oder „Zur Freigabe einreichen“. Mitarbeitende sehen Änderungen erst nach Veröffentlichung.", monthName(m - 1), y, what));
         setEditOpen(false);
-      } else setMsg((res && res.message) || "Der Plan konnte nicht geladen werden.");
+      } else setMsg((res && res.message) || tx("Der Plan konnte nicht geladen werden."));
     } catch (e) {
       const t = e && e.message ? e.message : String(e);
-      setMsg("Fehler: " + (/column .*holidays|does not exist/i.test(t) ? "Die Datenbank ist noch nicht umgestellt. Bitte edit-month-schema.sql im SQL Editor ausführen." : t));
+      setMsg(tx("Fehler: ") + (/column .*holidays|does not exist/i.test(t) ? tx("Die Datenbank ist noch nicht umgestellt. Bitte edit-month-schema.sql im SQL Editor ausführen.") : t));
     }
     setBusy("");
   }
@@ -278,7 +279,7 @@ export default function OrgBar({ onLoadStaff, staffList, toDb, onIdsChanged, yea
       const same = data.map((x) => x.id).sort().join(",") === (staffList || []).map((s) => String(s.id)).sort().join(",");
       if (same) return;
       const unsaved = (staffList || []).filter((s) => !UUID.test(String(s.id)) && !SAMPLE_NAME.test(String(s.name).trim()));
-      if (unsaved.length) { setMsg(`Diese Personenliste stammt aus dem Browser (${unsaved.length} Person(en) nicht gespeichert). Für den Stand der Datenbank: „Personen aus Datenbank laden“.`); return; }
+      if (unsaved.length) { setMsg(tx("Diese Personenliste stammt aus dem Browser ({0} Person(en) nicht gespeichert). Für den Stand der Datenbank: „Personen aus Datenbank laden“.", unsaved.length)); return; }
       if (onLoadStaff(data) === false) return;
       setLoadBump((n) => n + 1); // silent: no message (user 8 Nov 2026: the sidebar was too full)
     })();
@@ -287,7 +288,7 @@ export default function OrgBar({ onLoadStaff, staffList, toDb, onIdsChanged, yea
   async function load() {
     // do not silently throw away people the boss typed in by hand
     const unsaved = staffList.filter((s) => !UUID.test(String(s.id)) && !SAMPLE_NAME.test(String(s.name).trim()));
-    if (unsaved.length && !window.confirm(`Die Liste wird durch die Datenbank ersetzt. ${unsaved.length} nicht gespeicherte Person(en) gehen verloren. Fortfahren?`)) return;
+    if (unsaved.length && !window.confirm(tx("Die Liste wird durch die Datenbank ersetzt. {0} nicht gespeicherte Person(en) gehen verloren. Fortfahren?", unsaved.length))) return;
     setBusy("load"); setMsg("");
     const { data, error } = await sb
       .from("staff")
@@ -296,19 +297,19 @@ export default function OrgBar({ onLoadStaff, staffList, toDb, onIdsChanged, yea
       .eq("active", true)
       .order("name");
     setBusy("");
-    if (error) { setMsg("Fehler: " + error.message); return; }
-    if (!data.length) { setMsg("In der Datenbank sind für diese Firma noch keine Personen gespeichert. Trage Personen unten ein und tippe auf „Personen in Datenbank speichern“."); return; }
+    if (error) { setMsg(tx("Fehler: ") + tx(error.message)); return; }
+    if (!data.length) { setMsg(tx("In der Datenbank sind für diese Firma noch keine Personen gespeichert. Trage Personen unten ein und tippe auf „Personen in Datenbank speichern“.")); return; }
     if (onLoadStaff(data) === false) return; // the planner kept its unsaved changes
     setLoadBump((n) => n + 1); // loading clears Urlaub/Krank -> take the approved ones over again
-    setMsg(`${data.length} Personen aus der Datenbank geladen. Urlaub, Krankheit und Wünsche wurden zurückgesetzt.`);
+    setMsg(tx("{0} Personen aus der Datenbank geladen. Urlaub, Krankheit und Wünsche wurden zurückgesetzt.", data.length));
   }
 
   async function save() {
     setBusy("save"); setMsg("");
     try {
       const names = staffList.map((s) => String(s.name).trim().toLowerCase());
-      if (names.some((n) => !n)) throw new Error("Eine Person hat keinen Namen.");
-      if (new Set(names).size !== names.length) throw new Error("Zwei Personen haben denselben Namen. Bitte eindeutige Namen vergeben.");
+      if (names.some((n) => !n)) throw new Error(tx("Eine Person hat keinen Namen."));
+      if (new Set(names).size !== names.length) throw new Error(tx("Zwei Personen haben denselben Namen. Bitte eindeutige Namen vergeben."));
       const ex = await sb.from("staff").select("id, name").eq("org_id", org.orgId).eq("active", true);
       if (ex.error) throw ex.error;
       const idMap = {}; let created = 0, updated = 0;
@@ -330,10 +331,10 @@ export default function OrgBar({ onLoadStaff, staffList, toDb, onIdsChanged, yea
       }
       const changed = Object.keys(idMap).length > 0;
       if (changed) onIdsChanged(idMap);
-      setMsg(`${created} neu gespeichert, ${updated} aktualisiert.${changed ? " Der Plan wurde zurückgesetzt, bitte neu erstellen." : ""}`);
+      setMsg(tx("{0} neu gespeichert, {1} aktualisiert.{2}", created, updated, changed ? tx(" Der Plan wurde zurückgesetzt, bitte neu erstellen.") : ""));
     } catch (e) {
       const m = e && e.message ? e.message : String(e);
-      setMsg(/personnel_no/.test(m) ? "Fehler: Diese Personalnummer ist in Ihrer Firma schon vergeben. Jede Nummer darf nur einmal vorkommen." : "Fehler: " + m);
+      setMsg(/personnel_no/.test(m) ? tx("Fehler: Diese Personalnummer ist in Ihrer Firma schon vergeben. Jede Nummer darf nur einmal vorkommen.") : tx("Fehler: ") + m);
     }
     setBusy("");
   }
@@ -342,58 +343,58 @@ export default function OrgBar({ onLoadStaff, staffList, toDb, onIdsChanged, yea
   const item = ({ icon: Icon, label, onClick, href, badge, tone, current, disabled, expanded, title }) => {
     // Etwas wartet (badge): der ganze Knopf wird farbig wie früher – rot = Wünsche/Anträge, gelb = Anwesenheit/Einspringen
     const cls = `dg-item${badge && tone ? ` dg-item-${tone}` : ""}`;
-    const inner = (<>{Icon && <Icon size={18} strokeWidth={1.9} aria-hidden="true" />}<span className="dg-item-label">{label}</span>{badge ? <span className="dg-badge">{badge}</span> : null}</>);
+    const inner = (<>{Icon && <Icon size={18} strokeWidth={1.9} aria-hidden="true" />}<span className="dg-item-label">{tx(label)}</span>{badge ? <span className="dg-badge">{badge}</span> : null}</>);
     // Seite, auf der man schon ist: nicht neu laden (sonst gehen ungespeicherte Änderungen am Plan verloren), nur nach oben
     const stay = current ? (e) => { e.preventDefault(); window.scrollTo({ top: 0, behavior: "smooth" }); } : undefined;
-    if (href) return <a href={href} onClick={stay} className={cls} aria-current={current ? "page" : undefined} title={current ? "Sie sind hier – nach oben" : title}>{inner}</a>;
+    if (href) return <a href={href} onClick={stay} className={cls} aria-current={current ? "page" : undefined} title={current ? tx("Sie sind hier – nach oben") : title}>{inner}</a>;
     return <button type="button" onClick={onClick} disabled={disabled} aria-expanded={expanded} className={cls} title={title}>{inner}</button>;
   };
   const here = typeof window !== "undefined" ? window.location.pathname : "/";
   return (
-    <nav aria-label="Hauptmenü" className="dg-nav">
+    <nav aria-label={tx("Hauptmenü")} className="dg-nav">
       <div className="dg-brand">
         <span className="dg-mark" aria-hidden="true"><CalendarDays size={18} strokeWidth={2} /></span>
-        <span className="dg-brand-text"><span className="dg-brand-name">Dienstigo</span><span className="dg-brand-org">{org.orgName} · {ROLE_LABEL[org.role] || org.role}</span></span>
+        <span className="dg-brand-text"><span className="dg-brand-name">Dienstigo</span><span className="dg-brand-org">{org.orgName} · {tx(ROLE_LABEL[org.role]) || org.role}</span></span>
       </div>
       {isLeader && pendingMonths.length > 0 && (
         <a href="/freigaben" role="status" className="dg-alert">
-          <span>{pendingMonths.length === 1 ? "Ein Plan wartet" : `${pendingMonths.length} Pläne warten`} auf deine Freigabe: {pendingMonths.map((m) => `${MONTHS[m.month - 1]} ${m.year}`).join(", ")}</span>
-          <span className="dg-alert-btn">Jetzt prüfen</span>
+          <span>{pendingMonths.length === 1 ? tx("Ein Plan wartet") : tx("{0} Pläne warten", pendingMonths.length)}{tx(" auf deine Freigabe: ")}{pendingMonths.map((m) => `${monthName(m.month - 1)} ${m.year}`).join(", ")}</span>
+          <span className="dg-alert-btn">{tx("Jetzt prüfen")}</span>
         </a>
       )}
       <div className="dg-group">
-        <div className="dg-group-label">Planung</div>
+        <div className="dg-group-label">{tx("Planung")}</div>
         {item({ icon: CalendarDays, label: "Dienstplan", href: here, current: true })}
-        {item({ icon: PencilLine, label: "Plan bearbeiten", onClick: openEdit, disabled: !!busy, expanded: editOpen, title: "Gespeicherten Plan oder eine frühere Fassung öffnen" })}
-        {item({ icon: Heart, label: "Wünsche", onClick: () => setWishesOpen(true), badge: openWishes > 0 ? `${openWishes} offen` : null, tone: "alert" })}
-        {hasApp && item({ icon: Inbox, label: "Anträge", onClick: () => setReqOpen(true), badge: openReq || null, tone: "alert" })}
-        {item({ icon: CheckCircle2, label: "Freigaben & Archiv", href: "/freigaben", badge: openJumps > 0 ? openJumps : null, tone: "warn", title: openJumps > 0 ? `${openJumps} Einspringen offen` : undefined })}
+        {item({ icon: PencilLine, label: tx("Plan bearbeiten"), onClick: openEdit, disabled: !!busy, expanded: editOpen, title: tx("Gespeicherten Plan oder eine frühere Fassung öffnen") })}
+        {item({ icon: Heart, label: tx("Wünsche"), onClick: () => setWishesOpen(true), badge: openWishes > 0 ? tx("{0} offen", openWishes) : null, tone: "alert" })}
+        {hasApp && item({ icon: Inbox, label: tx("Anträge"), onClick: () => setReqOpen(true), badge: openReq || null, tone: "alert" })}
+        {item({ icon: CheckCircle2, label: "Freigaben & Archiv", href: "/freigaben", badge: openJumps > 0 ? openJumps : null, tone: "warn", title: openJumps > 0 ? tx("{0} Einspringen offen", openJumps) : undefined })}
       </div>
       <div className="dg-group">
-        <div className="dg-group-label">Team</div>
-        {item({ icon: Download, label: busy === "load" ? "Lädt …" : "Personen aus Datenbank laden", onClick: load, disabled: !!busy })}
-        {item({ icon: Upload, label: busy === "save" ? "Speichert …" : "Personen in Datenbank speichern", onClick: save, disabled: !!busy })}
+        <div className="dg-group-label">{tx("Team")}</div>
+        {item({ icon: Download, label: busy === "load" ? tx("Lädt …") : tx("Personen aus Datenbank laden"), onClick: load, disabled: !!busy })}
+        {item({ icon: Upload, label: busy === "save" ? "Speichert …" : tx("Personen in Datenbank speichern"), onClick: save, disabled: !!busy })}
         {isLeader && hasTime && item({ icon: Clock, label: "Anwesenheit", onClick: () => setAttOpen(true), badge: openCorr + toReview || null, tone: "warn" })}
-        {isLeader && hasApp && item({ icon: KeyRound, label: "Zugänge", onClick: () => setZugOpen(true) })}
+        {isLeader && hasApp && item({ icon: KeyRound, label: tx("Zugänge"), onClick: () => setZugOpen(true) })}
         {(staffList || []).some((s) => !UUID.test(String(s.id)) && !SAMPLE_NAME.test(String(s.name).trim())) && (
-          <p className="dg-note">Neue Personen erst mit „Personen in Datenbank speichern“ sichern – nur sie bekommen den Plan.</p>
+          <p className="dg-note">{tx("Neue Personen erst mit „Personen in Datenbank speichern“ sichern – nur sie bekommen den Plan.")}</p>
         )}
       </div>
       {hasTime && org.staffId && (
         <div className="dg-group">
-          <div className="dg-group-label">Für mich</div>
-          {item({ icon: Timer, label: "Stempeln", onClick: () => setSelfStamp((org.features || []).includes("mobil_stempeln") ? "mobil" : "qr") })}
-          {item({ icon: Clock, label: "Meine Zeiten", onClick: () => setMyTimesOpen(true) })}
+          <div className="dg-group-label">{tx("Für mich")}</div>
+          {item({ icon: Timer, label: tx("Stempeln"), onClick: () => setSelfStamp((org.features || []).includes("mobil_stempeln") ? "mobil" : "qr") })}
+          {item({ icon: Clock, label: tx("Meine Zeiten"), onClick: () => setMyTimesOpen(true) })}
         </div>
       )}
       {/* "Zeitkonto zum Start", once per person (script 42) – outside the message block, so it does not vanish with a message */}
       {isLeader && hasTime && <StartSaldoDialog org={org} />}
       {(msg || autoMsg || (row && row.status === "pending") || (row && row.status === "draft" && row.review_note)) && (
         <div className="dg-group" role="status">
-          {msg && <div className="dg-msg">{msg}</div>}
+          {msg && <div className="dg-msg">{tx(msg)}</div>}
           {autoMsg && <div className="dg-msg dg-msg-ok">✓ {autoMsg}</div>}
-          {row && row.status === "pending" && <div className="dg-msg dg-msg-warn">{MONTHS[monthIdx]} {year} wartet auf Freigabe durch die Leitung.</div>}
-          {row && row.status === "draft" && row.review_note && <div className="dg-msg dg-msg-alert">{MONTHS[monthIdx]} {year} wurde zurückgewiesen: {row.review_note}</div>}
+          {row && row.status === "pending" && <div className="dg-msg dg-msg-warn">{monthName(monthIdx)} {year}{tx(" wartet auf Freigabe durch die Leitung.")}</div>}
+          {row && row.status === "draft" && row.review_note && <div className="dg-msg dg-msg-alert">{monthName(monthIdx)} {year}{tx(" wurde zurückgewiesen: ")}{row.review_note}</div>}
         </div>
       )}
       <div className="dg-bottom">
@@ -409,13 +410,13 @@ export default function OrgBar({ onLoadStaff, staffList, toDb, onIdsChanged, yea
           onClose={() => setSchulung(false)} />
       )}
       {myTimesOpen && (
-        <div role="dialog" aria-modal="true" aria-label="Meine Zeiten" className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-900/40 p-3 sm:p-6" onClick={(e) => { if (e.target === e.currentTarget) setMyTimesOpen(false); }}>
+        <div role="dialog" aria-modal="true" aria-label={tx("Meine Zeiten")} className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-900/40 p-3 sm:p-6" onClick={(e) => { if (e.target === e.currentTarget) setMyTimesOpen(false); }}>
           <div className="w-full max-w-lg rounded-2xl bg-white p-3 shadow-xl sm:p-4">
             <div className="mb-2 flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-slate-800">Meine Zeiten</h2>
-              <button onClick={() => setMyTimesOpen(false)} className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50">Schließen</button>
+              <h2 className="text-lg font-semibold text-slate-800">{tx("Meine Zeiten")}</h2>
+              <button onClick={() => setMyTimesOpen(false)} className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50">{tx("Schließen")}</button>
             </div>
-            <p className="mb-2 text-xs text-slate-500">Eigene Korrekturen und vergessene Zeiten beantragen Sie hier. Bestätigen kann sie der Inhaber oder eine andere Leitung.</p>
+            <p className="mb-2 text-xs text-slate-500">{tx("Eigene Korrekturen und vergessene Zeiten beantragen Sie hier. Bestätigen kann sie der Inhaber oder eine andere Leitung.")}</p>
             <EmployeeTimes org={org} />
           </div>
         </div>
@@ -424,33 +425,30 @@ export default function OrgBar({ onLoadStaff, staffList, toDb, onIdsChanged, yea
       {zugOpen && <ZugaengeDialog onClose={() => setZugOpen(false)} />}
       {wishesOpen && <WishesDialog year={year} monthIdx={monthIdx} onImport={onImportWishes} onChanged={() => setWishBump((b) => b + 1)} onClose={() => { setWishesOpen(false); setWishBump((b) => b + 1); }} />}
       {editOpen && (
-        <div role="dialog" aria-modal="true" aria-label="Gespeicherten Plan zum Bearbeiten öffnen" className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-900/40 p-3 sm:p-10" onClick={(e) => { if (e.target === e.currentTarget) setEditOpen(false); }}>
+        <div role="dialog" aria-modal="true" aria-label={tx("Gespeicherten Plan zum Bearbeiten öffnen")} className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-900/40 p-3 sm:p-10" onClick={(e) => { if (e.target === e.currentTarget) setEditOpen(false); }}>
         <div className="w-full max-w-xl rounded-2xl border border-amber-200 bg-amber-50 p-4 text-xs text-amber-900 shadow-xl">
-          <div className="mb-3 flex items-center justify-between gap-2"><span className="text-sm font-semibold">Gespeicherten Plan zum Bearbeiten öffnen</span><button type="button" onClick={() => setEditOpen(false)} className="rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-sm text-amber-900 hover:bg-amber-100">Schließen</button></div>
+          <div className="mb-3 flex items-center justify-between gap-2"><span className="text-sm font-semibold">{tx("Gespeicherten Plan zum Bearbeiten öffnen")}</span><button type="button" onClick={() => setEditOpen(false)} className="rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-sm text-amber-900 hover:bg-amber-100">{tx("Schließen")}</button></div>
           <div className="flex flex-wrap items-end gap-2">
-            <label>Monat
-              <select value={editMonth} onChange={(e) => setEditMonth(e.target.value)} className="ml-1 rounded-md border border-amber-300 bg-white px-2 py-1">
-                {MONTHS.map((n, i) => <option key={n} value={i + 1}>{n}</option>)}
+            <label>{tx("Monat")}<select value={editMonth} onChange={(e) => setEditMonth(e.target.value)} className="ml-1 rounded-md border border-amber-300 bg-white px-2 py-1">
+                {MONTHS.map((n, i) => <option key={n} value={i + 1}>{monthName(i)}</option>)}
               </select>
             </label>
-            <label>Jahr
-              <select value={editYear} onChange={(e) => setEditYear(e.target.value)} className="ml-1 rounded-md border border-amber-300 bg-white px-2 py-1">
+            <label>{tx("Jahr")}<select value={editYear} onChange={(e) => setEditYear(e.target.value)} className="ml-1 rounded-md border border-amber-300 bg-white px-2 py-1">
                 {yearOptions.map((y) => <option key={y} value={y}>{y}</option>)}
               </select>
             </label>
             {versions.length > 0 && (
-              <label>Fassung
-                <select value={versionId} onChange={(e) => setVersionId(e.target.value)} className="ml-1 max-w-[16rem] rounded-md border border-amber-300 bg-white px-2 py-1">
-                  <option value="current">Aktueller Stand</option>
-                  {versions.map((v) => <option key={v.id} value={v.id}>{new Date(v.created_at).toLocaleString("de-DE", { dateStyle: "short", timeStyle: "short" })} · {v.actor_email || "?"}{v.note ? ` · ${v.note}` : ""}</option>)}
+              <label>{tx("Fassung")}<select value={versionId} onChange={(e) => setVersionId(e.target.value)} className="ml-1 max-w-[16rem] rounded-md border border-amber-300 bg-white px-2 py-1">
+                  <option value="current">{tx("Aktueller Stand")}</option>
+                  {versions.map((v) => <option key={v.id} value={v.id}>{new Date(v.created_at).toLocaleString(loc(), { dateStyle: "short", timeStyle: "short" })} · {v.actor_email || "?"}{v.note ? ` · ${v.note}` : ""}</option>)}
                 </select>
               </label>
             )}
-            <button onClick={loadPlan} disabled={!!busy} className="rounded-md bg-amber-600 px-3 py-1.5 font-semibold text-white hover:bg-amber-700 disabled:opacity-60">{busy === "plan" ? "Lädt …" : "Plan laden"}</button>
+            <button onClick={loadPlan} disabled={!!busy} className="rounded-md bg-amber-600 px-3 py-1.5 font-semibold text-white hover:bg-amber-700 disabled:opacity-60">{busy === "plan" ? tx("Lädt …") : tx("Plan laden")}</button>
           </div>
-          {versions.length > 0 && <div className="mt-2 text-amber-800">Einen Fehler rückgängig machen: unter „Fassung“ den Stand vor dem Fehler wählen, „Plan laden“, dann „Zur Freigabe einreichen“ (Grund z. B. „Korrektur“). Die falsche Änderung wird dabei automatisch storniert, wenn die Schicht noch nicht stattgefunden hat.</div>}
+          {versions.length > 0 && <div className="mt-2 text-amber-800">{tx("Einen Fehler rückgängig machen: unter „Fassung“ den Stand vor dem Fehler wählen, „Plan laden“, dann „Zur Freigabe einreichen“ (Grund z. B. „Korrektur“). Die falsche Änderung wird dabei automatisch storniert, wenn die Schicht noch nicht stattgefunden hat.")}</div>}
           {saved.length > 0 && (
-            <div className="mt-2 text-amber-800">Gespeichert: {saved.map((x) => `${MONTHS[x.month - 1].slice(0, 3)} ${x.year} (${STATUS_TXT[x.status] || x.status})`).join(" · ")}</div>
+            <div className="mt-2 text-amber-800">{tx("Gespeichert: ")}{saved.map((x) => `${monthName(x.month - 1).slice(0, 3)} ${x.year} (${tx(STATUS_TXT[x.status] || x.status)})`).join(" · ")}</div>
           )}
         </div>
         </div>
