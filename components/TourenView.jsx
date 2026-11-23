@@ -76,7 +76,7 @@ const addDays = (iso, n) => { const d = dateOf(iso); d.setDate(d.getDate() + n);
 const mondayOf = (iso) => { const d = dateOf(iso); const w = (d.getDay() + 6) % 7; d.setDate(d.getDate() - w); return isoOf(d); };
 const hhmm = (t) => String(t || "").slice(0, 5);
 const toMin = (t) => { const [h, m] = String(t || "0:0").split(":"); return (+h || 0) * 60 + (+m || 0); };
-const endOf = (start, dur) => { const e = (toMin(start) + (dur || 0)) % 1440; return `${pad(Math.floor(e / 60))}:${pad(e % 60)}`; };
+const endOf = (start, dur) => { const e = (((toMin(start) + (dur || 0)) % 1440) + 1440) % 1440; return `${pad(Math.floor(e / 60))}:${pad(e % 60)}`; };
 const durTxt = (min) => { const h = Math.floor(min / 60), m = min % 60; return getLang() === "en" ? (h ? `${h} h` : "") + (m ? ` ${m} min` : "") : (h ? `${h} Std.` : "") + (m ? ` ${m} Min.` : ""); };
 const blank = (s) => !String(s || "").trim();
 const clean = (s) => (blank(s) ? null : String(s).trim());
@@ -844,15 +844,22 @@ function printRange(kind, day) {
 }
 
 function PrintDialog({ org, data, day, mode, onClose }) {
-  const [o, setO] = useState({ range: mode === "week" ? "week" : "day", layout: "overview", pages: true, phone: false, notes: true });
+  const [o, setO] = useState({ range: mode === "week" ? "week" : "day", date: day, layout: "overview", pages: true, phone: false, notes: true, back: true });
   const [sheet, setSheet] = useState(null); // geladene Daten → Vorschau
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState(null);
   const set = (k, v) => setO((p) => ({ ...p, [k]: v }));
   async function preview() {
     setBusy(true); setMsg(null);
-    const [from, to] = printRange(o.range, day);
+    if (!o.date) { setBusy(false); return setMsg({ kind: "err", text: tx("Bitte ein Datum wählen.") }); }
+    const [from, to] = printRange(o.range, o.date);
     const sb = org.supabase;
+    if (o.layout === "transport") {
+      const t = await sb.rpc("touren_transport", { p_org: org.orgId, p_from: from, p_to: to });
+      setBusy(false);
+      if (t.error) return setMsg({ kind: "err", text: errText(t.error) });
+      return setSheet({ from, to, jobs: [], assign: [], names: {}, absent: new Set(), transport: t.data, opts: { ...o } });
+    }
     const r = await sb.from("jobs").select("*").eq("org_id", org.orgId).gte("work_date", from).lte("work_date", to).order("work_date").order("start_time");
     if (r.error) { setBusy(false); return setMsg({ kind: "err", text: errText(r.error) }); }
     const jobs = (r.data || []).filter((j) => j.status !== "cancelled");
@@ -874,18 +881,34 @@ function PrintDialog({ org, data, day, mode, onClose }) {
       <div className="space-y-4">
         <div><span className={lbl}>{tx("Zeitraum")}</span>
           <div role="radiogroup" className="inline-flex overflow-hidden rounded-lg border border-slate-300 text-sm">{opt("range", "day", tx("Tag"))}{opt("range", "week", tx("Woche"))}{opt("range", "month", tx("Monat"))}</div>
-          <p className="mt-1 text-xs text-slate-500">{(() => { const [a, b] = printRange(o.range, day); return o.range === "month" ? `${monthName(dateOf(a).getMonth())} ${dateOf(a).getFullYear()}` : a === b ? `${wdLong(dateOf(a).getDay())}, ${dmy(dateOf(a))}` : `${dmy(dateOf(a))} – ${dmy(dateOf(b))}`; })()}</p>
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <label className="text-xs text-slate-600">{o.range === "day" ? tx("Tag") : o.range === "week" ? tx("Ein Tag in der Woche") : tx("Ein Tag im Monat")}
+              <input type="date" className={`${inpBase} ml-2`} value={o.date} onChange={(e) => set("date", e.target.value)} /></label>
+            <div className="inline-flex gap-1">
+              <button type="button" className={btnLight} aria-label={tx("Zurück")} onClick={() => o.date && set("date", o.range === "month" ? isoOf(new Date(dateOf(o.date).getFullYear(), dateOf(o.date).getMonth() - 1, 1, 12)) : addDays(o.date, o.range === "week" ? -7 : -1))}><ChevronLeft size={16} /></button>
+              <button type="button" className={btnLight} aria-label={tx("Weiter")} onClick={() => o.date && set("date", o.range === "month" ? isoOf(new Date(dateOf(o.date).getFullYear(), dateOf(o.date).getMonth() + 1, 1, 12)) : addDays(o.date, o.range === "week" ? 7 : 1))}><ChevronRight size={16} /></button>
+            </div>
+          </div>
+          {o.date && <p className="mt-1 text-xs font-medium text-slate-700">{(() => { const [a, b] = printRange(o.range, o.date); return o.range === "month" ? `${monthName(dateOf(a).getMonth())} ${dateOf(a).getFullYear()}` : a === b ? `${wdLong(dateOf(a).getDay())}, ${dmy(dateOf(a))}` : `${dmy(dateOf(a))} – ${dmy(dateOf(b))}`; })()}</p>}
         </div>
         <div><span className={lbl}>{tx("Ansicht")}</span>
-          <div role="radiogroup" className="inline-flex overflow-hidden rounded-lg border border-slate-300 text-sm">{opt("layout", "overview", tx("Alle Aufträge"))}{opt("layout", "staff", tx("Pro Mitarbeiter:in"))}</div>
-          <p className="mt-1 text-xs text-slate-500">{o.layout === "overview" ? tx("Alle Aufträge nach Tag und Uhrzeit, mit dem eingeteilten Personal – für Büro und Inhaber.") : tx("Für jede Person ihre eigenen Aufträge – zum Mitgeben oder Aushängen.")}</p>
+          <div role="radiogroup" className="inline-flex overflow-hidden rounded-lg border border-slate-300 text-sm">{opt("layout", "overview", tx("Alle Aufträge"))}{opt("layout", "staff", tx("Pro Mitarbeiter:in"))}{opt("layout", "transport", tx("Transport"))}</div>
+          <p className="mt-1 text-xs text-slate-500">{o.layout === "overview" ? tx("Alle Aufträge nach Tag und Uhrzeit, mit dem eingeteilten Personal – für Büro und Inhaber.") : o.layout === "staff" ? tx("Für jede Person ihre eigenen Aufträge – zum Mitgeben oder Aushängen.") : tx("Für den Fahrer: wann wer wo abgeholt wird (Unterkunft oder Zuhause), wohin es geht und wann es weitergeht.")}</p>
         </div>
+        {o.layout === "transport" ? (
+        <div className="space-y-1.5 text-sm">
+          <label className="flex items-center gap-2"><input type="checkbox" checked={o.back} onChange={(e) => set("back", e.target.checked)} />{tx("Rückfahrt nach dem letzten Auftrag")}</label>
+          <p className="text-xs text-slate-500">{tx("Abholzeit = Beginn minus Fahrzeit aus den Einstellungen. Startpunkt je Person: „Mitarbeitende“ → „Bearbeiten“.")}</p>
+          <p className="text-xs text-amber-700">{tx("Enthält Wohnadressen und Telefonnummern des Personals – nur dem Fahrer geben.")}</p>
+        </div>
+        ) : (
         <div className="space-y-1.5 text-sm">
           {o.layout === "staff" && <label className="flex items-center gap-2"><input type="checkbox" checked={o.pages} onChange={(e) => set("pages", e.target.checked)} />{tx("Jede Person auf einer eigenen Seite")}</label>}
           <label className="flex items-center gap-2"><input type="checkbox" checked={o.notes} onChange={(e) => set("notes", e.target.checked)} />{tx("Hinweise für das Personal drucken")}</label>
           <label className="flex items-center gap-2"><input type="checkbox" checked={o.phone} onChange={(e) => set("phone", e.target.checked)} />{tx("Telefon der Kunden drucken")}</label>
           {o.phone && <p className="ml-6 text-xs text-amber-700">{tx("Nur für Büro und Inhaber – diese Blätter nicht dem Personal geben.")}</p>}
         </div>
+        )}
         <Msg msg={msg} />
         <div className="tv-actions flex justify-end gap-2"><button type="button" className={btnLight} onClick={onClose}>{tx("Abbrechen")}</button><button type="button" className={btnPrimary} onClick={preview} disabled={busy}><Printer size={16} />{busy ? tx("Lädt …") : tx("Vorschau")}</button></div>
       </div>
@@ -924,11 +947,60 @@ function PrintSheet({ org, data, sheet, onBack, onClose }) {
       <div className="dgp-muted" style={{ textAlign: "right" }}>{tx("Gedruckt {0}", printedAt)}<br />Dienstigo</div>
     </div>
   );
-  const body = opts.layout === "overview" ? (
+  // Transport: Fahrten aus den Aufträgen bauen – Abholung am Startpunkt, Weiterfahrt, Rückfahrt; gleiche Fahrt = eine Zeile
+  const trips = useMemo(() => {
+    const t = sheet.transport; if (!t) return [];
+    const st = {}; (t.staff || []).forEach((x) => { st[x.id] = x; });
+    const startOf = (x) => x && x.start_kind !== "none" && x.start_address ? { key: "s:" + (x.start_kind === "place" ? x.start_name : x.id), label: x.start_kind === "place" ? x.start_name : tx("Zuhause"), addr: x.start_address } : null;
+    const byDay = {};
+    (t.jobs || []).forEach((j) => (j.staff || []).forEach((sid) => { if ((j.absent || []).includes(sid)) return; ((byDay[j.work_date] = byDay[j.work_date] || {})[sid] = byDay[j.work_date][sid] || []).push(j); }));
+    return Object.keys(byDay).sort().map((d) => {
+      const legs = {};
+      const add = (time, from, to, arrive, sid, kind) => { const k = `${time}|${from.key}|${to.key}`; const L = legs[k] || (legs[k] = { time, from, to, arrive, kind, who: [] }); L.who.push(st[sid] || { id: sid, name: "?" }); };
+      const missing = [];
+      Object.entries(byDay[d]).forEach(([sid, list]) => {
+        list.sort((a, b) => a.start_time.localeCompare(b.start_time));
+        const home = startOf(st[sid]);
+        const place = (j) => ({ key: "j:" + j.id, label: j.customer, addr: j.address });
+        if (home) add(endOf(list[0].start_time, -(t.travel_min || 0)), home, place(list[0]), list[0].start_time, sid, "pick");
+        else missing.push(st[sid] || { name: "?" });
+        for (let i = 1; i < list.length; i++) add(endOf(list[i - 1].start_time, list[i - 1].duration_min), place(list[i - 1]), place(list[i]), list[i].start_time, sid, "next");
+        const last = list[list.length - 1];
+        if (opts.back && home) add(endOf(last.start_time, last.duration_min), place(last), home, null, sid, "back");
+      });
+      const rows = Object.values(legs).sort((a, b) => a.time.localeCompare(b.time) || a.from.label.localeCompare(b.from.label));
+      rows.forEach((r) => r.who.sort((a, b) => a.name.localeCompare(b.name)));
+      return { day: d, rows, missing };
+    });
+  }, [sheet.transport, opts.back]); // eslint-disable-line react-hooks/exhaustive-deps
+  const KIND = { pick: tx("Abholen"), next: tx("Weiterfahrt"), back: tx("Rückfahrt") };
+  const body = opts.layout === "transport" ? (
+    <>
+      {header(tx("Transport"))}
+      {trips.length === 0 && <p style={{ marginTop: 20 }}>{tx("Keine Fahrten – niemand eingeteilt.")}</p>}
+      {trips.map((t, i) => (
+        <div key={t.day} className={i > 0 ? "dgp-break" : ""}>
+          {i > 0 && header(tx("Transport"))}
+          <div className="dgp-band"><span>{dayHead(t.day)}</span><span>{t.rows.length === 1 ? tx("1 Fahrt") : tx("{0} Fahrten", t.rows.length)}</span></div>
+          <table>{cols(["11%", "24%", "24%", "29%", "12%"])}
+            <thead><tr><th>{tx("Abfahrt")}</th><th>{tx("Von")}</th><th>{tx("Wer")}</th><th>{tx("Nach")}</th><th>{tx("Beginn")}</th></tr></thead>
+            <tbody>{t.rows.map((r, k) => (
+              <tr key={k}>
+                <td><div className="dgp-time" style={{ fontSize: "12pt" }}>{r.time}</div><div className="dgp-muted">{KIND[r.kind]}</div></td>
+                <td><div style={{ fontWeight: 600 }}>{r.from.label}</div><div>{r.from.addr}</div></td>
+                <td>{r.who.map((w) => <div key={w.id} style={{ marginBottom: 2 }}><span style={{ fontWeight: 600 }}>{w.name}</span>{w.phone ? <div className="dgp-muted">☎ {w.phone}</div> : null}</div>)}</td>
+                <td><div style={{ fontWeight: 600 }}>{r.to.label}</div><div>{r.to.addr}</div></td>
+                <td className="dgp-time">{r.arrive || "–"}</td>
+              </tr>))}</tbody></table>
+          {t.missing.length > 0 && <p className="dgp-warn" style={{ marginTop: 6 }}>{tx("Ohne Startpunkt (Abholung bitte klären): {0}", t.missing.map((m) => m.name).join(", "))}</p>}
+          <div style={{ marginTop: 18, display: "flex", gap: 30 }} className="dgp-muted"><span>{tx("Fahrer:in")}: ____________________</span><span>{tx("Fahrzeug")}: ______________</span></div>
+        </div>))}
+    </>
+  ) : opts.layout === "overview" ? (
     <>
       {header(tx("Einsatzplan"))}
-      <div><span className="dgp-chip">{nJobs(jobs.length)}</span><span className="dgp-chip">{tx("{0} Std.", dec(Math.round(hours * 10) / 10))}</span>
-        {short.length ? <span className="dgp-chip dgp-warn">{tx("{0} ohne volles Personal", short.length)}</span> : <span className="dgp-chip">{tx("Personal vollständig ✓")}</span>}</div>
+      {jobs.length > 0 && <div><span className="dgp-chip">{nJobs(jobs.length)}</span><span className="dgp-chip">{tx("{0} Std.", dec(Math.round(hours * 10) / 10))}</span>
+        {short.length ? <span className="dgp-chip dgp-warn">{tx("{0} ohne volles Personal", short.length)}</span> : <span className="dgp-chip">{tx("Personal vollständig ✓")}</span>}</div>}
       {jobs.length === 0 && <p style={{ marginTop: 20 }}>{tx("Keine Aufträge in diesem Zeitraum.")}</p>}
       {dates.map((d) => { const list = jobs.filter((j) => j.work_date === d); return (
         <div key={d}>
