@@ -1315,14 +1315,17 @@ function CustomersView({ data, onNew, onOpen }) {
 }
 
 // ---------- Mitarbeitende (Inhaber / Leitung) – gleiche Tabelle „staff“ wie Dienstplaner und Zeiterfassung ----------
-const staffForm = (x, starts, skillMap, drivers = {}) => {
+const staffForm = (x, starts, skillMap, drivers = {}, areaMap = {}) => {
   const t = starts[x.id]; const dv = drivers[x.id];
   return { ...x, phone: x.phone || "", personnel_no: x.personnel_no || "",
     start: !t ? "" : t.start_kind === "home" ? "home" : t.start_kind === "place" && t.place_id ? `place:${t.place_id}` : "",
     home: t && t.start_kind === "home" ? { address: t.home_address || "", maps_url: t.home_maps_url || "", lat: t.home_lat, lng: t.home_lng, coordState: t.home_lat !== null && t.home_lat !== undefined ? "ok" : "none" } : emptyAddr(),
     skills: skillMap[x.id] || [],
-    driver: dv ? { on: true, all: dv.scope_all, places: dv.places || [], home: !!dv.home } : { on: false, all: true, places: [], home: false } };
+    driver: dv ? { on: true, all: dv.scope_all, places: dv.places || [], home: !!dv.home, areas: (areaMap[x.id] || []).map(areaForm) } : { on: false, all: true, places: [], home: false, areas: [] } };
 };
+// Gebiet einer Fahrer:in (53): Mittelpunkt + Radius
+const RADII = [2, 5, 10, 15, 20, 30, 50];
+const areaForm = (a) => ({ id: a.id, address: a.address || "", maps_url: a.maps_url || "", label: "", lat: a.lat, lng: a.lng, coordState: "ok", radius_km: Number(a.radius_km) || 10 });
 const emptyStaff = (country) => ({ name: "", phone: "", personnel_no: "", weekly_hours: country === "AE" ? 48 : 40, active: true });
 function StaffView({ org, data, onChanged, onAbsence }) {
   const sb = org.supabase;
@@ -1330,22 +1333,25 @@ function StaffView({ org, data, onChanged, onAbsence }) {
   const [starts, setStarts] = useState({}); // staff_id → staff_touren
   const [skillMap, setSkillMap] = useState({}); // staff_id → [skill_id]
   const [drivers, setDrivers] = useState({}); // staff_id → touren_drivers (Fahrer:in)
+  const [areaMap, setAreaMap] = useState({}); // staff_id → [touren_driver_areas]
   const [showInactive, setShowInactive] = useState(false);
   const [form, setForm] = useState(null); // { id|null, ... }
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState(null);
   const load = useCallback(async () => {
-    const [r, t, k, dq] = await Promise.all([
+    const [r, t, k, dq, aq] = await Promise.all([
       sb.from("staff").select("id, name, phone, personnel_no, weekly_hours, active, email").eq("org_id", org.orgId).order("name"),
       sb.from("staff_touren").select("*").eq("org_id", org.orgId),
       sb.from("staff_skills").select("staff_id, skill_id").eq("org_id", org.orgId),
       sb.from("touren_drivers").select("*").eq("org_id", org.orgId),
+      sb.from("touren_driver_areas").select("*").eq("org_id", org.orgId).order("created_at"),
     ]);
     if (r.error) { setMsg({ kind: "err", text: errText(r.error) }); setRows([]); return; }
     setRows(r.data || []);
     setStarts(Object.fromEntries((t.data || []).map((x) => [x.staff_id, x])));
     const m = {}; (k.data || []).forEach((x) => { (m[x.staff_id] = m[x.staff_id] || []).push(x.skill_id); }); setSkillMap(m);
     setDrivers(Object.fromEntries(((dq && !dq.error && dq.data) || []).map((x) => [x.staff_id, x]))); // ohne Tabelle: einfach keine Fahrer:innen
+    const am = {}; ((aq && !aq.error && aq.data) || []).forEach((a) => { (am[a.driver_id] = am[a.driver_id] || []).push(a); }); setAreaMap(am);
   }, [sb, org.orgId]);
   useEffect(() => { load(); }, [load]);
   const set = (k, v) => setForm((p) => ({ ...p, [k]: v }));
@@ -1357,7 +1363,8 @@ function StaffView({ org, data, onChanged, onAbsence }) {
     if (h !== null && (!Number.isFinite(h) || h < 0 || h > 84)) return setMsg({ kind: "err", text: tx("Bitte die Wochenstunden zwischen 0 und 84 eintragen.") });
     const same = (rows || []).find((x) => x.id !== form.id && x.name.trim().toLowerCase() === form.name.trim().toLowerCase());
     if (same) return setMsg({ kind: "err", text: tx("„{0}“ gibt es schon. Bitte Namen unterscheidbar machen (z. B. mit Nachnamen).", same.name) });
-    if (form.driver && form.driver.on && !form.driver.all && !(form.driver.places || []).length && !form.driver.home) return setMsg({ kind: "err", text: tx("Bitte für die Fahrer:in mindestens einen Bereich wählen – oder „Alle Fahrten“.") });
+    if (form.driver && form.driver.on && !form.driver.all && (form.driver.areas || []).some((a) => blank(a.address) && (a.lat === null || a.lat === undefined))) return setMsg({ kind: "err", text: tx("Bitte für jedes Gebiet eine Adresse oder einen Kartenlink eintragen – oder das Gebiet entfernen.") });
+    if (form.driver && form.driver.on && !form.driver.all && !(form.driver.places || []).length && !form.driver.home && !(form.driver.areas || []).length) return setMsg({ kind: "err", text: tx("Bitte für die Fahrer:in mindestens einen Bereich wählen – oder „Alle Fahrten“.") });
     setBusy(true);
     const row = { name: form.name.trim(), phone: normPhone(form.phone, org.country), personnel_no: clean(form.personnel_no), weekly_hours: h, active: !!form.active };
     const r = form.id ? await sb.from("staff").update(row).eq("id", form.id).select("id").single() : await sb.from("staff").insert({ org_id: org.orgId, ...row }).select("id").single();
@@ -1377,7 +1384,23 @@ function StaffView({ org, data, onChanged, onAbsence }) {
       const dr = dv.on
         ? await sb.from("touren_drivers").upsert({ staff_id: sid, org_id: org.orgId, scope_all: !!dv.all, places: dv.all ? [] : dv.places || [], home: dv.all ? false : !!dv.home }, { onConflict: "staff_id" })
         : drivers[sid] ? await sb.from("touren_drivers").delete().eq("staff_id", sid) : { error: null };
-      const e2 = st.error || d.error || i.error || dr.error;
+      // Gebiete: alte löschen, aktuelle neu anlegen (Ort wird bei Bedarf aus der Adresse gesucht)
+      let ar = { error: null };
+      if (!dr.error && dv.on) {
+        const old = (areaMap[sid] || []).map((a) => a.id);
+        if (old.length) ar = await sb.from("touren_driver_areas").delete().in("id", old);
+        const want = dv.all ? [] : dv.areas || [];
+        if (!ar.error && want.length) {
+          const rowsA = [];
+          for (const a of want) {
+            const g = await withCoords(org, { address: clean(a.address), maps_url: clean(a.maps_url), lat: a.lat ?? null, lng: a.lng ?? null });
+            if (g.lat === null || g.lat === undefined) { ar = { error: { message: tx("Für „{0}“ wurde kein Ort gefunden. Bitte einen Google-Maps-Link einfügen oder „📍 Mein Standort hier“ nutzen.", a.address || "?") } }; break; }
+            rowsA.push({ org_id: org.orgId, driver_id: sid, address: g.address, maps_url: g.maps_url, lat: g.lat, lng: g.lng, radius_km: Number(a.radius_km) || 10 });
+          }
+          if (!ar.error) ar = await sb.from("touren_driver_areas").insert(rowsA);
+        }
+      }
+      const e2 = st.error || d.error || i.error || dr.error || ar.error;
       if (e2) { setBusy(false); return setMsg({ kind: "err", text: errText(e2) }); }
     }
     setBusy(false);
@@ -1396,7 +1419,7 @@ function StaffView({ org, data, onChanged, onAbsence }) {
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <label className="flex items-center gap-1.5 text-sm text-slate-600"><input type="checkbox" checked={showInactive} onChange={(e) => setShowInactive(e.target.checked)} />{tx("Inaktive zeigen")}</label>
         <div className="flex-1" />
-        <button type="button" className={btnPrimary} onClick={() => { setMsg(null); setForm({ id: null, ...emptyStaff(org.country), start: "", home: emptyAddr(), skills: [], driver: { on: false, all: true, places: [], home: false } }); }}><Plus size={16} />{tx("Mitarbeiter:in")}</button>
+        <button type="button" className={btnPrimary} onClick={() => { setMsg(null); setForm({ id: null, ...emptyStaff(org.country), start: "", home: emptyAddr(), skills: [], driver: { on: false, all: true, places: [], home: false, areas: [] } }); }}><Plus size={16} />{tx("Mitarbeiter:in")}</button>
       </div>
       {form && (
         <div className="mb-4 rounded-xl border border-teal-200 bg-teal-50/30 p-4">
@@ -1444,6 +1467,29 @@ function StaffView({ org, data, onChanged, onAbsence }) {
                       <button type="button" aria-pressed={!!dv.home} onClick={() => setDv("home", !dv.home)} className={`min-h-[36px] rounded-full border px-3 text-sm ${dv.home ? "border-teal-600 bg-teal-600 text-white" : "border-slate-300 bg-white text-slate-700"}`}>{tx("Personal mit eigener Wohnadresse")}</button>
                     </div>
                   )}
+                  {!dv.all && (
+                    <div className="rounded-lg border border-slate-200 bg-slate-50/60 p-2.5">
+                      <div className="mb-1 text-sm font-medium text-slate-700">🗺 {tx("Gebiete auf der Karte")}</div>
+                      <p className="mb-2 text-[11px] text-slate-500">{tx("Mittelpunkt + Umkreis. Wer innerhalb abgeholt wird (Unterkunft oder Zuhause), fährt mit dieser Fahrer:in. Liegt jemand in zwei Gebieten, zählt der nähere Mittelpunkt.")}</p>
+                      {(dv.areas || []).map((a, i) => (
+                        <div key={a.id || i} className="mb-2 rounded-lg border border-slate-200 bg-white p-2">
+                          <div className="mb-1 flex items-center justify-between gap-2">
+                            <span className="text-xs font-semibold text-slate-600">{tx("Gebiet {0}", i + 1)}</span>
+                            <span className="flex items-center gap-2">
+                              <label className="text-xs text-slate-600">{tx("Umkreis")}
+                                <select className={`${inpBase} ml-1 py-1`} value={a.radius_km} onChange={(e) => setDv("areas", dv.areas.map((x, k) => (k === i ? { ...x, radius_km: Number(e.target.value) } : x)))}>
+                                  {RADII.map((r) => <option key={r} value={r}>{r} km</option>)}
+                                </select>
+                              </label>
+                              <button type="button" className="text-xs text-rose-700 underline" onClick={() => setDv("areas", dv.areas.filter((_, k) => k !== i))}>{tx("entfernen")}</button>
+                            </span>
+                          </div>
+                          <AddressFields value={a} onChange={(v) => setDv("areas", dv.areas.map((x, k) => (k === i ? { ...x, ...v } : x)))} org={org} optional noLabel />
+                        </div>
+                      ))}
+                      <button type="button" className={btnLight} onClick={() => setDv("areas", [...(dv.areas || []), { ...emptyAddr(), radius_km: 10 }])}><Plus size={16} />{tx("Gebiet")}</button>
+                    </div>
+                  )}
                   <p className="text-[11px] text-slate-500">{tx("Einzelne Personen kann das Büro auf dem Transport-Blatt für einen Tag einer anderen Fahrer:in geben.")}</p>
                 </div>
               )}
@@ -1467,7 +1513,7 @@ function StaffView({ org, data, onChanged, onAbsence }) {
                 <div><div className="font-medium text-slate-800">{x.name}{!x.active ? <span className="ml-1 text-xs font-normal text-slate-400">{tx("(inaktiv)")}</span> : null}</div>
                   <div className="text-xs text-slate-500">{x.personnel_no ? `${tx("Personalnummer")} ${x.personnel_no} · ` : ""}{x.weekly_hours ?? "–"} {tx("Std./Woche")}</div></div>
                 <div className="flex flex-col items-end">
-                  <button type="button" className="min-h-[36px] rounded-lg px-2 text-sm text-teal-700 underline" onClick={() => { setMsg(null); setForm(staffForm(x, starts, skillMap, drivers)); window.scrollTo(0, 0); }}>{tx("Bearbeiten")}</button>
+                  <button type="button" className="min-h-[36px] rounded-lg px-2 text-sm text-teal-700 underline" onClick={() => { setMsg(null); setForm(staffForm(x, starts, skillMap, drivers, areaMap)); window.scrollTo(0, 0); }}>{tx("Bearbeiten")}</button>
                   {x.active && onAbsence && <button type="button" className="min-h-[36px] rounded-lg px-2 text-sm text-rose-700 underline" onClick={() => onAbsence(x)}>🤒 {tx("Abwesend melden")}</button>}
                 </div>
               </div>
@@ -1485,7 +1531,7 @@ function StaffView({ org, data, onChanged, onAbsence }) {
                   <td className="px-3 py-2 text-slate-700">{x.phone ? <a href={`https://wa.me/${digits(x.phone)}`} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 hover:underline"><Phone size={13} aria-hidden="true" />{x.phone}</a> : "–"}</td>
                   <td className="px-3 py-2 text-slate-600">{x.personnel_no || "–"}</td>
                   <td className="px-3 py-2 text-slate-600">{x.weekly_hours ?? "–"}</td>
-                  <td className="whitespace-nowrap px-3 py-2 text-right">{x.active && onAbsence && <button type="button" className="mr-3 text-xs text-rose-700 underline" onClick={() => onAbsence(x)}>🤒 {tx("Abwesend melden")}</button>}<button type="button" className="text-xs text-teal-700 underline" onClick={() => { setMsg(null); setForm(staffForm(x, starts, skillMap, drivers)); }}>{tx("Bearbeiten")}</button></td>
+                  <td className="whitespace-nowrap px-3 py-2 text-right">{x.active && onAbsence && <button type="button" className="mr-3 text-xs text-rose-700 underline" onClick={() => onAbsence(x)}>🤒 {tx("Abwesend melden")}</button>}<button type="button" className="text-xs text-teal-700 underline" onClick={() => { setMsg(null); setForm(staffForm(x, starts, skillMap, drivers, areaMap)); }}>{tx("Bearbeiten")}</button></td>
                 </tr>
               ))}
             </tbody>
