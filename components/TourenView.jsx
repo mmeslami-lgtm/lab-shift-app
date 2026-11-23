@@ -9,6 +9,7 @@ import React, { useCallback, useContext, useEffect, useMemo, useState } from "re
 import { OrgContext } from "../lib/orgContext";
 import PlannerShell from "./PlannerShell";
 import ZugaengeDialog from "./ZugaengeDialog";
+import RequestsDialog from "./RequestsDialog";
 import { tx as txRaw, loc, wdShort, wdLong, dmy, dm, isoDmy, getLang, dec } from "../lib/i18n";
 import { useLang } from "../lib/useLang";
 import { coordsFromText, isShortMapsLink, mapsHref, normPhone } from "../lib/maps";
@@ -28,7 +29,7 @@ function tx(...a) {
 }
 const DEFAULT_SETTINGS = { industry: "general", near_km: 3, fairness_pp: 10, travel_min: 30 };
 const INDUSTRY = { cleaning: "Reinigung", care: "Pflege & Betreuung", facility: "Hausmeister & Technik", general: "Allgemein" };
-import { CalendarDays, ClipboardList, Users, Settings, LogOut, MapPin, Plus, X, ChevronLeft, ChevronRight, Phone, KeyRound, UserCog, MoreHorizontal } from "lucide-react";
+import { CalendarDays, ClipboardList, Users, Settings, LogOut, MapPin, Plus, X, ChevronLeft, ChevronRight, Phone, KeyRound, UserCog, MoreHorizontal, FileText } from "lucide-react";
 
 const SOURCES = [["phone", "Telefon"], ["whatsapp", "WhatsApp"], ["website", "Website"], ["email", "E-Mail"], ["in_person", "Persönlich"], ["referral", "Empfehlung"], ["other", "Sonstiges"]];
 const STATUS = {
@@ -163,7 +164,7 @@ function ExtraInputs({ fields, values, onChange }) {
     <div className="grid gap-3 sm:grid-cols-2">
       {fields.map((f) => {
         const v = values[f.id];
-        const name = <>{f.name}{f.required ? " *" : ""}{f.staff_visible ? <span className="ml-1 text-[10px] text-slate-400">{tx("(für Mitarbeitende sichtbar)")}</span> : null}</>;
+        const name = <>{f.name}{f.required && f.kind !== "bool" ? " *" : ""}{f.staff_visible ? <span className="ml-1 text-[10px] text-slate-400">{tx("(für Mitarbeitende sichtbar)")}</span> : null}</>;
         if (f.kind === "bool") return <label key={f.id} className="flex items-center gap-2 text-sm text-slate-700 sm:col-span-2"><input type="checkbox" checked={!!v} onChange={(e) => set(f.id, e.target.checked)} />{name}</label>;
         return (
           <label key={f.id} className="block">
@@ -584,7 +585,7 @@ function AssignPanel({ org, job, data, onClose, onChanged }) {
   const skillName = (id) => (data.skills.find((k) => k.id === id) || {}).name || "?";
   const custOf = (id) => custName(data.customers.find((c) => c.id === id));
   const rows = ctx ? suggestStaff({ job: cur, dayJobs, assign: ctx.assign || [], staff: ctx.staff || [], settings: ctx.settings, history: ctx.history || [], prefs: data.prefs, requiredSkills: required }) : [];
-  const have = rows.filter((r) => r.here).length;
+  const have = rows.filter((r) => r.here && !(r.blocked && r.blocked.kind === "absent")).length;
   const firstFree = rows.find((r) => !r.here && !r.blocked);
 
   async function add(r) {
@@ -653,8 +654,78 @@ function AssignPanel({ org, job, data, onClose, onChanged }) {
   );
 }
 
+// ---------- Abwesend: betroffene Aufträge (Krankmeldung aus der App oder von der Leitung eingetragen) ----------
+function ConflictBox({ items, onReplace, busy }) {
+  if (!items.length) return null;
+  return (
+    <div role="alert" className="mb-3 rounded-xl border border-rose-300 bg-rose-50 p-3">
+      <div className="mb-1.5 text-sm font-semibold text-rose-800">⚠ {tx("Abwesend – Ersatz nötig ({0})", items.length)}</div>
+      <ul className="space-y-1.5">
+        {items.map((c) => (
+          <li key={`${c.job_id}|${c.staff_id}`} className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-white/70 px-2 py-1.5 text-sm text-rose-900">
+            <span><b>{c.staff_name}</b> {tx("abwesend")} · {wdShort(dateOf(c.work_date).getDay())} {dm(dateOf(c.work_date))} {c.start_time} · {c.customer}</span>
+            <button type="button" className={btnPrimary} onClick={() => onReplace(c)} disabled={busy}>{tx("Ersatz finden")}</button>
+          </li>
+        ))}
+      </ul>
+      <p className="mt-1.5 text-[11px] text-rose-700">{tx("„Ersatz finden“ nimmt die Person aus dem Auftrag und zeigt gleich die besten Vorschläge.")}</p>
+    </div>
+  );
+}
+
+function AbsenceDialog({ org, person, onClose, onSaved }) {
+  const today = isoOf(new Date());
+  const [types, setTypes] = useState(null);
+  const [f, setF] = useState({ type: "", from: today, to: today, note: "" });
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    org.supabase.from("request_types").select("key, label, active, sort_order").eq("org_id", org.orgId).order("sort_order").then(({ data: rows }) => {
+      if (!alive) return;
+      const list = (rows || []).filter((x) => x.active);
+      setTypes(list);
+      const def = list.find((x) => x.key === "krank_ohne") || list.find((x) => x.key === "krank") || list[0];
+      setF((p) => ({ ...p, type: def ? def.key : "" }));
+    });
+    return () => { alive = false; };
+  }, [org]);
+  async function save() {
+    setMsg(null);
+    if (!f.type) return setMsg({ kind: "err", text: tx("Bitte einen Grund wählen.") });
+    if (!f.from || !f.to || f.to < f.from) return setMsg({ kind: "err", text: tx("Bitte den Zeitraum prüfen.") });
+    setBusy(true);
+    const r = await org.supabase.rpc("touren_report_absence", { p_org: org.orgId, p_staff: person.id, p_type: f.type, p_from: f.from, p_to: f.to, p_note: f.note });
+    setBusy(false);
+    if (r.error) return setMsg({ kind: "err", text: errText(r.error) });
+    onSaved(tx("{0}: abwesend eingetragen ✓", person.name));
+  }
+  return (
+    <Modal title={tx("Abwesend melden – {0}", person.name)} onClose={onClose}>
+      {types === null ? <p className="text-sm text-slate-500">{tx("Lädt …")}</p> : (
+        <div className="space-y-3">
+          <label className="block"><span className={lbl}>{tx("Grund")}</span>
+            <select className={inp} value={f.type} onChange={(e) => setF({ ...f, type: e.target.value })}>
+              {types.map((t) => <option key={t.key} value={t.key}>{tx(t.label)}</option>)}
+            </select>
+          </label>
+          <div className="grid grid-cols-2 gap-3">
+            <label className="block"><span className={lbl}>{tx("Von")}</span><input type="date" className={inp} value={f.from} onChange={(e) => setF({ ...f, from: e.target.value, to: f.to < e.target.value ? e.target.value : f.to })} /></label>
+            <label className="block"><span className={lbl}>{tx("Bis")}</span><input type="date" className={inp} value={f.to} min={f.from} onChange={(e) => setF({ ...f, to: e.target.value })} /></label>
+          </div>
+          <label className="block"><span className={lbl}>{tx("Notiz (optional)")}</span><input className={inp} value={f.note} maxLength={500} onChange={(e) => setF({ ...f, note: e.target.value })} placeholder={tx("z. B. hat angerufen")} /></label>
+          <p className="text-[11px] text-slate-500">{tx("Gilt sofort. Betroffene Aufträge erscheinen unter „Aufträge“ mit „Ersatz finden“. Die Person sieht es in ihrer App unter „Anträge“. Den Grund sehen nur Inhaber und Leitung. Rückgängig: „Anträge“ → „Stornieren“.")}</p>
+          <Msg msg={msg} />
+          <div className="tv-actions flex justify-end gap-2"><button type="button" className={btnLight} onClick={onClose}>{tx("Abbrechen")}</button><button type="button" className={btnPrimary} onClick={save} disabled={busy}>{busy ? tx("Speichert …") : tx("Speichern")}</button></div>
+        </div>
+      )}
+    </Modal>
+  );
+}
+
 // ---------- Aufträge: Tag / Woche ----------
-function JobCard({ j, data, onOpen, compact, assign = [], onAssign }) {
+function JobCard({ j, data, onOpen, compact, assign = [], onAssign, absent }) {
+  const isAbs = (sid) => !!(absent && absent.has(`${j.id}|${sid}`));
   const c = data.customers.find((x) => x.id === j.customer_id);
   const s = data.services.find((x) => x.id === j.service_type_id);
   const st = STATUS[j.status] || STATUS.new;
@@ -669,14 +740,15 @@ function JobCard({ j, data, onOpen, compact, assign = [], onAssign }) {
       {!compact && <div className="mt-0.5 truncate text-xs text-slate-600">{j.address_text}</div>}
       <div className={`mt-0.5 flex flex-wrap gap-x-3 text-slate-500 ${compact ? "text-[10px]" : "text-xs"}`}>
         {s ? <span>{s.name}</span> : null}
-        {(() => { const n = assign.filter((a) => a.job_id === j.id).length; const full = n >= j.staff_needed;
+        {(() => { const n = assign.filter((a) => a.job_id === j.id && !isAbs(a.staff_id)).length; const full = n >= j.staff_needed;
           return <span className={j.status === "cancelled" ? "" : full ? "font-medium text-emerald-700" : "font-medium text-rose-700"}>{tx("Personal: {0}/{1}", n, j.staff_needed)}</span>; })()}
         {j.material ? <span>{j.material === "ours" ? tx("Material: von uns") : tx("Material: vom Kunden")}</span> : null}
         {!compact && <span>{tx("Nr. {0}", j.job_no)}</span>}
       </div>
     </button>
-    {!compact && (() => { const names = assign.filter((a) => a.job_id === j.id).map((a) => (data.staffList.find((x) => x.id === a.staff_id) || {}).name || "?");
-      return names.length ? <div className="mt-1 text-xs text-slate-700">👤 {names.join(", ")}</div> : null; })()}
+    {!compact && (() => { const mine = assign.filter((a) => a.job_id === j.id);
+      return mine.length ? <div className="mt-1 text-xs text-slate-700">👤 {mine.map((a, i) => { const nm = (data.staffList.find((x) => x.id === a.staff_id) || {}).name || "?";
+        return <span key={a.staff_id}>{i ? ", " : ""}{isAbs(a.staff_id) ? <span className="font-medium text-rose-700">⚠ {nm} ({tx("abwesend")})</span> : nm}</span>; })}</div> : null; })()}
     {!compact && j.status !== "cancelled" && j.status !== "done" && onAssign && (
       <button type="button" onClick={() => onAssign(j)} className="mt-2 inline-flex min-h-[40px] w-full items-center justify-center gap-1.5 rounded-lg bg-teal-600 px-3 text-sm font-medium text-white hover:bg-teal-700 sm:w-auto">👥 {tx("Personal zuteilen")}</button>
     )}
@@ -685,7 +757,7 @@ function JobCard({ j, data, onOpen, compact, assign = [], onAssign }) {
   );
 }
 
-function JobsView({ org, data, jobs, assign, day, setDay, mode, setMode, showCancelled, setShowCancelled, onNew, onOpen, onAssign }) {
+function JobsView({ org, data, jobs, assign, absent, day, setDay, mode, setMode, showCancelled, setShowCancelled, onNew, onOpen, onAssign }) {
   const visible = jobs.filter((j) => showCancelled || j.status !== "cancelled");
   const today = isoOf(new Date());
   const step = mode === "week" ? 7 : 1;
@@ -712,7 +784,7 @@ function JobsView({ org, data, jobs, assign, day, setDay, mode, setMode, showCan
       {mode === "day" ? (
         <div className="space-y-2">
           {visible.filter((j) => j.work_date === day).length === 0 && <p className="rounded-xl border border-dashed border-slate-300 px-4 py-6 text-center text-sm text-slate-500">{tx("Keine Aufträge an diesem Tag.")}</p>}
-          {visible.filter((j) => j.work_date === day).map((j) => <JobCard key={j.id} j={j} data={data} onOpen={onOpen} assign={assign} onAssign={onAssign} />)}
+          {visible.filter((j) => j.work_date === day).map((j) => <JobCard key={j.id} j={j} data={data} onOpen={onOpen} assign={assign} onAssign={onAssign} absent={absent} />)}
         </div>
       ) : (
         <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-7">
@@ -723,7 +795,7 @@ function JobsView({ org, data, jobs, assign, day, setDay, mode, setMode, showCan
                 <button type="button" onClick={() => { setDay(d); setMode("day"); }} className="mb-1 flex w-full items-baseline justify-between px-1 text-left text-xs font-semibold text-slate-700 hover:text-teal-700">
                   <span>{wdShort(dateOf(d).getDay())} {dm(dateOf(d))}</span><span className="font-normal text-slate-500">{list.length || ""}</span>
                 </button>
-                <div className="space-y-1">{list.map((j) => <JobCard key={j.id} j={j} data={data} onOpen={onOpen} compact assign={assign} />)}</div>
+                <div className="space-y-1">{list.map((j) => <JobCard key={j.id} j={j} data={data} onOpen={onOpen} compact assign={assign} absent={absent} />)}</div>
               </div>
             );
           })}
@@ -996,7 +1068,7 @@ const staffForm = (x, starts, skillMap) => {
     skills: skillMap[x.id] || [] };
 };
 const emptyStaff = (country) => ({ name: "", phone: "", personnel_no: "", weekly_hours: country === "AE" ? 48 : 40, active: true });
-function StaffView({ org, data, onChanged }) {
+function StaffView({ org, data, onChanged, onAbsence }) {
   const sb = org.supabase;
   const [rows, setRows] = useState(null);
   const [starts, setStarts] = useState({}); // staff_id → staff_touren
@@ -1109,7 +1181,10 @@ function StaffView({ org, data, onChanged }) {
               <div className="flex items-start justify-between gap-2">
                 <div><div className="font-medium text-slate-800">{x.name}{!x.active ? <span className="ml-1 text-xs font-normal text-slate-400">{tx("(inaktiv)")}</span> : null}</div>
                   <div className="text-xs text-slate-500">{x.personnel_no ? `${tx("Personalnummer")} ${x.personnel_no} · ` : ""}{x.weekly_hours ?? "–"} {tx("Std./Woche")}</div></div>
-                <button type="button" className="min-h-[36px] rounded-lg px-2 text-sm text-teal-700 underline" onClick={() => { setMsg(null); setForm(staffForm(x, starts, skillMap)); window.scrollTo(0, 0); }}>{tx("Bearbeiten")}</button>
+                <div className="flex flex-col items-end">
+                  <button type="button" className="min-h-[36px] rounded-lg px-2 text-sm text-teal-700 underline" onClick={() => { setMsg(null); setForm(staffForm(x, starts, skillMap)); window.scrollTo(0, 0); }}>{tx("Bearbeiten")}</button>
+                  {x.active && onAbsence && <button type="button" className="min-h-[36px] rounded-lg px-2 text-sm text-rose-700 underline" onClick={() => onAbsence(x)}>🤒 {tx("Abwesend melden")}</button>}
+                </div>
               </div>
               <ContactButtons phone={x.phone} />
             </li>
@@ -1125,7 +1200,7 @@ function StaffView({ org, data, onChanged }) {
                   <td className="px-3 py-2 text-slate-700">{x.phone ? <a href={`https://wa.me/${digits(x.phone)}`} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 hover:underline"><Phone size={13} aria-hidden="true" />{x.phone}</a> : "–"}</td>
                   <td className="px-3 py-2 text-slate-600">{x.personnel_no || "–"}</td>
                   <td className="px-3 py-2 text-slate-600">{x.weekly_hours ?? "–"}</td>
-                  <td className="px-3 py-2 text-right"><button type="button" className="text-xs text-teal-700 underline" onClick={() => { setMsg(null); setForm(staffForm(x, starts, skillMap)); }}>{tx("Bearbeiten")}</button></td>
+                  <td className="whitespace-nowrap px-3 py-2 text-right">{x.active && onAbsence && <button type="button" className="mr-3 text-xs text-rose-700 underline" onClick={() => onAbsence(x)}>🤒 {tx("Abwesend melden")}</button>}<button type="button" className="text-xs text-teal-700 underline" onClick={() => { setMsg(null); setForm(staffForm(x, starts, skillMap)); }}>{tx("Bearbeiten")}</button></td>
                 </tr>
               ))}
             </tbody>
@@ -1350,6 +1425,11 @@ export default function TourenView() {
   const [flash, setFlash] = useState(null);
   const [zugOpen, setZugOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
+  const [conflicts, setConflicts] = useState([]); // eingeteilte Personen, die abwesend sind
+  const [absentFor, setAbsentFor] = useState(null); // Mitarbeiter:in für „Abwesend melden“
+  const [reqOpen, setReqOpen] = useState(false);
+  const [reqCount, setReqCount] = useState(0);
+  const [repBusy, setRepBusy] = useState(false);
   const sb = org.supabase;
 
   const loadBase = useCallback(async () => {
@@ -1372,8 +1452,9 @@ export default function TourenView() {
       settings: { ...DEFAULT_SETTINGS, ...(ts.data || {}) }, skills: sk.data || [], places: pl.data || [], serviceSkills: ss.data || [], prefs: pr.data || [],
       staffList: ((ctx.data && ctx.data.staff) || []).map((x) => ({ id: x.id, name: x.name })) });
     setOpenCount(oc.error ? 0 : oc.data || 0);
+    if (isLeader) { const rq = await sb.from("requests").select("id", { count: "exact", head: true }).eq("org_id", org.orgId).eq("status", "open"); setReqCount(rq.error ? 0 : rq.count || 0); }
     setLoaded(true);
-  }, [sb, org.orgId]);
+  }, [sb, org.orgId, isLeader]);
 
   const range = mode === "week" ? [mondayOf(day), addDays(mondayOf(day), 6)] : [day, day];
   const loadJobs = useCallback(async () => {
@@ -1385,8 +1466,19 @@ export default function TourenView() {
     setAssign(js.data || []);
   }, [sb, org.orgId, range[0], range[1]]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // betroffene Aufträge: heute bis +30 Tage (rote Box) und die sichtbaren Tage (Karten)
+  const loadConflicts = useCallback(async () => {
+    const today = isoOf(new Date());
+    let from = range[0] < today ? range[0] : today;
+    let to = addDays(today, 30) > range[1] ? addDays(today, 30) : range[1];
+    if ((dateOf(to) - dateOf(from)) / 86400000 > 62) { from = range[0]; to = addDays(range[0], 62); }
+    const r = await sb.rpc("touren_absence_conflicts", { p_org: org.orgId, p_from: from, p_to: to });
+    setConflicts(r.error ? [] : r.data || []);
+  }, [sb, org.orgId, range[0], range[1]]); // eslint-disable-line react-hooks/exhaustive-deps
+
   useEffect(() => { loadBase(); }, [loadBase]);
   useEffect(() => { loadJobs(); }, [loadJobs]);
+  useEffect(() => { loadConflicts(); }, [loadConflicts]);
   useEffect(() => { if (!flash) return undefined; const t = setTimeout(() => setFlash(null), 5000); return () => clearTimeout(t); }, [flash]);
 
   const onJobSaved = async (text, date) => { setJobDlg(null); setFlash(text); await loadBase(); if (date && (date < range[0] || date > range[1])) setDay(date); else await loadJobs(); };
@@ -1397,7 +1489,21 @@ export default function TourenView() {
   };
 
   TERMS = data.settings.industry || "general";
-  const afterAssign = async () => { await loadJobs(); const oc = await sb.rpc("touren_open_count", { p_org: org.orgId }); if (!oc.error) setOpenCount(oc.data || 0); };
+  const afterAssign = async () => { await loadJobs(); await loadConflicts(); const oc = await sb.rpc("touren_open_count", { p_org: org.orgId }); if (!oc.error) setOpenCount(oc.data || 0); };
+  const absentSet = useMemo(() => new Set(conflicts.map((c) => `${c.job_id}|${c.staff_id}`)), [conflicts]);
+  const todayIso = isoOf(new Date());
+  const upcoming = conflicts.filter((c) => c.work_date >= todayIso && c.work_date <= addDays(todayIso, 30));
+  // „Ersatz finden“: Person aus dem Auftrag nehmen, dann gleich die Vorschläge zeigen
+  const replace = async (c) => {
+    setRepBusy(true);
+    const d = await sb.from("job_staff").delete().eq("job_id", c.job_id).eq("staff_id", c.staff_id);
+    const j = await sb.from("jobs").select("*").eq("id", c.job_id).single();
+    setRepBusy(false);
+    if (d.error || j.error) { setFlash(errText(d.error || j.error)); return; }
+    await afterAssign();
+    setAssignDlg(j.data);
+  };
+  const afterAbsence = async (text) => { setAbsentFor(null); setFlash(text); await afterAssign(); if (isLeader) { const rq = await sb.from("requests").select("id", { count: "exact", head: true }).eq("org_id", org.orgId).eq("status", "open"); setReqCount(rq.error ? 0 : rq.count || 0); } };
   const hasPlanner = PLANNER_ROLES.includes(org.role) && (org.products || []).some((p) => p === "generic_planner" || p === "lab_planner");
   const plannerHref = (org.products || []).includes("generic_planner") ? "/allgemein" : "/labor";
   const item = (icon, label, key, badge) => { const Icon = icon; return (
@@ -1419,6 +1525,7 @@ export default function TourenView() {
       {isLeader && (
         <div className="dg-group">
           <div className="dg-group-label">{tx("Team")}</div>
+          <button type="button" className={`dg-item${reqCount ? " dg-item-alert" : ""}`} onClick={() => setReqOpen(true)} title={reqCount ? tx("{0} offene Anträge", reqCount) : undefined}><FileText size={18} strokeWidth={1.9} aria-hidden="true" /><span className="dg-item-label">{tx("Anträge")}</span>{reqCount ? <span className="dg-badge">{reqCount}</span> : null}</button>
           <button type="button" className="dg-item" onClick={() => setZugOpen(true)}><KeyRound size={18} strokeWidth={1.9} aria-hidden="true" /><span className="dg-item-label">{tx("Zugänge")}</span></button>
         </div>
       )}
@@ -1449,13 +1556,14 @@ export default function TourenView() {
         <header className="dg-pagehead"><div><h1>{tx(h1)}</h1><p>{tx(sub)}</p></div></header>
         {loadErr && <div role="alert" className="rounded-xl bg-rose-50 px-4 py-3 text-sm text-rose-800">{loadErr}</div>}
         {!loadErr && !loaded && <p className="text-sm text-slate-500">{tx("Lädt …")}</p>}
+        {!loadErr && loaded && tab === "jobs" && <ConflictBox items={upcoming} onReplace={replace} busy={repBusy} />}
         {!loadErr && loaded && tab === "jobs" && (
-          <JobsView org={org} data={data} jobs={jobs} assign={assign} onAssign={(j) => setAssignDlg(j)} day={day} setDay={setDay} mode={mode} setMode={setMode} showCancelled={showCancelled} setShowCancelled={setShowCancelled}
+          <JobsView org={org} data={data} jobs={jobs} assign={assign} absent={absentSet} onAssign={(j) => setAssignDlg(j)} day={day} setDay={setDay} mode={mode} setMode={setMode} showCancelled={showCancelled} setShowCancelled={setShowCancelled}
             onNew={(d) => setJobDlg({ preset: { date: d } })} onOpen={(j) => setJobDlg({ job: j })} />
         )}
         {!loadErr && loaded && tab === "customers" && <CustomersView data={data} onNew={() => setCustDlg({})} onOpen={(c) => setCustDlg({ customer: c })} />}
         {!loadErr && loaded && tab === "settings" && isLeader && <SettingsView org={org} data={data} reload={loadBase} />}
-        {!loadErr && loaded && tab === "staff" && isLeader && <StaffView org={org} data={data} onChanged={loadBase} />}
+        {!loadErr && loaded && tab === "staff" && isLeader && <StaffView org={org} data={data} onChanged={loadBase} onAbsence={(x) => setAbsentFor(x)} />}
       </PlannerShell>
       {/* Handy: Leiste unten wie in einer App */}
       <nav className="tv-only-phone tv-tabbar" aria-label={tx("Hauptmenü")}>
@@ -1468,6 +1576,7 @@ export default function TourenView() {
         <div className="tv-only-phone fixed inset-0 z-40 bg-slate-900/30" onClick={() => setMoreOpen(false)}>
           <div className="tv-sheet" onClick={(e) => e.stopPropagation()}>
             {isLeader && <button type="button" onClick={() => { setTab("settings"); setMoreOpen(false); window.scrollTo(0, 0); }}><Settings size={18} aria-hidden="true" />{tx("Einstellungen")}</button>}
+            {isLeader && <button type="button" onClick={() => { setReqOpen(true); setMoreOpen(false); }}><FileText size={18} aria-hidden="true" />{tx("Anträge")}{reqCount ? <span className="ml-auto rounded-full bg-rose-600 px-2 text-xs font-bold text-white">{reqCount}</span> : null}</button>}
             {isLeader && <button type="button" onClick={() => { setZugOpen(true); setMoreOpen(false); }}><KeyRound size={18} aria-hidden="true" />{tx("Zugänge")}</button>}
             {hasPlanner && <a href={plannerHref}><CalendarDays size={18} aria-hidden="true" />{tx("Dienstplan")}</a>}
             <button type="button" onClick={() => sb.auth.signOut()}><LogOut size={18} aria-hidden="true" />{tx("Abmelden")}</button>
@@ -1476,6 +1585,8 @@ export default function TourenView() {
       )}
       {flash && <div role="status" className="tv-only-phone tv-toast">{flash}</div>}
       {zugOpen && <ZugaengeDialog onClose={() => setZugOpen(false)} />}
+      {reqOpen && <RequestsDialog onChanged={() => afterAbsence(null)} onClose={() => { setReqOpen(false); afterAbsence(null); }} />}
+      {absentFor && <AbsenceDialog org={org} person={absentFor} onClose={() => setAbsentFor(null)} onSaved={afterAbsence} />}
       {assignDlg && <AssignPanel org={org} job={assignDlg} data={data} onClose={() => setAssignDlg(null)} onChanged={afterAssign} />}
       {jobDlg && <JobDialog org={org} data={data} job={jobDlg.job} preset={jobDlg.preset} onClose={() => setJobDlg(null)} onSaved={onJobSaved} onAssign={(j) => { setJobDlg(null); setAssignDlg(j); }} />}
       {custDlg && <CustomerDialog key={custDlg.customer ? custDlg.customer.id : "new"} org={org} data={data} customer={custDlg.customer ? data.customers.find((x) => x.id === custDlg.customer.id) || custDlg.customer : null} onClose={() => setCustDlg(null)} onSaved={onCustSaved}
