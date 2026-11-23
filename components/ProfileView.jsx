@@ -5,6 +5,7 @@ import { createClient } from "@supabase/supabase-js";
 import { supabase, supabaseConfigured } from "../lib/supabaseClient";
 import LoginForm from "./LoginForm";
 import { tx, loc } from "../lib/i18n";
+import { loginName } from "../lib/phoneLogin";
 
 const INK = "#1B2433", PRIMARY = "#243B6B", PAPER = "#E9EEF8", MUTED = "#6B7588", LINE = "#D9DEE7";
 const ROLE_LABEL = { owner: "Inhaber", supervisor: "Leitung", planner: "Schichtplaner", employee: "Mitarbeitende", office: "Büro" };
@@ -164,7 +165,7 @@ export default function ProfileView({ forced = false }) {
         <>
           <div style={card}>
             <div style={{ fontSize: 12, color: MUTED }}>{tx("Angemeldet als")}</div>
-            <div style={{ fontSize: 17, fontWeight: 700, wordBreak: "break-all" }}>{user.email}</div>
+            <div style={{ fontSize: 17, fontWeight: 700, wordBreak: "break-all" }}>{loginName(user.email)}</div>
             {user.last_sign_in_at && <div style={{ fontSize: 12, color: MUTED, marginTop: 4 }}>{tx("Letzte Anmeldung:")} {fmt(user.last_sign_in_at)}</div>}
           </div>
 

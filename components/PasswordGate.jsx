@@ -6,6 +6,7 @@ import { supabase, supabaseConfigured } from "../lib/supabaseClient";
 import ProfileView from "./ProfileView";
 import { tx, setLang, detectLang } from "../lib/i18n";
 import { useLang } from "../lib/useLang";
+import { loginName } from "../lib/phoneLogin";
 
 const LINE = "#E1E5EC", MUTED = "#6B7588", PRIMARY = "#243B6B";
 
@@ -62,7 +63,7 @@ export default function PasswordGate({ children }) {
     <>
       {session && (
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, padding: "6px 12px", background: "#fff", borderBottom: `1px solid ${LINE}`, fontFamily: "system-ui, -apple-system, 'Segoe UI', sans-serif", fontSize: 12, color: MUTED }}>
-          <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{session.user.email}</span>
+          <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{loginName(session.user.email)}</span>
           {pathname !== "/profil" && <a href="/profil" style={{ color: PRIMARY, fontWeight: 650, textDecoration: "none", whiteSpace: "nowrap" }}>{tx("Profil & Passwort")}</a>}
         </div>
       )}

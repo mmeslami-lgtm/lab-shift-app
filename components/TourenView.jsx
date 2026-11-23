@@ -6,11 +6,12 @@
 // Adresse: aus den gespeicherten Adressen des Kunden wählen oder neu eintragen (Kartenlink → Koordinaten).
 // Noch nicht hier (D3b): Personen zuteilen, „My jobs“, Anfragen. Kein Preis (Entscheidung Nutzer).
 import React, { useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { OrgContext } from "../lib/orgContext";
 import PlannerShell from "./PlannerShell";
 import ZugaengeDialog from "./ZugaengeDialog";
 import RequestsDialog from "./RequestsDialog";
-import { tx as txRaw, loc, wdShort, wdLong, dmy, dm, isoDmy, getLang, dec } from "../lib/i18n";
+import { tx as txRaw, loc, wdShort, wdLong, dmy, dm, isoDmy, getLang, dec, monthName } from "../lib/i18n";
 import { useLang } from "../lib/useLang";
 import { coordsFromText, isShortMapsLink, mapsHref, normPhone } from "../lib/maps";
 import { suggestStaff } from "../lib/tourenSuggest";
@@ -29,7 +30,7 @@ function tx(...a) {
 }
 const DEFAULT_SETTINGS = { industry: "general", near_km: 3, fairness_pp: 10, travel_min: 30 };
 const INDUSTRY = { cleaning: "Reinigung", care: "Pflege & Betreuung", facility: "Hausmeister & Technik", general: "Allgemein" };
-import { CalendarDays, ClipboardList, Users, Settings, LogOut, MapPin, Plus, X, ChevronLeft, ChevronRight, Phone, KeyRound, UserCog, MoreHorizontal, FileText } from "lucide-react";
+import { CalendarDays, ClipboardList, Users, Settings, LogOut, MapPin, Plus, X, ChevronLeft, ChevronRight, Phone, KeyRound, UserCog, MoreHorizontal, FileText, Printer } from "lucide-react";
 
 const SOURCES = [["phone", "Telefon"], ["whatsapp", "WhatsApp"], ["website", "Website"], ["email", "E-Mail"], ["in_person", "Persönlich"], ["referral", "Empfehlung"], ["other", "Sonstiges"]];
 const STATUS = {
@@ -757,7 +758,7 @@ function JobCard({ j, data, onOpen, compact, assign = [], onAssign, absent }) {
   );
 }
 
-function JobsView({ org, data, jobs, assign, absent, day, setDay, mode, setMode, showCancelled, setShowCancelled, onNew, onOpen, onAssign }) {
+function JobsView({ org, data, jobs, assign, absent, day, setDay, mode, setMode, showCancelled, setShowCancelled, onNew, onOpen, onAssign, onPrint }) {
   const visible = jobs.filter((j) => showCancelled || j.status !== "cancelled");
   const today = isoOf(new Date());
   const step = mode === "week" ? 7 : 1;
@@ -778,6 +779,7 @@ function JobsView({ org, data, jobs, assign, absent, day, setDay, mode, setMode,
         </div>
         <label className="flex items-center gap-1.5 text-sm text-slate-600"><input type="checkbox" checked={showCancelled} onChange={(e) => setShowCancelled(e.target.checked)} />{tx("Stornierte zeigen")}</label>
         <div className="flex-1" />
+        {onPrint && <button type="button" className={btnLight} onClick={onPrint}><Printer size={16} />{tx("Drucken")}</button>}
         <button type="button" className={btnPrimary} onClick={() => onNew(mode === "day" ? day : (days.includes(today) ? today : days[0]))}><Plus size={16} />{tx("Auftrag")}</button>
       </div>
       <h2 className="mb-2 text-base font-semibold text-slate-700">{head}</h2>
@@ -803,6 +805,170 @@ function JobsView({ org, data, jobs, assign, absent, day, setDay, mode, setMode,
       )}
     </div>
   );
+}
+
+
+// ---------- Drucken (23.11.2026): Einsatzplan für Büro / Inhaber – Tag, Woche oder Monat ----------
+// Zwei Ansichten: „Übersicht“ (alle Einsätze nach Tag) und „Pro Mitarbeiter:in“ (Blatt zum Mitgeben).
+// Telefon der Kunden nur auf Wunsch (Mitarbeitende sollen es nicht sehen).
+const PRINT_CSS = `
+#dg-print { position: fixed; inset: 0; z-index: 100; overflow: auto; background: #e9edf3; }
+#dg-print .dgp-sheet { background: #fff; width: 210mm; max-width: 100%; margin: 16px auto; padding: 14mm 12mm; box-shadow: 0 2px 14px rgba(15,23,42,.15); color: #0f172a; font-size: 10.5pt; line-height: 1.35; }
+#dgp-bar { position: sticky; top: 0; z-index: 2; }
+#dg-print table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+#dg-print td { overflow-wrap: break-word; hyphens: auto; }
+#dg-print th { text-align: left; font-size: 8pt; text-transform: uppercase; letter-spacing: .04em; color: #475569; font-weight: 600; padding: 4px 6px; border-bottom: 1.5px solid #0f172a; }
+#dg-print td { padding: 5px 6px; border-bottom: 1px solid #e2e8f0; vertical-align: top; }
+#dg-print tr:nth-child(even) td { background: #f8fafc; }
+#dg-print .dgp-band { background: #1e293b; color: #fff; padding: 5px 8px; border-radius: 6px; margin: 14px 0 4px; display: flex; justify-content: space-between; font-weight: 600; font-size: 10pt; }
+#dg-print .dgp-person { border: 1.5px solid #1e293b; border-radius: 10px; padding: 8px 10px; margin: 14px 0 6px; display: flex; justify-content: space-between; align-items: baseline; }
+#dg-print .dgp-chip { display: inline-block; border: 1px solid #cbd5e1; border-radius: 999px; padding: 2px 10px; margin: 0 6px 4px 0; font-size: 9pt; }
+#dg-print .dgp-warn { color: #b91c1c; font-weight: 600; }
+#dg-print .dgp-muted { color: #64748b; font-size: 8.5pt; }
+#dg-print .dgp-time { white-space: nowrap; font-weight: 600; }
+@media print {
+  body > *:not(#dg-print) { display: none !important; }
+  #dg-print { position: static !important; overflow: visible !important; background: #fff !important; }
+  #dg-print .dgp-sheet { box-shadow: none; margin: 0; padding: 0; width: auto; }
+  #dg-print .dgp-noprint { display: none !important; }
+  #dg-print .dgp-break { break-before: page; }
+  #dg-print tr, #dg-print .dgp-person, #dg-print .dgp-band { break-inside: avoid; break-after: avoid; }
+  #dg-print * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  @page { size: A4; margin: 12mm; }
+}`;
+
+function printRange(kind, day) {
+  if (kind === "week") { const a = mondayOf(day); return [a, addDays(a, 6)]; }
+  if (kind === "month") { const d = dateOf(day); const a = isoOf(new Date(d.getFullYear(), d.getMonth(), 1, 12)); const b = isoOf(new Date(d.getFullYear(), d.getMonth() + 1, 0, 12)); return [a, b]; }
+  return [day, day];
+}
+
+function PrintDialog({ org, data, day, mode, onClose }) {
+  const [o, setO] = useState({ range: mode === "week" ? "week" : "day", layout: "overview", pages: true, phone: false, notes: true });
+  const [sheet, setSheet] = useState(null); // geladene Daten → Vorschau
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState(null);
+  const set = (k, v) => setO((p) => ({ ...p, [k]: v }));
+  async function preview() {
+    setBusy(true); setMsg(null);
+    const [from, to] = printRange(o.range, day);
+    const sb = org.supabase;
+    const r = await sb.from("jobs").select("*").eq("org_id", org.orgId).gte("work_date", from).lte("work_date", to).order("work_date").order("start_time");
+    if (r.error) { setBusy(false); return setMsg({ kind: "err", text: errText(r.error) }); }
+    const jobs = (r.data || []).filter((j) => j.status !== "cancelled");
+    const ids = jobs.map((j) => j.id);
+    const [js, st, cf] = await Promise.all([
+      ids.length ? sb.from("job_staff").select("job_id, staff_id").in("job_id", ids) : Promise.resolve({ data: [] }),
+      sb.from("staff").select("id, name").eq("org_id", org.orgId),
+      sb.rpc("touren_absence_conflicts", { p_org: org.orgId, p_from: from, p_to: to }),
+    ]);
+    setBusy(false);
+    const names = {}; (data.staffList || []).forEach((x) => { names[x.id] = x.name; }); ((st && st.data) || []).forEach((x) => { names[x.id] = x.name; });
+    const absent = new Set(((cf && !cf.error && cf.data) || []).map((c) => `${c.job_id}|${c.staff_id}`));
+    setSheet({ from, to, jobs, assign: (js && js.data) || [], names, absent, opts: { ...o } });
+  }
+  if (sheet) return <PrintSheet org={org} data={data} sheet={sheet} onBack={() => setSheet(null)} onClose={onClose} />;
+  const opt = (k, v, label) => <button type="button" role="radio" aria-checked={o[k] === v} onClick={() => set(k, v)} className={`px-3 py-1.5 ${o[k] === v ? "bg-teal-600 text-white" : "bg-white text-slate-700 hover:bg-slate-50"}`}>{label}</button>;
+  return (
+    <Modal title={tx("Drucken")} onClose={onClose}>
+      <div className="space-y-4">
+        <div><span className={lbl}>{tx("Zeitraum")}</span>
+          <div role="radiogroup" className="inline-flex overflow-hidden rounded-lg border border-slate-300 text-sm">{opt("range", "day", tx("Tag"))}{opt("range", "week", tx("Woche"))}{opt("range", "month", tx("Monat"))}</div>
+          <p className="mt-1 text-xs text-slate-500">{(() => { const [a, b] = printRange(o.range, day); return o.range === "month" ? `${monthName(dateOf(a).getMonth())} ${dateOf(a).getFullYear()}` : a === b ? `${wdLong(dateOf(a).getDay())}, ${dmy(dateOf(a))}` : `${dmy(dateOf(a))} – ${dmy(dateOf(b))}`; })()}</p>
+        </div>
+        <div><span className={lbl}>{tx("Ansicht")}</span>
+          <div role="radiogroup" className="inline-flex overflow-hidden rounded-lg border border-slate-300 text-sm">{opt("layout", "overview", tx("Alle Aufträge"))}{opt("layout", "staff", tx("Pro Mitarbeiter:in"))}</div>
+          <p className="mt-1 text-xs text-slate-500">{o.layout === "overview" ? tx("Alle Aufträge nach Tag und Uhrzeit, mit dem eingeteilten Personal – für Büro und Inhaber.") : tx("Für jede Person ihre eigenen Aufträge – zum Mitgeben oder Aushängen.")}</p>
+        </div>
+        <div className="space-y-1.5 text-sm">
+          {o.layout === "staff" && <label className="flex items-center gap-2"><input type="checkbox" checked={o.pages} onChange={(e) => set("pages", e.target.checked)} />{tx("Jede Person auf einer eigenen Seite")}</label>}
+          <label className="flex items-center gap-2"><input type="checkbox" checked={o.notes} onChange={(e) => set("notes", e.target.checked)} />{tx("Hinweise für das Personal drucken")}</label>
+          <label className="flex items-center gap-2"><input type="checkbox" checked={o.phone} onChange={(e) => set("phone", e.target.checked)} />{tx("Telefon der Kunden drucken")}</label>
+          {o.phone && <p className="ml-6 text-xs text-amber-700">{tx("Nur für Büro und Inhaber – diese Blätter nicht dem Personal geben.")}</p>}
+        </div>
+        <Msg msg={msg} />
+        <div className="tv-actions flex justify-end gap-2"><button type="button" className={btnLight} onClick={onClose}>{tx("Abbrechen")}</button><button type="button" className={btnPrimary} onClick={preview} disabled={busy}><Printer size={16} />{busy ? tx("Lädt …") : tx("Vorschau")}</button></div>
+      </div>
+    </Modal>
+  );
+}
+
+function PrintSheet({ org, data, sheet, onBack, onClose }) {
+  const { from, to, jobs, assign, names, absent, opts } = sheet;
+  const custOf = (id) => data.customers.find((c) => c.id === id);
+  const svcOf = (id) => (data.services.find((x) => x.id === id) || {}).name || "";
+  const staffOf = (j) => assign.filter((a) => a.job_id === j.id).map((a) => ({ id: a.staff_id, name: names[a.staff_id] || "?", absent: absent.has(`${j.id}|${a.staff_id}`) })).sort((a, b) => a.name.localeCompare(b.name));
+  const present = (j) => staffOf(j).filter((x) => !x.absent).length;
+  const short = jobs.filter((j) => present(j) < j.staff_needed);
+  const hours = jobs.reduce((a, j) => a + (j.duration_min || 0), 0) / 60;
+  const title = from === to ? `${wdLong(dateOf(from).getDay())}, ${dmy(dateOf(from))}`
+    : opts.range === "month" ? `${monthName(dateOf(from).getMonth())} ${dateOf(from).getFullYear()}` : `${dmy(dateOf(from))} – ${dmy(dateOf(to))}`;
+  const dates = [...new Set(jobs.map((j) => j.work_date))];
+  const nJobs = (n) => (n === 1 ? tx("1 Auftrag") : tx("{0} Aufträge", n));
+  const cols = (ws) => <colgroup>{ws.filter(Boolean).map((w, i) => <col key={i} style={{ width: w }} />)}</colgroup>;
+  const dayHead = (d) => `${wdLong(dateOf(d).getDay())}, ${dmy(dateOf(d))}`;
+  const timeCell = (j) => <td className="dgp-time">{hhmm(j.start_time)}–{endOf(j.start_time, j.duration_min)}</td>;
+  const custCell = (j) => { const c = custOf(j.customer_id); return (
+    <td><div style={{ fontWeight: 600 }}>{custName(c)}</div><div>{j.address_text}</div>{opts.phone && c && c.phone ? <div className="dgp-muted">☎ {c.phone}</div> : null}</td>); };
+  const noteCell = (j) => opts.notes ? <td style={{ maxWidth: "48mm" }}>{j.notes_staff || ""}</td> : null;
+  useEffect(() => { const k = (e) => { if (e.key === "Escape") onClose(); }; window.addEventListener("keydown", k); return () => window.removeEventListener("keydown", k); }, [onClose]);
+  const people = useMemo(() => {
+    const m = {}; assign.forEach((a) => { const j = jobs.find((x) => x.id === a.job_id); if (!j) return; (m[a.staff_id] = m[a.staff_id] || []).push(j); });
+    return Object.entries(m).map(([id, list]) => ({ id, name: names[id] || "?", list: list.sort((a, b) => (a.work_date + a.start_time).localeCompare(b.work_date + b.start_time)) })).sort((a, b) => a.name.localeCompare(b.name));
+  }, [assign, jobs, names]);
+  const printedAt = `${dmy(new Date())} ${pad(new Date().getHours())}:${pad(new Date().getMinutes())}`;
+  const header = (sub) => (
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", borderBottom: "2.5px solid #0f172a", paddingBottom: 8, marginBottom: 10 }}>
+      <div><div style={{ fontSize: "9pt", color: "#64748b", textTransform: "uppercase", letterSpacing: ".08em" }}>{org.orgName}</div>
+        <div style={{ fontSize: "17pt", fontWeight: 700 }}>{sub}</div><div style={{ fontSize: "11pt" }}>{title}</div></div>
+      <div className="dgp-muted" style={{ textAlign: "right" }}>{tx("Gedruckt {0}", printedAt)}<br />Dienstigo</div>
+    </div>
+  );
+  const body = opts.layout === "overview" ? (
+    <>
+      {header(tx("Einsatzplan"))}
+      <div><span className="dgp-chip">{nJobs(jobs.length)}</span><span className="dgp-chip">{tx("{0} Std.", dec(Math.round(hours * 10) / 10))}</span>
+        {short.length ? <span className="dgp-chip dgp-warn">{tx("{0} ohne volles Personal", short.length)}</span> : <span className="dgp-chip">{tx("Personal vollständig ✓")}</span>}</div>
+      {jobs.length === 0 && <p style={{ marginTop: 20 }}>{tx("Keine Aufträge in diesem Zeitraum.")}</p>}
+      {dates.map((d) => { const list = jobs.filter((j) => j.work_date === d); return (
+        <div key={d}>
+          <div className="dgp-band"><span>{dayHead(d)}</span><span>{nJobs(list.length)}</span></div>
+          <table>{cols(["15%", opts.notes ? "32%" : "42%", "17%", "17%", opts.notes && "19%"])}<thead><tr><th>{tx("Zeit")}</th><th>{tx("Kunde / Adresse")}</th><th>{tx("Leistung")}</th><th>{tx("Personal")}</th>{opts.notes && <th>{tx("Hinweis")}</th>}</tr></thead>
+            <tbody>{list.map((j) => { const ss = staffOf(j); const n = present(j); return (
+              <tr key={j.id}>{timeCell(j)}{custCell(j)}<td>{svcOf(j.service_type_id)}</td>
+                <td>{ss.map((x) => <div key={x.id} className={x.absent ? "dgp-warn" : ""}>{x.absent ? `⚠ ${x.name} (${tx("abwesend")})` : x.name}</div>)}
+                  {n < j.staff_needed && <div className="dgp-warn">{tx("fehlt: {0}", j.staff_needed - n)}</div>}</td>
+                {noteCell(j)}</tr>); })}</tbody></table>
+        </div>); })}
+    </>
+  ) : (
+    <>
+      {people.length === 0 && <>{header(tx("Einsatzplan"))}<p>{tx("Noch niemand eingeteilt.")}</p></>}
+      {people.map((p, i) => { const h = p.list.reduce((a, j) => a + (j.duration_min || 0), 0) / 60; return (
+        <div key={p.id} className={opts.pages && i > 0 ? "dgp-break" : ""}>
+          {(i === 0 || opts.pages) && header(tx("Einsatzplan"))}
+          <div className="dgp-person"><span style={{ fontSize: "14pt", fontWeight: 700 }}>{p.name}</span><span>{nJobs(p.list.length)} · {tx("{0} Std.", dec(Math.round(h * 10) / 10))}</span></div>
+          <table>{cols(["11%", "15%", opts.notes ? "28%" : "38%", "15%", "12%", opts.notes && "19%"])}<thead><tr><th>{tx("Tag")}</th><th>{tx("Zeit")}</th><th>{tx("Kunde / Adresse")}</th><th>{tx("Leistung")}</th><th>{tx("Mit")}</th>{opts.notes && <th>{tx("Hinweis")}</th>}</tr></thead>
+            <tbody>{p.list.map((j) => (
+              <tr key={j.id}><td style={{ whiteSpace: "nowrap" }}>{wdShort(dateOf(j.work_date).getDay())} {dm(dateOf(j.work_date))}{absent.has(`${j.id}|${p.id}`) ? <div className="dgp-warn">⚠ {tx("abwesend")}</div> : null}</td>{timeCell(j)}{custCell(j)}<td>{svcOf(j.service_type_id)}</td>
+                <td>{staffOf(j).filter((x) => x.id !== p.id).map((x) => x.name).join(", ") || "–"}</td>{noteCell(j)}</tr>))}</tbody></table>
+        </div>); })}
+      {short.length > 0 && !opts.pages && (
+        <div><div className="dgp-band" style={{ background: "#b91c1c" }}><span>{tx("Ohne volles Personal")}</span><span>{short.length}</span></div>
+          <table>{cols(["11%", "15%", "54%", "20%"])}<tbody>{short.map((j) => <tr key={j.id}><td style={{ whiteSpace: "nowrap" }}>{wdShort(dateOf(j.work_date).getDay())} {dm(dateOf(j.work_date))}</td>{timeCell(j)}{custCell(j)}<td className="dgp-warn">{tx("fehlt: {0}", j.staff_needed - present(j))}</td></tr>)}</tbody></table></div>
+      )}
+    </>
+  );
+  return createPortal(
+    <div id="dg-print" lang={getLang()} role="dialog" aria-modal="true" aria-label={tx("Druckvorschau")}>
+      <style>{PRINT_CSS}</style>
+      <div id="dgp-bar" className="dgp-noprint flex flex-wrap items-center justify-center gap-2 border-b border-slate-300 bg-white/95 px-3 py-2 shadow-sm">
+        <button type="button" className={btnLight} onClick={onBack}><ChevronLeft size={16} />{tx("Zurück")}</button>
+        <button type="button" className={btnPrimary} onClick={() => window.print()}><Printer size={16} />{tx("Drucken / als PDF speichern")}</button>
+        <button type="button" className={btnLight} onClick={onClose}>{tx("Schließen")}</button>
+      </div>
+      <div className="dgp-sheet">{body}</div>
+    </div>, document.body);
 }
 
 // ---------- Kunden ----------
@@ -1430,6 +1596,7 @@ export default function TourenView() {
   const [reqOpen, setReqOpen] = useState(false);
   const [reqCount, setReqCount] = useState(0);
   const [repBusy, setRepBusy] = useState(false);
+  const [printOpen, setPrintOpen] = useState(false);
   const sb = org.supabase;
 
   const loadBase = useCallback(async () => {
@@ -1558,7 +1725,7 @@ export default function TourenView() {
         {!loadErr && !loaded && <p className="text-sm text-slate-500">{tx("Lädt …")}</p>}
         {!loadErr && loaded && tab === "jobs" && <ConflictBox items={upcoming} onReplace={replace} busy={repBusy} />}
         {!loadErr && loaded && tab === "jobs" && (
-          <JobsView org={org} data={data} jobs={jobs} assign={assign} absent={absentSet} onAssign={(j) => setAssignDlg(j)} day={day} setDay={setDay} mode={mode} setMode={setMode} showCancelled={showCancelled} setShowCancelled={setShowCancelled}
+          <JobsView org={org} data={data} jobs={jobs} assign={assign} absent={absentSet} onPrint={() => setPrintOpen(true)} onAssign={(j) => setAssignDlg(j)} day={day} setDay={setDay} mode={mode} setMode={setMode} showCancelled={showCancelled} setShowCancelled={setShowCancelled}
             onNew={(d) => setJobDlg({ preset: { date: d } })} onOpen={(j) => setJobDlg({ job: j })} />
         )}
         {!loadErr && loaded && tab === "customers" && <CustomersView data={data} onNew={() => setCustDlg({})} onOpen={(c) => setCustDlg({ customer: c })} />}
@@ -1586,6 +1753,7 @@ export default function TourenView() {
       {flash && <div role="status" className="tv-only-phone tv-toast">{flash}</div>}
       {zugOpen && <ZugaengeDialog onClose={() => setZugOpen(false)} />}
       {reqOpen && <RequestsDialog onChanged={() => afterAbsence(null)} onClose={() => { setReqOpen(false); afterAbsence(null); }} />}
+      {printOpen && data && <PrintDialog org={org} data={data} day={day} mode={mode} onClose={() => setPrintOpen(false)} />}
       {absentFor && <AbsenceDialog org={org} person={absentFor} onClose={() => setAbsentFor(null)} onSaved={afterAbsence} />}
       {assignDlg && <AssignPanel org={org} job={assignDlg} data={data} onClose={() => setAssignDlg(null)} onChanged={afterAssign} />}
       {jobDlg && <JobDialog org={org} data={data} job={jobDlg.job} preset={jobDlg.preset} onClose={() => setJobDlg(null)} onSaved={onJobSaved} onAssign={(j) => { setJobDlg(null); setAssignDlg(j); }} />}

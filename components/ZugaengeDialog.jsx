@@ -3,6 +3,7 @@
 import React, { useCallback, useContext, useEffect, useRef, useState } from "react";
 import { OrgContext } from "../lib/orgContext";
 import { tx, loc, monthName, wdLong, wdShort, dm, dmy, isoDmy, dec } from "../lib/i18n";
+import { cleanPhone, isPhoneEmail, loginName } from "../lib/phoneLogin";
 
 // Popup "Zugänge" (Leitung / Inhaber): logins for the company's own employees.
 // A temporary password is shown ONCE; at the first login the person chooses an own password.
@@ -12,7 +13,9 @@ export default function ZugaengeDialog({ onClose }) {
   const [managers, setManagers] = useState([]);
   const [myRole, setMyRole] = useState("");
   const [mgrForm, setMgrForm] = useState(null); // { role, email, staffId }
-  const [form, setForm] = useState(null); // { staffId, email }
+  const [form, setForm] = useState(null); // { staffId, email, phone, kind: "email" | "phone" }
+  // Anmeldung mit Handynummer (23.11.2026): nur Firmen mit Touren – sonst bleibt alles wie vorher (nur E-Mail)
+  const touren = Array.isArray(org.products) && org.products.includes("touren");
   const [secret, setSecret] = useState(null); // { name, email, password }
   const [copied, setCopied] = useState(false);
   const [msg, setMsg] = useState({ text: "", bad: false });
@@ -39,7 +42,15 @@ export default function ZugaengeDialog({ onClose }) {
     setBusy("");
   }
   const createMgr = () => run("cm", { action: "create", role: mgrForm.role, email: mgrForm.email, staff_id: mgrForm.staffId || undefined }, "", (b) => { setMgrForm(null); setSecret({ name: b.name, email: b.email, password: b.password }); setCopied(false); });
-  const create = () => run("create", { action: "create", role: "employee", staff_id: form.staffId, email: form.email }, "", (b) => { setForm(null); setSecret({ name: b.name, email: b.email, password: b.password }); setCopied(false); });
+  const create = () => {
+    let who = { email: form.email };
+    if (touren && form.kind === "phone") {
+      const n = cleanPhone(form.phone, org.country);
+      if (!n) { setMsg({ text: tx("Bitte die Handynummer prüfen."), bad: true }); return; }
+      who = { phone: n };
+    }
+    run("create", { action: "create", role: "employee", staff_id: form.staffId, ...who }, "", (b) => { setForm(null); setSecret({ name: b.name, email: b.email, password: b.password }); setCopied(false); });
+  };
   const reset = (p) => { if (window.confirm(tx("Neues vorläufiges Passwort für {0} erzeugen? Das alte gilt dann nicht mehr.", p.name))) run("r" + p.userId, { action: "reset", user_id: p.userId }, "", (b) => { setSecret({ name: p.name, email: b.email, password: b.password }); setCopied(false); }); };
   const remove = (p) => { if (window.confirm(tx("Zugang von {0} entfernen? Die Person kann sich danach nicht mehr anmelden. Pläne und Zeiten bleiben erhalten.", p.name))) run("x" + p.userId, { action: "remove", user_id: p.userId }, tx("Zugang von {0} entfernt ✓", p.name)); };
 
@@ -57,11 +68,11 @@ export default function ZugaengeDialog({ onClose }) {
         {secret && (
           <div role="status" className="mt-3 rounded-xl border-2 border-amber-300 bg-amber-50 p-3">
             <div className="text-xs font-semibold text-amber-900">{tx("Zugangsdaten für ")}{secret.name}{tx(" – nur jetzt sichtbar")}</div>
-            <div className="mt-1 text-sm">{tx("E-Mail: ")}<b>{secret.email}</b></div>
+            <div className="mt-1 text-sm">{isPhoneEmail(secret.email) ? tx("Handynummer: ") : tx("E-Mail: ")}<b>{loginName(secret.email)}</b></div>
             <div className="mt-1 flex flex-wrap items-center gap-2 text-sm">{tx("Vorläufiges Passwort: ")}<code className="rounded bg-white px-2 py-1 font-mono text-base">{secret.password}</code>
               <button onClick={async () => { try { await navigator.clipboard.writeText(secret.password); setCopied(true); } catch (e) { setCopied(false); } }} className="rounded-md border border-amber-300 bg-white px-2.5 py-1 text-xs">{copied ? tx("Kopiert ✓") : tx("Kopieren")}</button>
             </div>
-            <div className="mt-1 text-xs text-amber-900">{tx("Bitte persönlich oder telefonisch weitergeben – nicht per Messenger an eine Gruppe. Anmelden unter ")}<b>{typeof window !== "undefined" ? window.location.origin : ""}{tx("/mitarbeiter")}</b>.</div>
+            <div className="mt-1 text-xs text-amber-900">{tx("Bitte persönlich oder telefonisch weitergeben – nicht per Messenger an eine Gruppe. Anmelden unter ")}<b>{typeof window !== "undefined" ? window.location.origin : ""}{tx("/mitarbeiter")}</b>{isPhoneEmail(secret.email) ? tx(" → „Mit Handynummer anmelden“") : ""}.</div>
             <button onClick={() => setSecret(null)} className="mt-2 rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-600">{tx("Erledigt")}</button>
           </div>
         )}
@@ -73,7 +84,7 @@ export default function ZugaengeDialog({ onClose }) {
             <ul className="mt-1 divide-y divide-slate-100">
               {managers.map((m) => (
                 <li key={m.userId} className="flex flex-wrap items-center justify-between gap-2 py-1.5">
-                  <span><span className="mr-2 rounded-md bg-slate-100 px-2 py-0.5 text-xs text-slate-700">{{ owner: tx("Inhaber"), supervisor: tx("Leitung"), planner: tx("Schichtplaner"), office: tx("Büro") }[m.role]}</span>{m.email} <span className="text-xs text-slate-400">{m.lastSignIn ? tx("zuletzt {0}", new Date(m.lastSignIn).toLocaleDateString(loc())) : tx("noch nie angemeldet")}</span></span>
+                  <span><span className="mr-2 rounded-md bg-slate-100 px-2 py-0.5 text-xs text-slate-700">{{ owner: tx("Inhaber"), supervisor: tx("Leitung"), planner: tx("Schichtplaner"), office: tx("Büro") }[m.role]}</span>{loginName(m.email)} <span className="text-xs text-slate-400">{m.lastSignIn ? tx("zuletzt {0}", new Date(m.lastSignIn).toLocaleDateString(loc())) : tx("noch nie angemeldet")}</span></span>
                   {m.canManage && (
                     <span className="whitespace-nowrap">
                       <button onClick={() => reset({ userId: m.userId, name: m.email })} disabled={!!busy} className="mr-1 rounded-md border border-slate-200 px-2.5 py-1 text-xs text-slate-700 hover:bg-slate-50 active:translate-y-px">{tx("Neues Passwort")}</button>
@@ -118,10 +129,19 @@ export default function ZugaengeDialog({ onClose }) {
                   <tr key={p.staffId} className="border-t border-slate-100 align-top">
                     <td className="py-2 pr-2 font-medium">{p.name}</td>
                     <td className="py-2 pr-2">
-                      {p.userId ? (<><div>{p.email}</div><div className="text-xs text-slate-400">{p.lastSignIn ? tx("zuletzt angemeldet {0}", new Date(p.lastSignIn).toLocaleDateString(loc())) : tx("noch nie angemeldet")}</div></>)
+                      {p.userId ? (<><div>{loginName(p.email)}</div><div className="text-xs text-slate-400">{p.lastSignIn ? tx("zuletzt angemeldet {0}", new Date(p.lastSignIn).toLocaleDateString(loc())) : tx("noch nie angemeldet")}</div></>)
                         : form && form.staffId === p.staffId ? (
                           <div className="flex flex-wrap items-center gap-2">
-                            <input autoFocus type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} onKeyDown={(e) => { if (e.key === "Enter") create(); }} placeholder={tx("E-Mail der Person")} className="w-56 rounded-md border border-slate-300 px-2 py-1.5 text-sm" />
+                            {touren && (
+                              <span className="inline-flex overflow-hidden rounded-md border border-slate-300 text-xs" role="radiogroup" aria-label={tx("Anmelden mit")}>
+                                {[["phone", tx("Handynummer")], ["email", tx("E-Mail")]].map(([k, t]) => (
+                                  <button key={k} type="button" role="radio" aria-checked={form.kind === k} onClick={() => setForm({ ...form, kind: k })} className={`px-2.5 py-1.5 ${form.kind === k ? "bg-slate-800 text-white" : "bg-white text-slate-700"}`}>{t}</button>
+                                ))}
+                              </span>
+                            )}
+                            {touren && form.kind === "phone"
+                              ? <input autoFocus type="tel" inputMode="tel" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} onKeyDown={(e) => { if (e.key === "Enter") create(); }} placeholder={tx("z. B. +971 50 123 4567")} className="w-56 rounded-md border border-slate-300 px-2 py-1.5 text-sm" />
+                              : <input autoFocus type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} onKeyDown={(e) => { if (e.key === "Enter") create(); }} placeholder={tx("E-Mail der Person")} className="w-56 rounded-md border border-slate-300 px-2 py-1.5 text-sm" />}
                             <button onClick={create} disabled={busy === "create"} className="rounded-md bg-teal-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-teal-700 active:translate-y-px">{busy === "create" ? tx("Moment …") : tx("Anlegen")}</button>
                             <button onClick={() => setForm(null)} className="rounded-md border border-slate-200 px-3 py-1.5 text-xs text-slate-600">{tx("Abbrechen")}</button>
                           </div>
@@ -134,7 +154,7 @@ export default function ZugaengeDialog({ onClose }) {
                           <button onClick={() => remove(p)} disabled={!!busy} className="rounded-md border border-rose-200 px-2.5 py-1 text-xs text-rose-700 hover:bg-rose-50 active:translate-y-px">{tx("Entfernen")}</button>
                         </>
                       ) : !(form && form.staffId === p.staffId) && (
-                        <button onClick={() => { setForm({ staffId: p.staffId, email: "" }); setMsg({ text: "", bad: false }); }} disabled={!!busy} className="rounded-md border border-slate-200 px-2.5 py-1 text-xs text-slate-700 hover:bg-slate-50 active:translate-y-px">{tx("+ Zugang anlegen")}</button>
+                        <button onClick={() => { setForm({ staffId: p.staffId, email: "", phone: p.phone || "", kind: touren ? "phone" : "email" }); setMsg({ text: "", bad: false }); }} disabled={!!busy} className="rounded-md border border-slate-200 px-2.5 py-1 text-xs text-slate-700 hover:bg-slate-50 active:translate-y-px">{tx("+ Zugang anlegen")}</button>
                       )}
                     </td>
                   </tr>

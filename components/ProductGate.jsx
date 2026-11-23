@@ -10,6 +10,7 @@ import { legalComplete } from "../lib/legal";
 import { setCountryHolidays } from "../lib/timesheet";
 import { loadCountry } from "../lib/country";
 import { tx, setLang, getLang } from "../lib/i18n";
+import { loginName } from "../lib/phoneLogin";
 
 const PAPER = "#E9EEF8";
 const INK = "#1B2433";
@@ -114,7 +115,7 @@ export default function ProductGate({ product, supervisorOnly = false, roles = n
     return (
       <div style={shell}><div style={{ maxWidth: 520, margin: "0 auto" }}>
         <h1 style={{ fontSize: 24, fontWeight: 750, letterSpacing: -0.4, margin: "4px 0 14px" }}>{what}</h1>
-        <LoginForm title={tx("Anmelden")} />
+        <LoginForm title={tx("Anmelden")} phone={wanted.includes("employee_app")} />
       </div></div>
     );
   }
@@ -130,7 +131,7 @@ export default function ProductGate({ product, supervisorOnly = false, roles = n
         <h1 style={{ fontSize: 22, fontWeight: 750, letterSpacing: -0.4, margin: "4px 0 12px" }}>{tx("Kein Zugriff")}</h1>
         <div style={card}>
           <div style={{ fontSize: 15, marginBottom: 8 }}>
-            {getLang() === "en" ? <>Your account <b>{session.user.email}</b> may not open <b>{what}</b>.</> : <>Dein Konto <b>{session.user.email}</b> darf <b>{what}</b> nicht öffnen.</>}
+            {getLang() === "en" ? <>Your account <b>{loginName(session.user.email)}</b> may not open <b>{what}</b>.</> : <>Dein Konto <b>{loginName(session.user.email)}</b> darf <b>{what}</b> nicht öffnen.</>}
           </div>
           <div style={{ fontSize: 13, color: MUTED }}>
             {supervisorOnly ? tx("Dafür braucht deine Firma das Produkt und du brauchst die Rolle Schichtplaner, Leitung oder Inhaber.") : roles ? tx("Dafür braucht deine Firma das Produkt und du brauchst die Rolle Büro, Leitung oder Inhaber.") : tx("Dafür muss deine Firma das Produkt gebucht haben.")}
