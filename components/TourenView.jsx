@@ -211,12 +211,30 @@ function AddressFields({ value, onChange, org, optional, noLabel }) {
   const resolve = useCoords(org);
   const [busy, setBusy] = useState(false);
   const [hint, setHint] = useState(null);
+  const firstAddr = React.useRef(value.address || "");
+  // Adresse → Koordinaten (OpenStreetMap über /api/maps). Link oder GPS haben immer Vorrang.
+  const fromAddress = async (addr) => {
+    const a = String(addr || "").trim();
+    if (a.length < 4) return;
+    const hasCoords = value.lat !== null && value.lat !== undefined;
+    const manual = value.coordSrc === "link" || value.coordSrc === "gps";
+    if (hasCoords && manual) return;
+    if (hasCoords && value.coordSrc === "addr" && value.geoFor === a) return;
+    if (hasCoords && !value.coordSrc && a === firstAddr.current) return; // gespeicherter Ort, Adresse unverändert
+    setBusy(true); setHint(null);
+    const g = await geoAddress(org, a);
+    if (g && g.lat !== undefined) onChange({ ...value, address: addr, lat: g.lat, lng: g.lng, coordState: "addr", coordSrc: "addr", geoFor: a });
+    else onChange({ ...value, address: addr, lat: null, lng: null, coordState: g && g.missing ? "addr_missing" : "addr_error", coordSrc: null, geoFor: a });
+    setBusy(false);
+  };
   const set = (k, v) => onChange({ ...value, [k]: v });
   const check = async (raw) => {
     const link = linkIn(raw);
     setBusy(true); setHint(null);
     const r = await resolve(link);
-    onChange({ ...value, maps_url: link, lat: r.lat, lng: r.lng, coordState: r.state });
+    if (r.state === "ok") onChange({ ...value, maps_url: link, lat: r.lat, lng: r.lng, coordState: "ok", coordSrc: "link" });
+    else if (!link) onChange({ ...value, maps_url: "", coordState: value.coordSrc === "addr" ? "addr" : "none", ...(value.coordSrc === "link" ? { lat: null, lng: null, coordSrc: null } : {}) });
+    else onChange({ ...value, maps_url: link, coordState: r.state });
     setBusy(false);
   };
   const paste = async () => {
@@ -231,8 +249,10 @@ function AddressFields({ value, onChange, org, optional, noLabel }) {
     setBusy(true); setHint(null);
     navigator.geolocation.getCurrentPosition(
       (pos) => { const lat = Math.round(pos.coords.latitude * 1e6) / 1e6, lng = Math.round(pos.coords.longitude * 1e6) / 1e6;
-        onChange({ ...value, lat, lng, maps_url: `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`, coordState: "ok" }); setBusy(false); },
-      () => { setBusy(false); setHint(tx("Standort nicht freigegeben. Bitte in den Einstellungen des Telefons erlauben.")); },
+        onChange({ ...value, lat, lng, maps_url: `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`, coordState: "ok", coordSrc: "gps" }); setBusy(false); },
+      (err) => { setBusy(false); setHint(err && err.code === 1 ? tx("Standort nicht freigegeben. Bitte im Browser bzw. in den Einstellungen des Telefons erlauben.")
+        : err && err.code === 3 ? tx("Der Standort konnte nicht rechtzeitig bestimmt werden. Bitte noch einmal versuchen (draußen oder mit WLAN geht es schneller).")
+        : tx("Der Standort konnte auf diesem Gerät nicht bestimmt werden. Am besten am Telefon vor Ort.")); },
       { enableHighAccuracy: true, timeout: 15000 });
   };
   const st = value.coordState;
@@ -241,10 +261,16 @@ function AddressFields({ value, onChange, org, optional, noLabel }) {
     <div className="grid gap-3 sm:grid-cols-2">
       <label className="block sm:col-span-2">
         <span className={lbl}>{tx("Adresse")}{optional ? "" : " *"}</span>
-        <input className={inp} value={value.address || ""} onChange={(e) => set("address", e.target.value)} placeholder={tx("z. B. Marina Walk 12, Wohnung 804")} />
+        <input className={inp} value={value.address || ""} onChange={(e) => set("address", e.target.value)} onBlur={(e) => fromAddress(e.target.value)} placeholder={tx("z. B. Marina Walk 12, Wohnung 804")} />
+        <span className="mt-1 block text-[11px]">
+          {value.coordState === "addr" ? <span className="text-emerald-700">{tx("✓ Auf der Karte gefunden ({0})", `${Number(value.lat).toFixed(4)}, ${Number(value.lng).toFixed(4)}`)} <a className="underline" href={mapsHref(value)} target="_blank" rel="noopener noreferrer">{tx("prüfen")}</a></span>
+            : value.coordState === "addr_missing" ? <span className="text-amber-700">{tx("Adresse nicht auf der Karte gefunden – bitte genauer schreiben (Straße, Hausnummer, Stadt) oder unten den Standort-Link einfügen.")}</span>
+            : value.coordState === "addr_error" ? <span className="text-amber-700">{tx("Kartendienst gerade nicht erreichbar – die Adresse wird trotzdem gespeichert.")}</span>
+            : null}
+        </span>
       </label>
       <label className="block sm:col-span-2">
-        <span className={lbl}>{tx("Standort (freiwillig – die Adresse reicht)")}</span>
+        <span className={lbl}>{tx("Genauer Standort (freiwillig)")}</span>
         <input className={inp} value={value.maps_url || ""} onChange={(e) => set("maps_url", e.target.value)} onBlur={(e) => { if (e.target.value !== (value.maps_url_checked || "")) check(e.target.value); }} placeholder="https://maps.app.goo.gl/…" />
         <span className="mt-2 flex flex-wrap gap-2">
           <button type="button" className={sbtn} onClick={paste} disabled={busy}>📋 {tx("Link einfügen")}</button>
@@ -270,6 +296,25 @@ function AddressFields({ value, onChange, org, optional, noLabel }) {
 }
 const emptyAddr = () => ({ address: "", maps_url: "", label: "", lat: null, lng: null, coordState: "none" });
 const addrRow = (a) => ({ address: String(a.address).trim(), maps_url: clean(a.maps_url), label: clean(a.label), lat: a.lat ?? null, lng: a.lng ?? null });
+// Adresse → Koordinaten (OpenStreetMap über /api/maps); null wenn nicht gefunden
+async function geoAddress(org, text) {
+  const a = String(text || "").trim(); if (a.length < 4) return null;
+  try {
+    const { data } = await org.supabase.auth.getSession();
+    const token = data && data.session ? data.session.access_token : "";
+    const res = await fetch("/api/maps", { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${token}` }, body: JSON.stringify({ address: a, country: org.country || "", lang: getLang() }) });
+    const j = await res.json().catch(() => ({}));
+    return res.ok && j.lat !== undefined ? { lat: j.lat, lng: j.lng } : (res.status === 404 ? { missing: true } : null);
+  } catch (e) { return null; }
+}
+// beim Speichern: fehlen Koordinaten, noch einmal aus der Adresse suchen
+async function withCoords(org, row, addrKey = "address", latKey = "lat", lngKey = "lng") {
+  if ((row[latKey] === null || row[latKey] === undefined) && row[addrKey]) {
+    const g = await geoAddress(org, row[addrKey]);
+    if (g && g.lat !== undefined) return { ...row, [latKey]: g.lat, [lngKey]: g.lng };
+  }
+  return row;
+}
 
 // ---------- Auftrag anlegen / bearbeiten ----------
 function JobDialog({ org, data, job, preset, onClose, onSaved, onAssign }) {
@@ -333,9 +378,9 @@ function JobDialog({ org, data, job, preset, onClose, onSaved, onAssign }) {
         customer = ins.data;
       }
       let addressId = manual ? null : addrChoice;
-      let a = manual ? addrRow(addr) : addresses.find((x) => x.id === addrChoice);
+      let a = manual ? await withCoords(org, addrRow(addr)) : addresses.find((x) => x.id === addrChoice);
       if (manual && (saveAddr || newCust)) {
-        const ia = await sb.from("customer_addresses").insert({ org_id: org.orgId, customer_id: customer.id, ...addrRow(addr) }).select().single();
+        const ia = await sb.from("customer_addresses").insert({ org_id: org.orgId, customer_id: customer.id, ...a }).select().single();
         if (ia.error) throw ia.error;
         addressId = ia.data.id; a = ia.data;
       }
@@ -726,7 +771,7 @@ function CustomerDialog({ org, data, customer, onClose, onSaved, onNewJob }) {
         const ins = await org.supabase.from("customers").insert({ org_id: org.orgId, ...row }).select().single();
         if (ins.error) throw ins.error;
         if (!blank(firstAddr.address)) {
-          const ia = await org.supabase.from("customer_addresses").insert({ org_id: org.orgId, customer_id: ins.data.id, ...addrRow(firstAddr) });
+          const ia = await org.supabase.from("customer_addresses").insert({ org_id: org.orgId, customer_id: ins.data.id, ...(await withCoords(org, addrRow(firstAddr))) });
           if (ia.error) throw ia.error;
         }
         onSaved(tx("Kunde Nr. {0} angelegt ✓", ins.data.customer_no), ins.data, false);
@@ -738,8 +783,8 @@ function CustomerDialog({ org, data, customer, onClose, onSaved, onNewJob }) {
     if (blank(addrEdit.address)) return setMsg({ kind: "err", text: tx("Bitte die Adresse eintragen.") });
     setBusy(true); setMsg(null);
     const q = addrEdit.id
-      ? org.supabase.from("customer_addresses").update(addrRow(addrEdit)).eq("id", addrEdit.id)
-      : org.supabase.from("customer_addresses").insert({ org_id: org.orgId, customer_id: customer.id, ...addrRow(addrEdit) });
+      ? org.supabase.from("customer_addresses").update(await withCoords(org, addrRow(addrEdit))).eq("id", addrEdit.id)
+      : org.supabase.from("customer_addresses").insert({ org_id: org.orgId, customer_id: customer.id, ...(await withCoords(org, addrRow(addrEdit))) });
     const r = await q;
     setBusy(false);
     if (r.error) return setMsg({ kind: "err", text: errText(r.error) });
@@ -989,8 +1034,8 @@ function StaffView({ org, data, onChanged }) {
       const sid = r.data.id;
       const home = form.start === "home";
       const placeId = form.start && form.start.startsWith("place:") ? form.start.slice(6) : null;
-      const st = await sb.from("staff_touren").upsert({ staff_id: sid, org_id: org.orgId, start_kind: home ? "home" : placeId ? "place" : "none", place_id: placeId,
-        home_address: home ? clean(form.home.address) : null, home_maps_url: home ? clean(form.home.maps_url) : null, home_lat: home ? form.home.lat ?? null : null, home_lng: home ? form.home.lng ?? null : null }, { onConflict: "staff_id" });
+      const st = await sb.from("staff_touren").upsert(await withCoords(org, { staff_id: sid, org_id: org.orgId, start_kind: home ? "home" : placeId ? "place" : "none", place_id: placeId,
+        home_address: home ? clean(form.home.address) : null, home_maps_url: home ? clean(form.home.maps_url) : null, home_lat: home ? form.home.lat ?? null : null, home_lng: home ? form.home.lng ?? null : null }, "home_address", "home_lat", "home_lng"), { onConflict: "staff_id" });
       const before = skillMap[sid] || [], after = form.skills || [];
       const del = before.filter((x) => !after.includes(x)), ins = after.filter((x) => !before.includes(x));
       const d = del.length ? await sb.from("staff_skills").delete().eq("staff_id", sid).in("skill_id", del) : { error: null };
@@ -1122,7 +1167,7 @@ function PlacesSection({ org, data, done }) {
   const [form, setForm] = useState(null);
   const save = async () => {
     if (blank(form.name)) return done({ error: { message: tx("Bitte einen Namen eintragen.") } });
-    const row = { name: form.name.trim(), kind: form.kind, address: clean(form.address), maps_url: clean(form.maps_url), lat: form.lat ?? null, lng: form.lng ?? null };
+    const row = await withCoords(org, { name: form.name.trim(), kind: form.kind, address: clean(form.address), maps_url: clean(form.maps_url), lat: form.lat ?? null, lng: form.lng ?? null });
     const q = form.id ? org.supabase.from("touren_places").update(row).eq("id", form.id) : org.supabase.from("touren_places").insert({ org_id: org.orgId, ...row });
     if (await done(await q, tx("„{0}“ gespeichert ✓", row.name))) setForm(null);
   };
