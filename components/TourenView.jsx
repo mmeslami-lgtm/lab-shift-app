@@ -14,6 +14,7 @@ import RequestsDialog from "./RequestsDialog";
 import { tx as txRaw, loc, wdShort, wdLong, dmy, dm, isoDmy, getLang, dec, monthName } from "../lib/i18n";
 import { useLang } from "../lib/useLang";
 import { coordsFromText, isShortMapsLink, mapsHref, normPhone } from "../lib/maps";
+import { buildTrips } from "../lib/tourenTrips";
 import { suggestStaff } from "../lib/tourenSuggest";
 
 // Branchenvorlage (D3b): bei „Pflege & Betreuung“ heißen Kunden „Klienten“ und Aufträge „Einsätze“ (EN: clients / visits).
@@ -878,7 +879,7 @@ function PrintDialog({ org, data, day, mode, onClose }) {
     const absent = new Set(((cf && !cf.error && cf.data) || []).map((c) => `${c.job_id}|${c.staff_id}`));
     setSheet({ from, to, jobs, assign: (js && js.data) || [], names, absent, opts: { ...o } });
   }
-  if (sheet) return <PrintSheet org={org} data={data} sheet={sheet} onBack={() => setSheet(null)} onClose={onClose} />;
+  if (sheet) return <PrintSheet org={org} data={data} sheet={sheet} onBack={() => setSheet(null)} onClose={onClose} onReload={preview} />;
   const opt = (k, v, label) => <button type="button" role="radio" aria-checked={o[k] === v} onClick={() => set(k, v)} className={`px-3 py-1.5 ${o[k] === v ? "bg-teal-600 text-white" : "bg-white text-slate-700 hover:bg-slate-50"}`}>{label}</button>;
   return (
     <Modal title={tx("Drucken")} onClose={onClose}>
@@ -928,7 +929,7 @@ function PrintDialog({ org, data, day, mode, onClose }) {
   );
 }
 
-function PrintSheet({ org, data, sheet, onBack, onClose }) {
+function PrintSheet({ org, data, sheet, onBack, onClose, onReload }) {
   const { from, to, jobs, assign, names, absent, opts } = sheet;
   const custOf = (id) => data.customers.find((c) => c.id === id);
   const svcOf = (id) => (data.services.find((x) => x.id === id) || {}).name || "";
@@ -960,53 +961,57 @@ function PrintSheet({ org, data, sheet, onBack, onClose }) {
     </div>
   );
   // Transport: Fahrten aus den Aufträgen bauen – Abholung am Startpunkt, Weiterfahrt, Rückfahrt; gleiche Fahrt = eine Zeile
-  const trips = useMemo(() => {
-    const t = sheet.transport; if (!t) return [];
-    const st = {}; (t.staff || []).forEach((x) => { st[x.id] = x; });
-    const startOf = (x) => x && x.start_kind !== "none" && x.start_address ? { key: "s:" + (x.start_kind === "place" ? x.start_name : x.id), label: x.start_kind === "place" ? x.start_name : tx("Zuhause"), addr: x.start_address } : null;
-    const byDay = {};
-    (t.jobs || []).forEach((j) => (j.staff || []).forEach((sid) => { if ((j.absent || []).includes(sid)) return; ((byDay[j.work_date] = byDay[j.work_date] || {})[sid] = byDay[j.work_date][sid] || []).push(j); }));
-    return Object.keys(byDay).sort().map((d) => {
-      const legs = {};
-      const add = (time, from, to, arrive, sid, kind) => { const k = `${time}|${from.key}|${to.key}`; const L = legs[k] || (legs[k] = { time, from, to, arrive, kind, who: [] }); L.who.push(st[sid] || { id: sid, name: "?" }); };
-      const missing = [];
-      Object.entries(byDay[d]).forEach(([sid, list]) => {
-        list.sort((a, b) => a.start_time.localeCompare(b.start_time));
-        const home = startOf(st[sid]);
-        const place = (j) => ({ key: "j:" + j.id, label: j.customer, addr: j.address });
-        if (home) add(endOf(list[0].start_time, -(t.travel_min || 0)), home, place(list[0]), list[0].start_time, sid, "pick");
-        else missing.push(st[sid] || { name: "?" });
-        for (let i = 1; i < list.length; i++) add(endOf(list[i - 1].start_time, list[i - 1].duration_min), place(list[i - 1]), place(list[i]), list[i].start_time, sid, "next");
-        const last = list[list.length - 1];
-        if (opts.back && home) add(endOf(last.start_time, last.duration_min), place(last), home, null, sid, "back");
-      });
-      const rows = Object.values(legs).sort((a, b) => a.time.localeCompare(b.time) || a.from.label.localeCompare(b.from.label));
-      rows.forEach((r) => r.who.sort((a, b) => a.name.localeCompare(b.name)));
-      return { day: d, rows, missing };
-    });
-  }, [sheet.transport, opts.back]); // eslint-disable-line react-hooks/exhaustive-deps
+  const trips = useMemo(() => buildTrips(sheet.transport, { back: opts.back, homeLabel: tx("Zuhause") }), [sheet.transport, opts.back]); // eslint-disable-line react-hooks/exhaustive-deps
+  const drivers = (sheet.transport && sheet.transport.drivers) || [];
+  const [drvBusy, setDrvBusy] = useState(false);
+  const [drvErr, setDrvErr] = useState(null);
+  // Zuteilung B: Person(en) dieser Fahrt für den ganzen Tag einer Fahrerin geben ("" = automatisch nach Bereich)
+  async function setDriver(day, row, driverId) {
+    setDrvBusy(true); setDrvErr(null);
+    const sb = org.supabase; let err = null;
+    for (const w of row.who) {
+      const r = driverId
+        ? await sb.from("touren_trip_driver").upsert({ org_id: org.orgId, work_date: day, staff_id: w.id, driver_id: driverId }, { onConflict: "work_date,staff_id" })
+        : await sb.from("touren_trip_driver").delete().eq("org_id", org.orgId).eq("work_date", day).eq("staff_id", w.id);
+      if (r.error) { err = r.error; break; }
+    }
+    setDrvBusy(false);
+    if (err) { setDrvErr(errText(err)); return; }
+    if (onReload) onReload();
+  }
   const KIND = { pick: tx("Abholen"), next: tx("Weiterfahrt"), back: tx("Rückfahrt") };
   const body = opts.layout === "transport" ? (
     <>
-      {header(tx("Transport"))}
-      {trips.length === 0 && <p style={{ marginTop: 20 }}>{tx("Keine Fahrten – niemand eingeteilt.")}</p>}
-      {trips.map((t, i) => (
-        <div key={t.day} className={i > 0 ? "dgp-break" : ""}>
-          {i > 0 && header(tx("Transport"))}
-          <div className="dgp-band"><span>{dayHead(t.day)}</span><span>{t.rows.length === 1 ? tx("1 Fahrt") : tx("{0} Fahrten", t.rows.length)}</span></div>
-          <table>{cols(["11%", "24%", "24%", "29%", "12%"])}
-            <thead><tr><th>{tx("Abfahrt")}</th><th>{tx("Von")}</th><th>{tx("Wer")}</th><th>{tx("Nach")}</th><th>{tx("Beginn")}</th></tr></thead>
-            <tbody>{t.rows.map((r, k) => (
-              <tr key={k}>
-                <td><div className="dgp-time" style={{ fontSize: "12pt" }}>{r.time}</div><div className="dgp-muted">{KIND[r.kind]}</div></td>
-                <td><div style={{ fontWeight: 600 }}>{r.from.label}</div><div>{r.from.addr}</div></td>
-                <td>{r.who.map((w) => <div key={w.id} style={{ marginBottom: 2 }}><span style={{ fontWeight: 600 }}>{w.name}</span>{w.phone ? <div className="dgp-muted">☎ {w.phone}</div> : null}</div>)}</td>
-                <td><div style={{ fontWeight: 600 }}>{r.to.label}</div><div>{r.to.addr}</div></td>
-                <td className="dgp-time">{r.arrive || "–"}</td>
-              </tr>))}</tbody></table>
-          {t.missing.length > 0 && <p className="dgp-warn" style={{ marginTop: 6 }}>{tx("Ohne Startpunkt (Abholung bitte klären): {0}", t.missing.map((m) => m.name).join(", "))}</p>}
-          <div style={{ marginTop: 18, display: "flex", gap: 30 }} className="dgp-muted"><span>{tx("Fahrer:in")}: ____________________</span><span>{tx("Fahrzeug")}: ______________</span></div>
-        </div>))}
+      {drvErr && <div className="dgp-noprint" role="alert" style={{ color: "#b91c1c", marginBottom: 8 }}>{drvErr}</div>}
+      {trips.length === 0 && <>{header(tx("Transport"))}<p style={{ marginTop: 20 }}>{tx("Keine Fahrten – niemand eingeteilt.")}</p></>}
+      {(() => { let page = 0; return trips.map((t) => {
+        // pro Tag: eine Gruppe je Fahrer:in (ohne Fahrer:innen: eine Gruppe)
+        const groups = drivers.length ? [...drivers.map((d) => ({ d, rows: t.rows.filter((r) => r.driverId === d.id) })), { d: null, rows: t.rows.filter((r) => !r.driverId || !drivers.some((d) => d.id === r.driverId)) }].filter((g) => g.rows.length) : [{ d: null, rows: t.rows }];
+        return groups.map((g) => (
+          <div key={t.day + (g.d ? g.d.id : "-")} className={page++ > 0 ? "dgp-break" : ""}>
+            {header(tx("Transport"))}
+            <div className="dgp-band"><span>{dayHead(t.day)}</span><span>{g.rows.length === 1 ? tx("1 Fahrt") : tx("{0} Fahrten", g.rows.length)}</span></div>
+            {drivers.length > 0 && <div className="dgp-person"><span style={{ fontSize: "13pt", fontWeight: 700 }}>{g.d ? `${tx("Fahrer:in")}: ${g.d.name}` : tx("Noch ohne Fahrer:in")}</span><span>{g.d && g.d.phone ? `☎ ${g.d.phone}` : ""}</span></div>}
+            <table>{cols(["11%", "23%", "23%", "28%", "15%"])}
+              <thead><tr><th>{tx("Abfahrt")}</th><th>{tx("Von")}</th><th>{tx("Wer")}</th><th>{tx("Nach")}</th><th>{tx("Beginn")}</th></tr></thead>
+              <tbody>{g.rows.map((r) => (
+                <tr key={r.key}>
+                  <td><div className="dgp-time" style={{ fontSize: "12pt" }}>{r.time}</div><div className="dgp-muted">{KIND[r.kind]}</div></td>
+                  <td><div style={{ fontWeight: 600 }}>{r.from.label}</div><div>{r.from.addr}</div></td>
+                  <td>{r.who.map((w) => <div key={w.id} style={{ marginBottom: 2 }}><span style={{ fontWeight: 600 }}>{w.name}</span>{w.phone ? <div className="dgp-muted">☎ {w.phone}</div> : null}</div>)}</td>
+                  <td><div style={{ fontWeight: 600 }}>{r.to.label}</div><div>{r.to.addr}</div></td>
+                  <td><div className="dgp-time">{r.arrive || "–"}</div>
+                    {drivers.length > 0 && (
+                      <select className="dgp-noprint" aria-label={tx("Fahrer:in")} disabled={drvBusy} value={r.manual ? r.driverId || "" : ""} onChange={(e) => setDriver(t.day, r, e.target.value)} style={{ marginTop: 4, width: "100%", fontSize: "9pt", border: "1px solid #cbd5e1", borderRadius: 6, padding: "2px 4px" }}>
+                        <option value="">{tx("automatisch")}</option>
+                        {drivers.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+                      </select>)}</td>
+                </tr>))}</tbody></table>
+            {!g.d && t.missing.length > 0 && <p className="dgp-warn" style={{ marginTop: 6 }}>{tx("Ohne Startpunkt (Abholung bitte klären): {0}", t.missing.map((m) => m.name).join(", "))}</p>}
+            {drivers.length > 0 && <p className="dgp-noprint dgp-muted" style={{ marginTop: 6 }}>{tx("„automatisch“ = nach dem Bereich der Fahrer:in (Mitarbeitende → Bearbeiten). Eine Auswahl gilt für die Person den ganzen Tag.")}</p>}
+            {!g.d && <div style={{ marginTop: 18, display: "flex", gap: 30 }} className="dgp-muted"><span>{tx("Fahrer:in")}: ____________________</span><span>{tx("Fahrzeug")}: ______________</span></div>}
+          </div>));
+      }); })()}
     </>
   ) : opts.layout === "overview" ? (
     <>
@@ -1310,12 +1315,13 @@ function CustomersView({ data, onNew, onOpen }) {
 }
 
 // ---------- Mitarbeitende (Inhaber / Leitung) – gleiche Tabelle „staff“ wie Dienstplaner und Zeiterfassung ----------
-const staffForm = (x, starts, skillMap) => {
-  const t = starts[x.id];
+const staffForm = (x, starts, skillMap, drivers = {}) => {
+  const t = starts[x.id]; const dv = drivers[x.id];
   return { ...x, phone: x.phone || "", personnel_no: x.personnel_no || "",
     start: !t ? "" : t.start_kind === "home" ? "home" : t.start_kind === "place" && t.place_id ? `place:${t.place_id}` : "",
     home: t && t.start_kind === "home" ? { address: t.home_address || "", maps_url: t.home_maps_url || "", lat: t.home_lat, lng: t.home_lng, coordState: t.home_lat !== null && t.home_lat !== undefined ? "ok" : "none" } : emptyAddr(),
-    skills: skillMap[x.id] || [] };
+    skills: skillMap[x.id] || [],
+    driver: dv ? { on: true, all: dv.scope_all, places: dv.places || [], home: !!dv.home } : { on: false, all: true, places: [], home: false } };
 };
 const emptyStaff = (country) => ({ name: "", phone: "", personnel_no: "", weekly_hours: country === "AE" ? 48 : 40, active: true });
 function StaffView({ org, data, onChanged, onAbsence }) {
@@ -1323,20 +1329,23 @@ function StaffView({ org, data, onChanged, onAbsence }) {
   const [rows, setRows] = useState(null);
   const [starts, setStarts] = useState({}); // staff_id → staff_touren
   const [skillMap, setSkillMap] = useState({}); // staff_id → [skill_id]
+  const [drivers, setDrivers] = useState({}); // staff_id → touren_drivers (Fahrer:in)
   const [showInactive, setShowInactive] = useState(false);
   const [form, setForm] = useState(null); // { id|null, ... }
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState(null);
   const load = useCallback(async () => {
-    const [r, t, k] = await Promise.all([
+    const [r, t, k, dq] = await Promise.all([
       sb.from("staff").select("id, name, phone, personnel_no, weekly_hours, active, email").eq("org_id", org.orgId).order("name"),
       sb.from("staff_touren").select("*").eq("org_id", org.orgId),
       sb.from("staff_skills").select("staff_id, skill_id").eq("org_id", org.orgId),
+      sb.from("touren_drivers").select("*").eq("org_id", org.orgId),
     ]);
     if (r.error) { setMsg({ kind: "err", text: errText(r.error) }); setRows([]); return; }
     setRows(r.data || []);
     setStarts(Object.fromEntries((t.data || []).map((x) => [x.staff_id, x])));
     const m = {}; (k.data || []).forEach((x) => { (m[x.staff_id] = m[x.staff_id] || []).push(x.skill_id); }); setSkillMap(m);
+    setDrivers(Object.fromEntries(((dq && !dq.error && dq.data) || []).map((x) => [x.staff_id, x]))); // ohne Tabelle: einfach keine Fahrer:innen
   }, [sb, org.orgId]);
   useEffect(() => { load(); }, [load]);
   const set = (k, v) => setForm((p) => ({ ...p, [k]: v }));
@@ -1348,6 +1357,7 @@ function StaffView({ org, data, onChanged, onAbsence }) {
     if (h !== null && (!Number.isFinite(h) || h < 0 || h > 84)) return setMsg({ kind: "err", text: tx("Bitte die Wochenstunden zwischen 0 und 84 eintragen.") });
     const same = (rows || []).find((x) => x.id !== form.id && x.name.trim().toLowerCase() === form.name.trim().toLowerCase());
     if (same) return setMsg({ kind: "err", text: tx("„{0}“ gibt es schon. Bitte Namen unterscheidbar machen (z. B. mit Nachnamen).", same.name) });
+    if (form.driver && form.driver.on && !form.driver.all && !(form.driver.places || []).length && !form.driver.home) return setMsg({ kind: "err", text: tx("Bitte für die Fahrer:in mindestens einen Bereich wählen – oder „Alle Fahrten“.") });
     setBusy(true);
     const row = { name: form.name.trim(), phone: normPhone(form.phone, org.country), personnel_no: clean(form.personnel_no), weekly_hours: h, active: !!form.active };
     const r = form.id ? await sb.from("staff").update(row).eq("id", form.id).select("id").single() : await sb.from("staff").insert({ org_id: org.orgId, ...row }).select("id").single();
@@ -1362,7 +1372,12 @@ function StaffView({ org, data, onChanged, onAbsence }) {
       const del = before.filter((x) => !after.includes(x)), ins = after.filter((x) => !before.includes(x));
       const d = del.length ? await sb.from("staff_skills").delete().eq("staff_id", sid).in("skill_id", del) : { error: null };
       const i = ins.length ? await sb.from("staff_skills").insert(ins.map((skill_id) => ({ staff_id: sid, skill_id, org_id: org.orgId }))) : { error: null };
-      const e2 = st.error || d.error || i.error;
+      // Fahrer:in (Transport): an / aus, Bereich
+      const dv = form.driver || { on: false };
+      const dr = dv.on
+        ? await sb.from("touren_drivers").upsert({ staff_id: sid, org_id: org.orgId, scope_all: !!dv.all, places: dv.all ? [] : dv.places || [], home: dv.all ? false : !!dv.home }, { onConflict: "staff_id" })
+        : drivers[sid] ? await sb.from("touren_drivers").delete().eq("staff_id", sid) : { error: null };
+      const e2 = st.error || d.error || i.error || dr.error;
       if (e2) { setBusy(false); return setMsg({ kind: "err", text: errText(e2) }); }
     }
     setBusy(false);
@@ -1381,7 +1396,7 @@ function StaffView({ org, data, onChanged, onAbsence }) {
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <label className="flex items-center gap-1.5 text-sm text-slate-600"><input type="checkbox" checked={showInactive} onChange={(e) => setShowInactive(e.target.checked)} />{tx("Inaktive zeigen")}</label>
         <div className="flex-1" />
-        <button type="button" className={btnPrimary} onClick={() => { setMsg(null); setForm({ id: null, ...emptyStaff(org.country), start: "", home: emptyAddr(), skills: [] }); }}><Plus size={16} />{tx("Mitarbeiter:in")}</button>
+        <button type="button" className={btnPrimary} onClick={() => { setMsg(null); setForm({ id: null, ...emptyStaff(org.country), start: "", home: emptyAddr(), skills: [], driver: { on: false, all: true, places: [], home: false } }); }}><Plus size={16} />{tx("Mitarbeiter:in")}</button>
       </div>
       {form && (
         <div className="mb-4 rounded-xl border border-teal-200 bg-teal-50/30 p-4">
@@ -1413,9 +1428,29 @@ function StaffView({ org, data, onChanged, onAbsence }) {
               </div>
             )}
           </div>
+          {(() => { const dv = form.driver || { on: false, all: true, places: [], home: false }; const setDv = (k, v) => set("driver", { ...dv, [k]: v }); return (
+            <div className="mt-3 rounded-lg border border-slate-200 bg-white p-3">
+              <label className="flex items-center gap-2 text-sm font-medium text-slate-700"><input type="checkbox" checked={!!dv.on} onChange={(e) => setDv("on", e.target.checked)} />🚐 {tx("Fahrer:in – fährt das Personal")}</label>
+              {dv.on && (
+                <div className="mt-2 space-y-2">
+                  <p className="text-[11px] text-slate-500">{tx("Sieht in der Mitarbeiter-App unter „Fahrten“ für heute und morgen, wen er/sie wann wo abholt und wohin es geht. Braucht einen Zugang zur App („Zugänge“).")}</p>
+                  <div role="radiogroup" aria-label={tx("Bereich")} className="inline-flex overflow-hidden rounded-lg border border-slate-300 text-sm">
+                    {[[true, tx("Alle Fahrten")], [false, tx("Nur bestimmte")]].map(([v, l]) => <button key={String(v)} type="button" role="radio" aria-checked={dv.all === v} onClick={() => setDv("all", v)} className={`px-3 py-1.5 ${dv.all === v ? "bg-teal-600 text-white" : "bg-white text-slate-700"}`}>{l}</button>)}
+                  </div>
+                  {!dv.all && (
+                    <div className="flex flex-wrap gap-1.5">
+                      {data.places.filter((pl) => pl.active || (dv.places || []).includes(pl.id)).map((pl) => { const on = (dv.places || []).includes(pl.id); return (
+                        <button key={pl.id} type="button" aria-pressed={on} onClick={() => setDv("places", on ? dv.places.filter((x) => x !== pl.id) : [...(dv.places || []), pl.id])} className={`min-h-[36px] rounded-full border px-3 text-sm ${on ? "border-teal-600 bg-teal-600 text-white" : "border-slate-300 bg-white text-slate-700"}`}>{pl.name}</button>); })}
+                      <button type="button" aria-pressed={!!dv.home} onClick={() => setDv("home", !dv.home)} className={`min-h-[36px] rounded-full border px-3 text-sm ${dv.home ? "border-teal-600 bg-teal-600 text-white" : "border-slate-300 bg-white text-slate-700"}`}>{tx("Personal mit eigener Wohnadresse")}</button>
+                    </div>
+                  )}
+                  <p className="text-[11px] text-slate-500">{tx("Einzelne Personen kann das Büro auf dem Transport-Blatt für einen Tag einer anderen Fahrer:in geben.")}</p>
+                </div>
+              )}
+            </div>); })()}
           {form.start === "home" && (
             <div className="mt-3 rounded-lg border border-slate-200 bg-white p-3">
-              <p className="mb-2 text-[11px] text-slate-500">{tx("Nur Inhaber und Leitung sehen die Wohnadresse. Das Büro sieht nur die Entfernung.")}</p>
+              <p className="mb-2 text-[11px] text-slate-500">{tx("Nur Inhaber und Leitung sehen die Wohnadresse – das Büro nur auf dem Transport-Blatt, Fahrer:innen nur bei ihren Fahrten.")}</p>
               <AddressFields value={form.home || emptyAddr()} onChange={(v) => set("home", v)} org={org} optional noLabel />
             </div>
           )}
@@ -1432,7 +1467,7 @@ function StaffView({ org, data, onChanged, onAbsence }) {
                 <div><div className="font-medium text-slate-800">{x.name}{!x.active ? <span className="ml-1 text-xs font-normal text-slate-400">{tx("(inaktiv)")}</span> : null}</div>
                   <div className="text-xs text-slate-500">{x.personnel_no ? `${tx("Personalnummer")} ${x.personnel_no} · ` : ""}{x.weekly_hours ?? "–"} {tx("Std./Woche")}</div></div>
                 <div className="flex flex-col items-end">
-                  <button type="button" className="min-h-[36px] rounded-lg px-2 text-sm text-teal-700 underline" onClick={() => { setMsg(null); setForm(staffForm(x, starts, skillMap)); window.scrollTo(0, 0); }}>{tx("Bearbeiten")}</button>
+                  <button type="button" className="min-h-[36px] rounded-lg px-2 text-sm text-teal-700 underline" onClick={() => { setMsg(null); setForm(staffForm(x, starts, skillMap, drivers)); window.scrollTo(0, 0); }}>{tx("Bearbeiten")}</button>
                   {x.active && onAbsence && <button type="button" className="min-h-[36px] rounded-lg px-2 text-sm text-rose-700 underline" onClick={() => onAbsence(x)}>🤒 {tx("Abwesend melden")}</button>}
                 </div>
               </div>
@@ -1450,7 +1485,7 @@ function StaffView({ org, data, onChanged, onAbsence }) {
                   <td className="px-3 py-2 text-slate-700">{x.phone ? <a href={`https://wa.me/${digits(x.phone)}`} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 hover:underline"><Phone size={13} aria-hidden="true" />{x.phone}</a> : "–"}</td>
                   <td className="px-3 py-2 text-slate-600">{x.personnel_no || "–"}</td>
                   <td className="px-3 py-2 text-slate-600">{x.weekly_hours ?? "–"}</td>
-                  <td className="whitespace-nowrap px-3 py-2 text-right">{x.active && onAbsence && <button type="button" className="mr-3 text-xs text-rose-700 underline" onClick={() => onAbsence(x)}>🤒 {tx("Abwesend melden")}</button>}<button type="button" className="text-xs text-teal-700 underline" onClick={() => { setMsg(null); setForm(staffForm(x, starts, skillMap)); }}>{tx("Bearbeiten")}</button></td>
+                  <td className="whitespace-nowrap px-3 py-2 text-right">{x.active && onAbsence && <button type="button" className="mr-3 text-xs text-rose-700 underline" onClick={() => onAbsence(x)}>🤒 {tx("Abwesend melden")}</button>}<button type="button" className="text-xs text-teal-700 underline" onClick={() => { setMsg(null); setForm(staffForm(x, starts, skillMap, drivers)); }}>{tx("Bearbeiten")}</button></td>
                 </tr>
               ))}
             </tbody>
