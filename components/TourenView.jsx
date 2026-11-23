@@ -9,10 +9,26 @@ import React, { useCallback, useContext, useEffect, useMemo, useState } from "re
 import { OrgContext } from "../lib/orgContext";
 import PlannerShell from "./PlannerShell";
 import ZugaengeDialog from "./ZugaengeDialog";
-import { tx, loc, wdShort, wdLong, dmy, dm, isoDmy, getLang } from "../lib/i18n";
+import { tx as txRaw, loc, wdShort, wdLong, dmy, dm, isoDmy, getLang, dec } from "../lib/i18n";
 import { useLang } from "../lib/useLang";
 import { coordsFromText, isShortMapsLink, mapsHref, normPhone } from "../lib/maps";
-import { CalendarDays, ClipboardList, Users, Settings, LogOut, MapPin, Plus, X, ChevronLeft, ChevronRight, Phone, KeyRound } from "lucide-react";
+import { suggestStaff } from "../lib/tourenSuggest";
+
+// Branchenvorlage (D3b): bei „Pflege & Betreuung“ heißen Kunden „Klienten“ und Aufträge „Einsätze“ (EN: clients / visits).
+// Gilt nur in dieser Datei; die gespeicherten Daten ändern sich nicht.
+let TERMS = "general";
+const SWAP = {
+  de: [[/\bKunden\b/g, "Klienten"], [/\bKunde\b/g, "Klient"], [/\bAufträge\b/g, "Einsätze"], [/\bAuftrags\b/g, "Einsatzes"], [/\bAuftrag\b/g, "Einsatz"]],
+  en: [[/\bCustomers\b/g, "Clients"], [/\bcustomers\b/g, "clients"], [/\bCustomer\b/g, "Client"], [/\bcustomer\b/g, "client"], [/\bJobs\b/g, "Visits"], [/\bjobs\b/g, "visits"], [/\bJob\b/g, "Visit"], [/\bjob\b/g, "visit"]],
+};
+function tx(...a) {
+  const out = txRaw(...a);
+  if (TERMS !== "care" || typeof out !== "string") return out;
+  return (SWAP[getLang()] || SWAP.de).reduce((t, [re, w]) => t.replace(re, w), out);
+}
+const DEFAULT_SETTINGS = { industry: "general", near_km: 3, fairness_pp: 10, travel_min: 30 };
+const INDUSTRY = { cleaning: "Reinigung", care: "Pflege & Betreuung", facility: "Hausmeister & Technik", general: "Allgemein" };
+import { CalendarDays, ClipboardList, Users, Settings, LogOut, MapPin, Plus, X, ChevronLeft, ChevronRight, Phone, KeyRound, UserCog, MoreHorizontal } from "lucide-react";
 
 const SOURCES = [["phone", "Telefon"], ["whatsapp", "WhatsApp"], ["website", "Website"], ["email", "E-Mail"], ["in_person", "Persönlich"], ["referral", "Empfehlung"], ["other", "Sonstiges"]];
 const STATUS = {
@@ -21,9 +37,35 @@ const STATUS = {
   done: { label: "Erledigt", cls: "bg-slate-100 text-slate-600 border-slate-200" },
   cancelled: { label: "Storniert", cls: "bg-rose-50 text-rose-700 border-rose-200 line-through" },
 };
+const MATERIAL = [["", "– keine Angabe –"], ["customer", "vom Kunden"], ["ours", "von uns"]];
 const FIELD_KINDS = [["text", "Text"], ["number", "Zahl"], ["bool", "Ja/Nein"], ["date", "Datum"], ["select", "Auswahlliste"]];
 const ROLE_LABEL = { owner: "Inhaber", supervisor: "Leitung", office: "Büro", planner: "Schichtplaner", employee: "Mitarbeitende" };
 const PLANNER_ROLES = ["owner", "supervisor", "planner"];
+
+// nur für schmale Bildschirme (Handy); am Computer ändert sich nichts
+const MOBILE_CSS = `
+.tv-only-phone { display: none; }
+@media (max-width: 639px) {
+  .tv-only-phone { display: flex; }
+  .tv-root { padding: 8px 10px calc(84px + env(safe-area-inset-bottom)) !important; }
+  .tv-root .dg-side { display: none; }
+  .tv-root .dg-shell { padding: 4px 0 0; gap: 0; }
+  .tv-root .dg-pagehead { margin-bottom: 12px; }
+  .tv-root .dg-pagehead h1 { font-size: 22px; }
+  .tv-root .dg-pagehead p { font-size: 13px; }
+  .tv-root input, .tv-root select, .tv-root textarea { font-size: 16px !important; min-height: 42px; }
+  .tv-root input[type="checkbox"], .tv-root input[type="radio"] { min-height: 0; width: 20px; height: 20px; }
+  .tv-modal .tv-actions { position: sticky; bottom: 0; z-index: 5; background: #fff; margin: 16px -20px -16px; padding: 12px 20px calc(12px + env(safe-area-inset-bottom)); border-top: 1px solid #E2E8F0; }
+  .tv-modal .tv-actions button { min-height: 44px; }
+  .tv-tabbar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 45; display: flex; background: #fff; border-top: 1px solid #DFE4EC; padding-bottom: env(safe-area-inset-bottom); box-shadow: 0 -4px 16px rgba(15,23,42,.06); }
+  .tv-tabbar button { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; min-height: 60px; font-size: 11px; color: #5B6577; }
+  .tv-tabbar button[aria-current="page"], .tv-tabbar button[aria-expanded="true"] { color: #243B6B; font-weight: 600; }
+  .tv-sheet { position: absolute; left: 0; right: 0; bottom: calc(60px + env(safe-area-inset-bottom)); background: #fff; border-radius: 16px 16px 0 0; padding: 8px; box-shadow: 0 -8px 24px rgba(15,23,42,.12); display: flex; flex-direction: column; }
+  .tv-sheet button, .tv-sheet a { display: flex; align-items: center; gap: 12px; min-height: 52px; padding: 0 14px; border-radius: 10px; font-size: 16px; color: #1E293B; text-align: left; }
+  .tv-sheet button:active, .tv-sheet a:active { background: #F1F5F9; }
+  .tv-toast { position: fixed; left: 12px; right: 12px; bottom: calc(72px + env(safe-area-inset-bottom)); z-index: 46; justify-content: center; background: #065F46; color: #fff; border-radius: 12px; padding: 10px 14px; font-size: 14px; box-shadow: 0 6px 20px rgba(0,0,0,.18); }
+}
+`;
 
 const pad = (n) => String(n).padStart(2, "0");
 const isoOf = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
@@ -61,9 +103,9 @@ function Modal({ title, onClose, children, wide }) {
     window.addEventListener("keydown", k); return () => window.removeEventListener("keydown", k);
   }, [onClose]);
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-900/40 p-3 sm:p-6" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div role="dialog" aria-modal="true" aria-label={title} className={`w-full ${wide ? "max-w-3xl" : "max-w-xl"} rounded-2xl bg-white shadow-xl`}>
-        <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-5 py-3">
+    <div className="tv-modal fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-900/40 p-0 sm:p-6" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div role="dialog" aria-modal="true" aria-label={title} className={`w-full ${wide ? "max-w-3xl" : "max-w-xl"} min-h-full bg-white shadow-xl sm:min-h-0 sm:rounded-2xl`}>
+        <div className="sticky top-0 z-10 flex items-center justify-between gap-3 border-b border-slate-100 bg-white px-5 py-3 sm:static sm:rounded-t-2xl">
           <h2 className="text-lg font-semibold text-slate-800">{title}</h2>
           <button type="button" onClick={onClose} aria-label={tx("Schließen")} className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100"><X size={18} /></button>
         </div>
@@ -77,6 +119,21 @@ function Msg({ msg }) {
   if (!msg) return null;
   const cls = msg.kind === "ok" ? "bg-emerald-50 text-emerald-800" : msg.kind === "warn" ? "bg-amber-50 text-amber-800" : "bg-rose-50 text-rose-800";
   return <div role="status" className={`mt-3 rounded-lg px-3 py-2 text-sm ${cls}`}>{msg.text}</div>;
+}
+
+// große Knöpfe für das Handy: Anrufen / WhatsApp / Karte (nur Inhaber, Leitung, Büro sehen Touren)
+function ContactButtons({ phone, map }) {
+  const href = map ? mapsHref(map) : null;
+  if (!phone && !href) return null;
+  const b = "inline-flex min-h-[40px] flex-1 items-center justify-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 text-sm font-medium text-slate-700 hover:bg-slate-50";
+  const stop = (e) => e.stopPropagation();
+  return (
+    <div className="mt-2 flex gap-2">
+      {phone && <a href={`tel:${phone}`} onClick={stop} className={b}><Phone size={15} aria-hidden="true" />{tx("Anrufen")}</a>}
+      {phone && <a href={`https://wa.me/${digits(phone)}`} target="_blank" rel="noopener noreferrer" onClick={stop} className={b}>WhatsApp</a>}
+      {href && <a href={href} target="_blank" rel="noopener noreferrer" onClick={stop} className={b}><MapPin size={15} aria-hidden="true" />{tx("Route")}</a>}
+    </div>
+  );
 }
 
 function MapLink({ a, children }) {
@@ -135,38 +192,66 @@ function useCoords(org) {
   }, [org]);
 }
 
-function AddressFields({ value, onChange, org }) {
+// Link aus einem kopierten Text holen (z. B. ganze WhatsApp-Nachricht)
+const linkIn = (text) => { const m = String(text || "").match(/https?:\/\/\S+|geo:[-\d.,]+/i); return m ? m[0].replace(/[)\].,;!?]+$/, "") : String(text || "").trim(); };
+function AddressFields({ value, onChange, org, optional, noLabel }) {
   const resolve = useCoords(org);
   const [busy, setBusy] = useState(false);
+  const [hint, setHint] = useState(null);
   const set = (k, v) => onChange({ ...value, [k]: v });
-  const check = async (link) => {
-    setBusy(true);
+  const check = async (raw) => {
+    const link = linkIn(raw);
+    setBusy(true); setHint(null);
     const r = await resolve(link);
     onChange({ ...value, maps_url: link, lat: r.lat, lng: r.lng, coordState: r.state });
     setBusy(false);
   };
+  const paste = async () => {
+    try {
+      const t = await navigator.clipboard.readText();
+      if (!String(t || "").trim()) { setHint(tx("In der Zwischenablage ist nichts. Bitte zuerst den Link kopieren.")); return; }
+      await check(t);
+    } catch (e) { setHint(tx("Einfügen ist hier nicht erlaubt – bitte lange in das Feld tippen und „Einfügen“ wählen.")); }
+  };
+  const here = () => {
+    if (!navigator.geolocation) { setHint(tx("Dieses Gerät kann den Standort nicht bestimmen.")); return; }
+    setBusy(true); setHint(null);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => { const lat = Math.round(pos.coords.latitude * 1e6) / 1e6, lng = Math.round(pos.coords.longitude * 1e6) / 1e6;
+        onChange({ ...value, lat, lng, maps_url: `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`, coordState: "ok" }); setBusy(false); },
+      () => { setBusy(false); setHint(tx("Standort nicht freigegeben. Bitte in den Einstellungen des Telefons erlauben.")); },
+      { enableHighAccuracy: true, timeout: 15000 });
+  };
   const st = value.coordState;
+  const sbtn = "inline-flex min-h-[40px] items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-700 hover:bg-slate-50";
   return (
     <div className="grid gap-3 sm:grid-cols-2">
       <label className="block sm:col-span-2">
-        <span className={lbl}>{tx("Adresse")} *</span>
+        <span className={lbl}>{tx("Adresse")}{optional ? "" : " *"}</span>
         <input className={inp} value={value.address || ""} onChange={(e) => set("address", e.target.value)} placeholder={tx("z. B. Marina Walk 12, Wohnung 804")} />
       </label>
       <label className="block sm:col-span-2">
-        <span className={lbl}>{tx("Standort-Link (Google Maps / WhatsApp-Standort)")}</span>
-        <input className={inp} value={value.maps_url || ""} onChange={(e) => set("maps_url", e.target.value)} onBlur={(e) => check(e.target.value)} placeholder="https://maps.app.goo.gl/…" />
+        <span className={lbl}>{tx("Standort (freiwillig – die Adresse reicht)")}</span>
+        <input className={inp} value={value.maps_url || ""} onChange={(e) => set("maps_url", e.target.value)} onBlur={(e) => { if (e.target.value !== (value.maps_url_checked || "")) check(e.target.value); }} placeholder="https://maps.app.goo.gl/…" />
+        <span className="mt-2 flex flex-wrap gap-2">
+          <button type="button" className={sbtn} onClick={paste} disabled={busy}>📋 {tx("Link einfügen")}</button>
+          <button type="button" className={sbtn} onClick={here} disabled={busy}>📍 {tx("Mein Standort hier")}</button>
+        </span>
+        {hint && <span className="mt-1 block text-[11px] text-amber-700">{hint}</span>}
         <span className="mt-1 block text-[11px] text-slate-500">
           {busy ? tx("Link wird geprüft …")
             : st === "ok" ? <span className="text-emerald-700">{tx("✓ Standort gefunden ({0})", `${Number(value.lat).toFixed(5)}, ${Number(value.lng).toFixed(5)}`)}</span>
             : st === "unresolved" ? <span className="text-amber-700">{tx("Kurzlink konnte nicht geprüft werden – der Link wird trotzdem gespeichert und öffnet die Karte.")}</span>
             : st === "nocoords" ? <span className="text-amber-700">{tx("Im Link stehen keine Koordinaten – er wird trotzdem gespeichert.")}</span>
-            : tx("Standort in WhatsApp antippen → Google Maps → „Teilen“ → „Link kopieren“ und hier einfügen.")}
+            : tx("Standort in WhatsApp antippen → Google Maps → „Teilen“ → „Link kopieren“ → hier „Link einfügen“. Oder vor Ort „Mein Standort hier“.")}
         </span>
       </label>
-      <label className="block">
-        <span className={lbl}>{tx("Bezeichnung (optional)")}</span>
-        <input className={inp} value={value.label || ""} onChange={(e) => set("label", e.target.value)} placeholder={tx("z. B. Wohnung, Büro, Lager")} />
-      </label>
+      {!noLabel && (
+        <label className="block">
+          <span className={lbl}>{tx("Bezeichnung (optional)")}</span>
+          <input className={inp} value={value.label || ""} onChange={(e) => set("label", e.target.value)} placeholder={tx("z. B. Wohnung, Büro, Lager")} />
+        </label>
+      )}
     </div>
   );
 }
@@ -174,7 +259,7 @@ const emptyAddr = () => ({ address: "", maps_url: "", label: "", lat: null, lng:
 const addrRow = (a) => ({ address: String(a.address).trim(), maps_url: clean(a.maps_url), label: clean(a.label), lat: a.lat ?? null, lng: a.lng ?? null });
 
 // ---------- Auftrag anlegen / bearbeiten ----------
-function JobDialog({ org, data, job, preset, onClose, onSaved }) {
+function JobDialog({ org, data, job, preset, onClose, onSaved, onAssign }) {
   const { customers, addresses, services, fields } = data;
   const editing = !!job;
   const jobFields = fields.filter((f) => f.entity === "job" && f.active);
@@ -187,8 +272,8 @@ function JobDialog({ org, data, job, preset, onClose, onSaved }) {
   const [saveAddr, setSaveAddr] = useState(!job);
   const [f, setF] = useState(() => job ? {
     work_date: job.work_date, start_time: hhmm(job.start_time), dh: Math.floor(job.duration_min / 60), dm: job.duration_min % 60, service_type_id: job.service_type_id || "",
-    staff_needed: job.staff_needed, notes_staff: job.notes_staff || "", notes_internal: job.notes_internal || "", source: job.source, status: job.status, extra: job.extra || {},
-  } : { work_date: (preset && preset.date) || isoOf(new Date()), start_time: "", dh: 2, dm: 0, service_type_id: "", staff_needed: 1, notes_staff: "", notes_internal: "", source: "phone", status: "new", extra: {} });
+    staff_needed: job.staff_needed, material: job.material || "", notes_staff: job.notes_staff || "", notes_internal: job.notes_internal || "", source: job.source, status: job.status, extra: job.extra || {},
+  } : { work_date: (preset && preset.date) || isoOf(new Date()), start_time: "", dh: 2, dm: 0, service_type_id: "", staff_needed: 1, material: "", notes_staff: "", notes_internal: "", source: "phone", status: "new", extra: {} });
   const [cancelOpen, setCancelOpen] = useState(false);
   const [cancelReason, setCancelReason] = useState("");
   const [busy, setBusy] = useState(false);
@@ -243,7 +328,7 @@ function JobDialog({ org, data, job, preset, onClose, onSaved }) {
       }
       const row = {
         customer_id: customer.id, address_id: addressId, address_text: a.label ? `${a.label}: ${a.address}` : a.address, maps_url: a.maps_url || null, lat: a.lat ?? null, lng: a.lng ?? null,
-        work_date: f.work_date, start_time: f.start_time, duration_min: duration, service_type_id: f.service_type_id || null, staff_needed: st,
+        work_date: f.work_date, start_time: f.start_time, duration_min: duration, service_type_id: f.service_type_id || null, staff_needed: st, material: f.material || null,
         notes_staff: clean(f.notes_staff), notes_internal: clean(f.notes_internal), source: f.source, extra: f.extra || {},
       };
       if (editing) {
@@ -369,7 +454,11 @@ function JobDialog({ org, data, job, preset, onClose, onSaved }) {
             </select>
             {services.length === 0 && <span className="mt-1 block text-[11px] text-slate-500">{tx("Leistungen legt der Inhaber unter „Einstellungen“ an.")}</span>}
           </label>
-          <label className="block"><span className={lbl}>{tx("Personen")}</span><input type="number" min="1" max="50" className={inp} value={f.staff_needed} onChange={(e) => set("staff_needed", e.target.value)} /></label>
+          {data.settings.industry !== "care" && (
+            <label className="block"><span className={lbl}>{tx("Material")}</span>
+              <select className={inp} value={f.material} onChange={(e) => set("material", e.target.value)}>{MATERIAL.map(([k, l]) => <option key={k} value={k}>{tx(l)}</option>)}</select></label>
+          )}
+          <label className="block"><span className={lbl}>{tx("Anzahl Personal")}</span><input type="number" min="1" max="50" className={inp} value={f.staff_needed} onChange={(e) => set("staff_needed", e.target.value)} /></label>
           <label className="block"><span className={lbl}>{tx("Quelle")}</span>
             <select className={inp} value={f.source} onChange={(e) => set("source", e.target.value)}>{SOURCES.map(([k, l]) => <option key={k} value={k}>{tx(l)}</option>)}</select></label>
           {editing && job.status !== "cancelled" && (
@@ -386,9 +475,10 @@ function JobDialog({ org, data, job, preset, onClose, onSaved }) {
       {jobFields.length > 0 && <section className="mb-2"><ExtraInputs fields={jobFields} values={f.extra} onChange={(v) => set("extra", v)} /></section>}
 
       <Msg msg={msg} />
-      <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
+      <div className="tv-actions mt-4 flex flex-wrap items-center justify-between gap-2">
         <div>
           {editing && job.status !== "cancelled" && !cancelOpen && <button type="button" className="text-sm text-rose-700 underline" onClick={() => setCancelOpen(true)}>{tx("Auftrag stornieren …")}</button>}
+          {editing && job.status !== "cancelled" && job.status !== "done" && !cancelOpen && onAssign && <button type="button" className="ml-3 text-sm text-teal-700 underline" onClick={() => onAssign(job)}>{tx("Personal zuteilen")}</button>}
           {cancelOpen && (
             <div className="flex flex-wrap items-center gap-2">
               <input className={`${inpBase} w-64`} value={cancelReason} onChange={(e) => setCancelReason(e.target.value)} placeholder={tx("Grund, z. B. Kunde hat abgesagt")} autoFocus />
@@ -406,13 +496,105 @@ function JobDialog({ org, data, job, preset, onClose, onSaved }) {
   );
 }
 
+// ---------- Personal zuteilen (D3b) ----------
+function AssignPanel({ org, job, data, onClose, onChanged }) {
+  const sb = org.supabase;
+  const [ctx, setCtx] = useState(null);
+  const [dayJobs, setDayJobs] = useState([]);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState(null);
+  const load = useCallback(async () => {
+    const [c, j] = await Promise.all([
+      sb.rpc("touren_day_context", { p_org: org.orgId, p_day: job.work_date }),
+      sb.from("jobs").select("*").eq("org_id", org.orgId).eq("work_date", job.work_date).order("start_time"),
+    ]);
+    if (c.error || j.error) { setMsg({ kind: "err", text: errText(c.error || j.error) }); setCtx({ staff: [], assign: [], history: [], settings: DEFAULT_SETTINGS }); return; }
+    setCtx(c.data); setDayJobs(j.data || []);
+  }, [sb, org.orgId, job.work_date]);
+  useEffect(() => { load(); }, [load]);
+
+  const cur = dayJobs.find((x) => x.id === job.id) || job;
+  const required = data.serviceSkills.filter((x) => x.service_type_id === cur.service_type_id).map((x) => x.skill_id);
+  const skillName = (id) => (data.skills.find((k) => k.id === id) || {}).name || "?";
+  const custOf = (id) => custName(data.customers.find((c) => c.id === id));
+  const rows = ctx ? suggestStaff({ job: cur, dayJobs, assign: ctx.assign || [], staff: ctx.staff || [], settings: ctx.settings, history: ctx.history || [], prefs: data.prefs, requiredSkills: required }) : [];
+  const have = rows.filter((r) => r.here).length;
+  const firstFree = rows.find((r) => !r.here && !r.blocked);
+
+  async function add(r) {
+    setBusy(true); setMsg(null);
+    const res = await sb.from("job_staff").insert({ job_id: cur.id, staff_id: r.staff.id, org_id: org.orgId });
+    setBusy(false);
+    if (res.error) return setMsg({ kind: "err", text: errText(res.error) });
+    setMsg({ kind: "ok", text: tx("{0} zugeteilt ✓", r.staff.name) });
+    await load(); onChanged();
+  }
+  async function remove(r) {
+    setBusy(true); setMsg(null);
+    const res = await sb.from("job_staff").delete().eq("job_id", cur.id).eq("staff_id", r.staff.id);
+    setBusy(false);
+    if (res.error) return setMsg({ kind: "err", text: errText(res.error) });
+    setMsg({ kind: "ok", text: tx("{0} entfernt", r.staff.name) });
+    await load(); onChanged();
+  }
+  const fromTxt = (r) => {
+    if (!r.from) return tx("ohne Startpunkt");
+    if (r.from.kind === "job") return tx("ab {0} (bis {1})", custOf(r.from.job.customer_id), r.from.until);
+    return tx("ab {0}", r.from.label === "home" ? tx("Zuhause") : r.from.label);
+  };
+  return (
+    <Modal title={tx("Personal zuteilen")} onClose={onClose} wide>
+      <div className="mb-3 rounded-lg bg-slate-50 px-3 py-2 text-sm">
+        <div className="font-semibold text-slate-800">{wdShort(dateOf(cur.work_date).getDay())} {isoDmy(cur.work_date)} · {hhmm(cur.start_time)}–{endOf(cur.start_time, cur.duration_min)} · {custOf(cur.customer_id)}</div>
+        <div className="text-xs text-slate-600">{cur.address_text}</div>
+        <div className={`mt-1 text-sm font-medium ${have >= cur.staff_needed ? "text-emerald-700" : "text-rose-700"}`}>{tx("Personal: {0}/{1}", have, cur.staff_needed)}{required.length ? <span className="ml-2 text-xs font-normal text-slate-500">{tx("nötig: {0}", required.map(skillName).join(", "))}</span> : null}</div>
+      </div>
+      {!ctx ? <p className="text-sm text-slate-500">{tx("Lädt …")}</p> : rows.length === 0 ? <p className="text-sm text-slate-500">{tx("Noch keine Mitarbeitenden. Inhaber oder Leitung legt sie unter „Mitarbeitende“ an.")}</p> : (
+        <ul className="space-y-1.5">
+          {rows.map((r) => (
+            <li key={r.staff.id} className={`rounded-xl border px-3 py-2 ${r.here ? "border-emerald-300 bg-emerald-50/60" : r.blocked ? "border-slate-200 bg-slate-50 opacity-70" : "border-slate-200 bg-white"}`}>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="font-medium text-slate-800">{r.staff.name}
+                    {r === firstFree && have < cur.staff_needed ? <span className="ml-2 rounded-full bg-teal-600 px-2 py-0.5 text-[10px] font-semibold text-white">{tx("Vorschlag")}</span> : null}
+                    {r.preferred ? <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] text-amber-800">{tx("vom Kunden bevorzugt")}</span> : null}
+                  </div>
+                  {r.blocked ? (
+                    <div className="text-xs text-slate-600">{r.blocked.kind === "absent" ? tx("abwesend") : r.blocked.kind === "excluded" ? tx("Kunde: bitte nicht") : tx("schon eingeteilt {0}–{1} ({2})", r.blocked.from, r.blocked.to, custOf(r.blocked.job.customer_id))}</div>
+                  ) : (
+                    <div className="flex flex-wrap gap-x-3 text-xs text-slate-600">
+                      <span>{r.km === null ? tx("Entfernung unbekannt") : tx("{0} km", String(r.km).replace(".", getLang() === "en" ? "." : ","))} · {fromTxt(r)}</span>
+                      <span>{r.pct === null ? tx("ohne Vertragsstunden") : tx("{0} % der Vertragsstunden", Math.round(r.pct))}{r.staff.hours !== null && r.staff.hours !== undefined && r.staff.target ? ` (${dec(r.staff.hours)} / ${dec(r.staff.target)} ${tx("Std.")})` : ""}</span>
+                      {r.visits > 0 && <span>{tx("schon {0}× bei diesem Kunden", r.visits)}</span>}
+                      {r.braked && <span className="text-amber-700">{tx("nah, aber schon mehr gearbeitet als andere")}</span>}
+                    </div>
+                  )}
+                  {r.warns.map((w, i) => (
+                    <div key={i} className="text-xs text-amber-700">⚠ {w.kind === "skill" ? tx("Fähigkeit fehlt: {0}", w.missing.map(skillName).join(", ")) : w.kind === "tight" ? tx("knapp: nur {0} Min. nach dem Einsatz davor", w.minutes) : tx("knapp: nur {0} Min. bis zum nächsten Einsatz", w.minutes)}</div>
+                  ))}
+                </div>
+                {r.here ? <button type="button" className={btnLight} onClick={() => remove(r)} disabled={busy}>{tx("Entfernen")}</button>
+                  : !r.blocked ? <button type="button" className={btnPrimary} onClick={() => add(r)} disabled={busy}>{tx("Zuteilen")}</button> : null}
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+      <Msg msg={msg} />
+      <p className="mt-3 text-[11px] text-slate-500">{tx("Reihenfolge: vom Kunden bevorzugt → in der Nähe (erster Einsatz ab Startpunkt, sonst ab dem Einsatz davor), solange die Person nicht schon deutlich mehr gearbeitet hat → wer im Verhältnis zu den Vertragsstunden weniger gearbeitet hat. Sie entscheiden.")}</p>
+      <div className="tv-actions mt-4 flex justify-end"><button type="button" className={btnPrimary} onClick={onClose}>{tx("Fertig")}</button></div>
+    </Modal>
+  );
+}
+
 // ---------- Aufträge: Tag / Woche ----------
-function JobCard({ j, data, onOpen, compact }) {
+function JobCard({ j, data, onOpen, compact, assign = [], onAssign }) {
   const c = data.customers.find((x) => x.id === j.customer_id);
   const s = data.services.find((x) => x.id === j.service_type_id);
   const st = STATUS[j.status] || STATUS.new;
   return (
-    <button type="button" onClick={() => onOpen(j)} className={`w-full rounded-xl border border-slate-200 bg-white text-left shadow-sm hover:border-teal-400 hover:shadow ${compact ? "px-2 py-1.5" : "px-3 py-2.5"} ${j.status === "cancelled" ? "opacity-60" : ""}`}>
+    <div className={`rounded-xl border border-slate-200 bg-white shadow-sm hover:border-teal-400 hover:shadow ${compact ? "px-2 py-1.5" : "px-3 py-2.5"} ${j.status === "cancelled" ? "opacity-60" : ""}`}>
+    <button type="button" onClick={() => onOpen(j)} className="block w-full text-left">
       <div className="flex flex-wrap items-center justify-between gap-1">
         <span className={`font-semibold text-slate-800 ${compact ? "text-xs" : "text-sm"}`}>{hhmm(j.start_time)}–{endOf(j.start_time, j.duration_min)}{!compact && <span className="ml-2 font-normal text-slate-500">{durTxt(j.duration_min)}</span>}</span>
         <span className={`rounded-full border px-2 py-0.5 text-[10px] font-medium ${st.cls}`}>{tx(st.label)}</span>
@@ -421,14 +603,23 @@ function JobCard({ j, data, onOpen, compact }) {
       {!compact && <div className="mt-0.5 truncate text-xs text-slate-600">{j.address_text}</div>}
       <div className={`mt-0.5 flex flex-wrap gap-x-3 text-slate-500 ${compact ? "text-[10px]" : "text-xs"}`}>
         {s ? <span>{s.name}</span> : null}
-        <span>{j.staff_needed === 1 ? tx("1 Person") : tx("{0} Personen", j.staff_needed)}</span>
+        {(() => { const n = assign.filter((a) => a.job_id === j.id).length; const full = n >= j.staff_needed;
+          return <span className={j.status === "cancelled" ? "" : full ? "font-medium text-emerald-700" : "font-medium text-rose-700"}>{tx("Personal: {0}/{1}", n, j.staff_needed)}</span>; })()}
+        {j.material ? <span>{j.material === "ours" ? tx("Material: von uns") : tx("Material: vom Kunden")}</span> : null}
         {!compact && <span>{tx("Nr. {0}", j.job_no)}</span>}
       </div>
     </button>
+    {!compact && (() => { const names = assign.filter((a) => a.job_id === j.id).map((a) => (data.staffList.find((x) => x.id === a.staff_id) || {}).name || "?");
+      return names.length ? <div className="mt-1 text-xs text-slate-700">👤 {names.join(", ")}</div> : null; })()}
+    {!compact && j.status !== "cancelled" && j.status !== "done" && onAssign && (
+      <button type="button" onClick={() => onAssign(j)} className="mt-2 inline-flex min-h-[40px] w-full items-center justify-center gap-1.5 rounded-lg bg-teal-600 px-3 text-sm font-medium text-white hover:bg-teal-700 sm:w-auto">👥 {tx("Personal zuteilen")}</button>
+    )}
+    {!compact && j.status !== "cancelled" && <div className="sm:hidden"><ContactButtons phone={c && c.phone} map={j} /></div>}
+    </div>
   );
 }
 
-function JobsView({ org, data, jobs, day, setDay, mode, setMode, showCancelled, setShowCancelled, onNew, onOpen }) {
+function JobsView({ org, data, jobs, assign, day, setDay, mode, setMode, showCancelled, setShowCancelled, onNew, onOpen, onAssign }) {
   const visible = jobs.filter((j) => showCancelled || j.status !== "cancelled");
   const today = isoOf(new Date());
   const step = mode === "week" ? 7 : 1;
@@ -455,7 +646,7 @@ function JobsView({ org, data, jobs, day, setDay, mode, setMode, showCancelled, 
       {mode === "day" ? (
         <div className="space-y-2">
           {visible.filter((j) => j.work_date === day).length === 0 && <p className="rounded-xl border border-dashed border-slate-300 px-4 py-6 text-center text-sm text-slate-500">{tx("Keine Aufträge an diesem Tag.")}</p>}
-          {visible.filter((j) => j.work_date === day).map((j) => <JobCard key={j.id} j={j} data={data} onOpen={onOpen} />)}
+          {visible.filter((j) => j.work_date === day).map((j) => <JobCard key={j.id} j={j} data={data} onOpen={onOpen} assign={assign} onAssign={onAssign} />)}
         </div>
       ) : (
         <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-7">
@@ -466,7 +657,7 @@ function JobsView({ org, data, jobs, day, setDay, mode, setMode, showCancelled, 
                 <button type="button" onClick={() => { setDay(d); setMode("day"); }} className="mb-1 flex w-full items-baseline justify-between px-1 text-left text-xs font-semibold text-slate-700 hover:text-teal-700">
                   <span>{wdShort(dateOf(d).getDay())} {dm(dateOf(d))}</span><span className="font-normal text-slate-500">{list.length || ""}</span>
                 </button>
-                <div className="space-y-1">{list.map((j) => <JobCard key={j.id} j={j} data={data} onOpen={onOpen} compact />)}</div>
+                <div className="space-y-1">{list.map((j) => <JobCard key={j.id} j={j} data={data} onOpen={onOpen} compact assign={assign} />)}</div>
               </div>
             );
           })}
@@ -583,6 +774,8 @@ function CustomerDialog({ org, data, customer, onClose, onSaved, onNewJob }) {
         )}
       </section>
 
+      {editing && <PrefsSection org={org} data={data} customer={customer} onChanged={(t) => onSaved(t, customer, true, true)} />}
+
       {editing && (
         <section className="mt-5">
           <div className="mb-2 flex items-center justify-between"><h3 className="text-sm font-semibold text-slate-700">{tx("Letzte Aufträge")}</h3><button type="button" className={btnLight} onClick={() => onNewJob(customer)}><Plus size={15} />{tx("Auftrag für diesen Kunden")}</button></div>
@@ -597,11 +790,60 @@ function CustomerDialog({ org, data, customer, onClose, onSaved, onNewJob }) {
       )}
 
       <Msg msg={msg} />
-      <div className="mt-4 flex justify-end gap-2">
+      <div className="tv-actions mt-4 flex justify-end gap-2">
         <button type="button" className={btnLight} onClick={onClose}>{tx("Schließen")}</button>
         <button type="button" className={btnPrimary} onClick={save} disabled={busy}>{busy ? tx("Speichert …") : tx("Speichern")}</button>
       </div>
     </Modal>
+  );
+}
+
+// ---------- Kunde: bevorzugt / bitte nicht (D3b) ----------
+function PrefsSection({ org, data, customer, onChanged }) {
+  const [pick, setPick] = useState({ preferred: "", excluded: "" });
+  const [msg, setMsg] = useState(null);
+  const mine = data.prefs.filter((x) => x.customer_id === customer.id);
+  const nameOf = (id) => (data.staffList.find((x) => x.id === id) || {}).name || "?";
+  const add = async (kind) => {
+    const sid = pick[kind]; if (!sid) return;
+    const exists = mine.find((x) => x.staff_id === sid);
+    const r = exists ? await org.supabase.from("customer_staff_pref").update({ kind }).eq("customer_id", customer.id).eq("staff_id", sid)
+      : await org.supabase.from("customer_staff_pref").insert({ customer_id: customer.id, staff_id: sid, org_id: org.orgId, kind });
+    if (r.error) return setMsg({ kind: "err", text: errText(r.error) });
+    setPick({ ...pick, [kind]: "" }); onChanged(tx("Gespeichert ✓"));
+  };
+  const remove = async (sid) => {
+    const r = await org.supabase.from("customer_staff_pref").delete().eq("customer_id", customer.id).eq("staff_id", sid);
+    if (r.error) return setMsg({ kind: "err", text: errText(r.error) });
+    onChanged(tx("Gespeichert ✓"));
+  };
+  if (!data.staffList.length) return null;
+  return (
+    <section className="mt-5">
+      <h3 className="mb-1 text-sm font-semibold text-slate-700">{tx("Personal für diesen Kunden")}</h3>
+      <p className="mb-2 text-[11px] text-slate-500">{tx("„Bevorzugt“ steht bei der Zuteilung oben; „bitte nicht“ wird nicht vorgeschlagen und kann nicht zugeteilt werden.")}</p>
+      {[["preferred", "Bevorzugt"], ["excluded", "Bitte nicht"]].map(([kind, label]) => (
+        <div key={kind} className="mb-2">
+          <div className="mb-1 flex flex-wrap items-center gap-1.5 text-sm">
+            <span className={`w-24 text-xs font-medium ${kind === "excluded" ? "text-rose-700" : "text-emerald-700"}`}>{tx(label)}:</span>
+            {mine.filter((x) => x.kind === kind).map((x) => (
+              <span key={x.staff_id} className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs ${kind === "excluded" ? "border-rose-200 bg-rose-50 text-rose-800" : "border-emerald-200 bg-emerald-50 text-emerald-800"}`}>
+                {nameOf(x.staff_id)}<button type="button" onClick={() => remove(x.staff_id)} aria-label={tx("Entfernen")} className="px-0.5">×</button>
+              </span>
+            ))}
+            {mine.filter((x) => x.kind === kind).length === 0 && <span className="text-xs text-slate-400">–</span>}
+          </div>
+          <div className="flex gap-2 pl-0 sm:pl-[6.5rem]">
+            <select className={`${inp} max-w-xs`} value={pick[kind]} onChange={(e) => setPick({ ...pick, [kind]: e.target.value })} aria-label={tx(label)}>
+              <option value="">{tx("– Person wählen –")}</option>
+              {data.staffList.filter((x) => !mine.some((m) => m.staff_id === x.id && m.kind === kind)).map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
+            </select>
+            <button type="button" className={btnLight} onClick={() => add(kind)} disabled={!pick[kind]}>{tx("Hinzufügen")}</button>
+          </div>
+        </div>
+      ))}
+      <Msg msg={msg} />
+    </section>
   );
 }
 
@@ -621,7 +863,24 @@ function CustomersView({ data, onNew, onOpen }) {
         <button type="button" className={btnPrimary} onClick={onNew}><Plus size={16} />{tx("Kunde")}</button>
       </div>
       {data.customers.length === 0 ? <p className="rounded-xl border border-dashed border-slate-300 px-4 py-6 text-center text-sm text-slate-500">{tx("Noch keine Kunden. Mit „+ Kunde“ oder direkt beim ersten Auftrag anlegen.")}</p> : (
-        <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
+        <>
+        <ul className="space-y-2 sm:hidden">
+          {list.map((c) => {
+            const first = data.addresses.find((a) => a.customer_id === c.id && a.active);
+            return (
+              <li key={c.id} className={`rounded-xl border border-slate-200 bg-white px-3 py-2.5 shadow-sm ${c.active ? "" : "opacity-60"}`}>
+                <button type="button" className="block w-full text-left" onClick={() => onOpen(c)}>
+                  <div className="font-medium text-slate-800">{custName(c)} <span className="text-xs font-normal text-slate-400">#{c.customer_no}</span>{!c.active ? <span className="ml-1 text-xs font-normal text-slate-400">{tx("(inaktiv)")}</span> : null}</div>
+                  {c.phone && <div className="text-xs text-slate-600">{c.phone}</div>}
+                  {first && <div className="truncate text-xs text-slate-500">{first.label ? `${first.label}: ` : ""}{first.address}</div>}
+                </button>
+                <ContactButtons phone={c.phone} map={first} />
+              </li>
+            );
+          })}
+          {list.length === 0 && <li className="px-3 py-4 text-center text-sm text-slate-500">{tx("Kein Kunde gefunden.")}</li>}
+        </ul>
+        <div className="hidden overflow-x-auto rounded-xl border border-slate-200 bg-white sm:block">
           <table className="w-full text-sm">
             <thead className="bg-slate-50 text-left text-xs text-slate-500"><tr><th className="px-3 py-2">{tx("Nr.")}</th><th className="px-3 py-2">{tx("Name")}</th><th className="px-3 py-2">{tx("Mobil / WhatsApp")}</th><th className="px-3 py-2">{tx("Adressen")}</th></tr></thead>
             <tbody className="divide-y divide-slate-100">
@@ -640,8 +899,247 @@ function CustomersView({ data, onNew, onOpen }) {
             </tbody>
           </table>
         </div>
+        </>
       )}
     </div>
+  );
+}
+
+// ---------- Mitarbeitende (Inhaber / Leitung) – gleiche Tabelle „staff“ wie Dienstplaner und Zeiterfassung ----------
+const staffForm = (x, starts, skillMap) => {
+  const t = starts[x.id];
+  return { ...x, phone: x.phone || "", personnel_no: x.personnel_no || "",
+    start: !t ? "" : t.start_kind === "home" ? "home" : t.start_kind === "place" && t.place_id ? `place:${t.place_id}` : "",
+    home: t && t.start_kind === "home" ? { address: t.home_address || "", maps_url: t.home_maps_url || "", lat: t.home_lat, lng: t.home_lng, coordState: t.home_lat !== null && t.home_lat !== undefined ? "ok" : "none" } : emptyAddr(),
+    skills: skillMap[x.id] || [] };
+};
+const emptyStaff = (country) => ({ name: "", phone: "", personnel_no: "", weekly_hours: country === "AE" ? 48 : 40, active: true });
+function StaffView({ org, data, onChanged }) {
+  const sb = org.supabase;
+  const [rows, setRows] = useState(null);
+  const [starts, setStarts] = useState({}); // staff_id → staff_touren
+  const [skillMap, setSkillMap] = useState({}); // staff_id → [skill_id]
+  const [showInactive, setShowInactive] = useState(false);
+  const [form, setForm] = useState(null); // { id|null, ... }
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState(null);
+  const load = useCallback(async () => {
+    const [r, t, k] = await Promise.all([
+      sb.from("staff").select("id, name, phone, personnel_no, weekly_hours, active, email").eq("org_id", org.orgId).order("name"),
+      sb.from("staff_touren").select("*").eq("org_id", org.orgId),
+      sb.from("staff_skills").select("staff_id, skill_id").eq("org_id", org.orgId),
+    ]);
+    if (r.error) { setMsg({ kind: "err", text: errText(r.error) }); setRows([]); return; }
+    setRows(r.data || []);
+    setStarts(Object.fromEntries((t.data || []).map((x) => [x.staff_id, x])));
+    const m = {}; (k.data || []).forEach((x) => { (m[x.staff_id] = m[x.staff_id] || []).push(x.skill_id); }); setSkillMap(m);
+  }, [sb, org.orgId]);
+  useEffect(() => { load(); }, [load]);
+  const set = (k, v) => setForm((p) => ({ ...p, [k]: v }));
+
+  async function save() {
+    setMsg(null);
+    if (blank(form.name)) return setMsg({ kind: "err", text: tx("Bitte den Namen eintragen.") });
+    const h = form.weekly_hours === "" || form.weekly_hours === null ? null : Number(form.weekly_hours);
+    if (h !== null && (!Number.isFinite(h) || h < 0 || h > 84)) return setMsg({ kind: "err", text: tx("Bitte die Wochenstunden zwischen 0 und 84 eintragen.") });
+    const same = (rows || []).find((x) => x.id !== form.id && x.name.trim().toLowerCase() === form.name.trim().toLowerCase());
+    if (same) return setMsg({ kind: "err", text: tx("„{0}“ gibt es schon. Bitte Namen unterscheidbar machen (z. B. mit Nachnamen).", same.name) });
+    setBusy(true);
+    const row = { name: form.name.trim(), phone: normPhone(form.phone, org.country), personnel_no: clean(form.personnel_no), weekly_hours: h, active: !!form.active };
+    const r = form.id ? await sb.from("staff").update(row).eq("id", form.id).select("id").single() : await sb.from("staff").insert({ org_id: org.orgId, ...row }).select("id").single();
+    if (!r.error && r.data) {
+      // Startpunkt und Fähigkeiten (Touren)
+      const sid = r.data.id;
+      const home = form.start === "home";
+      const placeId = form.start && form.start.startsWith("place:") ? form.start.slice(6) : null;
+      const st = await sb.from("staff_touren").upsert({ staff_id: sid, org_id: org.orgId, start_kind: home ? "home" : placeId ? "place" : "none", place_id: placeId,
+        home_address: home ? clean(form.home.address) : null, home_maps_url: home ? clean(form.home.maps_url) : null, home_lat: home ? form.home.lat ?? null : null, home_lng: home ? form.home.lng ?? null : null }, { onConflict: "staff_id" });
+      const before = skillMap[sid] || [], after = form.skills || [];
+      const del = before.filter((x) => !after.includes(x)), ins = after.filter((x) => !before.includes(x));
+      const d = del.length ? await sb.from("staff_skills").delete().eq("staff_id", sid).in("skill_id", del) : { error: null };
+      const i = ins.length ? await sb.from("staff_skills").insert(ins.map((skill_id) => ({ staff_id: sid, skill_id, org_id: org.orgId }))) : { error: null };
+      const e2 = st.error || d.error || i.error;
+      if (e2) { setBusy(false); return setMsg({ kind: "err", text: errText(e2) }); }
+    }
+    setBusy(false);
+    if (r.error) {
+      const m = r.error.message || "";
+      return setMsg({ kind: "err", text: /personnel_no/.test(m) ? tx("Diese Personalnummer ist in Ihrer Firma schon vergeben.") : /staff_phone_check/.test(m) ? tx("Bitte eine gültige Telefonnummer eingeben (nur Ziffern, am Anfang + erlaubt).") : errText(r.error) });
+    }
+    setMsg({ kind: "ok", text: form.id ? tx("„{0}“ gespeichert ✓", row.name) : tx("„{0}“ angelegt ✓", row.name) });
+    setForm(null); load(); if (onChanged) onChanged();
+  }
+
+  if (rows === null) return <p className="text-sm text-slate-500">{tx("Lädt …")}</p>;
+  const list = rows.filter((x) => showInactive || x.active);
+  return (
+    <div>
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <label className="flex items-center gap-1.5 text-sm text-slate-600"><input type="checkbox" checked={showInactive} onChange={(e) => setShowInactive(e.target.checked)} />{tx("Inaktive zeigen")}</label>
+        <div className="flex-1" />
+        <button type="button" className={btnPrimary} onClick={() => { setMsg(null); setForm({ id: null, ...emptyStaff(org.country), start: "", home: emptyAddr(), skills: [] }); }}><Plus size={16} />{tx("Mitarbeiter:in")}</button>
+      </div>
+      {form && (
+        <div className="mb-4 rounded-xl border border-teal-200 bg-teal-50/30 p-4">
+          <h3 className="mb-2 text-sm font-semibold text-slate-700">{form.id ? tx("Mitarbeiter:in bearbeiten") : tx("Neue Mitarbeiter:in")}</h3>
+          <div className="grid gap-3 sm:grid-cols-4">
+            <label className="block sm:col-span-2"><span className={lbl}>{tx("Name")} *</span><input className={inp} value={form.name} onChange={(e) => set("name", e.target.value)} autoFocus /></label>
+            <label className="block sm:col-span-2"><span className={lbl}>{tx("Mobil / WhatsApp")}</span><input className={inp} value={form.phone || ""} onChange={(e) => set("phone", e.target.value)} placeholder="+971 50 123 4567" inputMode="tel" /></label>
+            <label className="block"><span className={lbl}>{tx("Personalnummer")}</span><input className={inp} value={form.personnel_no || ""} onChange={(e) => set("personnel_no", e.target.value)} /></label>
+            <label className="block"><span className={lbl}>{tx("Vertragsstunden pro Woche")}</span><input type="number" min="0" max="84" step="0.5" className={inp} value={form.weekly_hours ?? ""} onChange={(e) => set("weekly_hours", e.target.value)} /></label>
+            {form.id && <label className="flex items-end gap-2 pb-2 text-sm text-slate-700 sm:col-span-2"><input type="checkbox" checked={!!form.active} onChange={(e) => set("active", e.target.checked)} />{tx("Aktiv (inaktive erscheinen nicht mehr in Plänen und Listen)")}</label>}
+          </div>
+          <p className="mt-2 text-[11px] text-slate-500">{tx("Die Vertragsstunden helfen beim fairen Verteilen: wer im Verhältnis weniger gearbeitet hat, kommt zuerst dran.")}</p>
+          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+            <label className="block"><span className={lbl}>{tx("Startpunkt (erster Einsatz des Tages)")}</span>
+              <select className={inp} value={form.start || ""} onChange={(e) => set("start", e.target.value)}>
+                <option value="">{tx("– keiner –")}</option>
+                {data.places.filter((pl) => pl.active || form.start === `place:${pl.id}`).map((pl) => <option key={pl.id} value={`place:${pl.id}`}>{pl.name}</option>)}
+                <option value="home">{tx("Eigene Wohnadresse")}</option>
+              </select>
+              {data.places.length === 0 && <span className="mt-1 block text-[11px] text-slate-500">{tx("Orte wie Unterkunft oder Büro unter „Einstellungen“ anlegen.")}</span>}
+            </label>
+            {data.skills.filter((k) => k.active).length > 0 && (
+              <div><span className={lbl}>{tx("Fähigkeiten")}</span>
+                <div className="flex flex-wrap gap-1.5">
+                  {data.skills.filter((k) => k.active).map((k) => { const on = (form.skills || []).includes(k.id); return (
+                    <button key={k.id} type="button" aria-pressed={on} onClick={() => set("skills", on ? form.skills.filter((x) => x !== k.id) : [...(form.skills || []), k.id])} className={`min-h-[36px] rounded-full border px-3 text-sm ${on ? "border-teal-600 bg-teal-600 text-white" : "border-slate-300 bg-white text-slate-700"}`}>{k.name}</button>
+                  ); })}
+                </div>
+              </div>
+            )}
+          </div>
+          {form.start === "home" && (
+            <div className="mt-3 rounded-lg border border-slate-200 bg-white p-3">
+              <p className="mb-2 text-[11px] text-slate-500">{tx("Nur Inhaber und Leitung sehen die Wohnadresse. Das Büro sieht nur die Entfernung.")}</p>
+              <AddressFields value={form.home || emptyAddr()} onChange={(v) => set("home", v)} org={org} optional noLabel />
+            </div>
+          )}
+          <div className="mt-3 flex gap-2"><button type="button" className={btnPrimary} onClick={save} disabled={busy}>{busy ? tx("Speichert …") : tx("Speichern")}</button><button type="button" className={btnLight} onClick={() => setForm(null)}>{tx("Abbrechen")}</button></div>
+        </div>
+      )}
+      <Msg msg={msg} />
+      {rows.length === 0 ? <p className="mt-3 rounded-xl border border-dashed border-slate-300 px-4 py-6 text-center text-sm text-slate-500">{tx("Noch keine Mitarbeitenden. Mit „+ Mitarbeiter:in“ anlegen.")}</p> : (
+        <>
+        <ul className="mt-3 space-y-2 sm:hidden">
+          {list.map((x) => (
+            <li key={x.id} className={`rounded-xl border border-slate-200 bg-white px-3 py-2.5 shadow-sm ${x.active ? "" : "opacity-60"}`}>
+              <div className="flex items-start justify-between gap-2">
+                <div><div className="font-medium text-slate-800">{x.name}{!x.active ? <span className="ml-1 text-xs font-normal text-slate-400">{tx("(inaktiv)")}</span> : null}</div>
+                  <div className="text-xs text-slate-500">{x.personnel_no ? `${tx("Personalnummer")} ${x.personnel_no} · ` : ""}{x.weekly_hours ?? "–"} {tx("Std./Woche")}</div></div>
+                <button type="button" className="min-h-[36px] rounded-lg px-2 text-sm text-teal-700 underline" onClick={() => { setMsg(null); setForm(staffForm(x, starts, skillMap)); window.scrollTo(0, 0); }}>{tx("Bearbeiten")}</button>
+              </div>
+              <ContactButtons phone={x.phone} />
+            </li>
+          ))}
+        </ul>
+        <div className="mt-3 hidden overflow-x-auto rounded-xl border border-slate-200 bg-white sm:block">
+          <table className="w-full text-sm">
+            <thead className="bg-slate-50 text-left text-xs text-slate-500"><tr><th className="px-3 py-2">{tx("Name")}</th><th className="px-3 py-2">{tx("Mobil / WhatsApp")}</th><th className="px-3 py-2">{tx("Personalnummer")}</th><th className="px-3 py-2">{tx("Std./Woche")}</th><th className="px-3 py-2" /></tr></thead>
+            <tbody className="divide-y divide-slate-100">
+              {list.map((x) => (
+                <tr key={x.id} className={x.active ? "" : "opacity-60"}>
+                  <td className="px-3 py-2 font-medium text-slate-800">{x.name}{!x.active ? <span className="ml-1 text-xs font-normal text-slate-400">{tx("(inaktiv)")}</span> : null}</td>
+                  <td className="px-3 py-2 text-slate-700">{x.phone ? <a href={`https://wa.me/${digits(x.phone)}`} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 hover:underline"><Phone size={13} aria-hidden="true" />{x.phone}</a> : "–"}</td>
+                  <td className="px-3 py-2 text-slate-600">{x.personnel_no || "–"}</td>
+                  <td className="px-3 py-2 text-slate-600">{x.weekly_hours ?? "–"}</td>
+                  <td className="px-3 py-2 text-right"><button type="button" className="text-xs text-teal-700 underline" onClick={() => { setMsg(null); setForm(staffForm(x, starts, skillMap)); }}>{tx("Bearbeiten")}</button></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ---------- Einstellungen D3b: Regeln, Orte, Fähigkeiten ----------
+function RulesSection({ org, data, done }) {
+  const st = data.settings;
+  const [v, setV] = useState({ near_km: st.near_km, fairness_pp: st.fairness_pp, travel_min: st.travel_min });
+  useEffect(() => { setV({ near_km: st.near_km, fairness_pp: st.fairness_pp, travel_min: st.travel_min }); }, [st.near_km, st.fairness_pp, st.travel_min]);
+  const save = async () => {
+    const row = { org_id: org.orgId, near_km: Number(v.near_km), fairness_pp: Number(v.fairness_pp), travel_min: Math.round(Number(v.travel_min)) };
+    if (![row.near_km, row.fairness_pp, row.travel_min].every((x) => Number.isFinite(x) && x >= 0) || row.near_km > 100 || row.fairness_pp > 100 || row.travel_min > 240) return done({ error: { message: tx("Bitte gültige Zahlen eintragen (Entfernung bis 100 km, Fairness bis 100 %, Fahrzeit bis 240 Min.).") } });
+    await done(await org.supabase.from("touren_settings").upsert(row, { onConflict: "org_id" }), tx("Regeln gespeichert ✓"));
+  };
+  return (
+    <section className="rounded-xl border border-slate-200 bg-white p-4">
+      <h2 className="text-base font-semibold text-slate-800">{tx("Regeln für Vorschläge")}</h2>
+      <p className="mb-3 text-xs text-slate-500">{tx("Branche: {0} (wird von Dienstigo eingestellt).", tx(INDUSTRY[st.industry] || INDUSTRY.general))}</p>
+      <div className="grid gap-3 sm:grid-cols-3">
+        <label className="block"><span className={lbl}>{tx("„In der Nähe“ bis (km)")}</span><input type="number" min="0" max="100" step="0.5" className={inp} value={v.near_km} onChange={(e) => setV({ ...v, near_km: e.target.value })} /></label>
+        <label className="block"><span className={lbl}>{tx("Fairness-Bremse (Prozentpunkte)")}</span><input type="number" min="0" max="100" step="1" className={inp} value={v.fairness_pp} onChange={(e) => setV({ ...v, fairness_pp: e.target.value })} /></label>
+        <label className="block"><span className={lbl}>{tx("Fahrzeit zwischen zwei Einsätzen (Min.)")}</span><input type="number" min="0" max="240" step="5" className={inp} value={v.travel_min} onChange={(e) => setV({ ...v, travel_min: e.target.value })} /></label>
+      </div>
+      <p className="mt-2 text-[11px] text-slate-500">{tx("Wer näher ist, wird zuerst vorgeschlagen – außer er hat in diesem Monat schon so viele Prozentpunkte mehr gearbeitet als der Durchschnitt. Die Fahrzeit ist nur ein Hinweis („knapp“).")}</p>
+      <button type="button" className={`${btnPrimary} mt-3`} onClick={save}>{tx("Speichern")}</button>
+    </section>
+  );
+}
+
+const PLACE_KINDS = [["accommodation", "Unterkunft"], ["office", "Büro"], ["depot", "Lager"], ["other", "Sonstiges"]];
+function PlacesSection({ org, data, done }) {
+  const [form, setForm] = useState(null);
+  const save = async () => {
+    if (blank(form.name)) return done({ error: { message: tx("Bitte einen Namen eintragen.") } });
+    const row = { name: form.name.trim(), kind: form.kind, address: clean(form.address), maps_url: clean(form.maps_url), lat: form.lat ?? null, lng: form.lng ?? null };
+    const q = form.id ? org.supabase.from("touren_places").update(row).eq("id", form.id) : org.supabase.from("touren_places").insert({ org_id: org.orgId, ...row });
+    if (await done(await q, tx("„{0}“ gespeichert ✓", row.name))) setForm(null);
+  };
+  return (
+    <section className="rounded-xl border border-slate-200 bg-white p-4">
+      <h2 className="text-base font-semibold text-slate-800">{tx("Orte der Firma (Startpunkte)")}</h2>
+      <p className="mb-3 text-xs text-slate-500">{tx("Z. B. Unterkunft, Büro oder Lager. Von hier wird der erste Einsatz des Tages berechnet. Wer von zu Hause startet, bekommt seine Adresse unter „Mitarbeitende“.")}</p>
+      <ul className="space-y-1.5">
+        {data.places.map((pl) => (
+          <li key={pl.id} className={`flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm ${pl.active ? "" : "opacity-60"}`}>
+            <b>{pl.name}</b><span className="text-xs text-slate-500">{tx((PLACE_KINDS.find((k) => k[0] === pl.kind) || PLACE_KINDS[3])[1])}</span>
+            <span className="flex-1 truncate text-xs text-slate-600">{pl.address || ""}</span>
+            {pl.lat !== null && pl.lat !== undefined ? <span className="text-[11px] text-emerald-700">{tx("✓ Standort")}</span> : <span className="text-[11px] text-amber-700">{tx("ohne Standort")}</span>}
+            <button type="button" className="text-xs text-teal-700 underline" onClick={() => setForm({ ...pl, address: pl.address || "", maps_url: pl.maps_url || "", coordState: pl.lat !== null && pl.lat !== undefined ? "ok" : "none" })}>{tx("Bearbeiten")}</button>
+            <button type="button" className="text-xs text-slate-600 underline" onClick={async () => done(await org.supabase.from("touren_places").update({ active: !pl.active }).eq("id", pl.id), pl.active ? tx("„{0}“ ist inaktiv.", pl.name) : tx("„{0}“ ist wieder aktiv ✓", pl.name))}>{pl.active ? tx("inaktiv setzen") : tx("wieder aktivieren")}</button>
+          </li>
+        ))}
+        {data.places.length === 0 && <p className="text-sm text-slate-500">{tx("Noch kein Ort angelegt.")}</p>}
+      </ul>
+      {form ? (
+        <div className="mt-3 rounded-lg border border-teal-200 bg-teal-50/30 p-3">
+          <div className="mb-3 grid gap-3 sm:grid-cols-2">
+            <label className="block"><span className={lbl}>{tx("Name")} *</span><input className={inp} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder={tx("z. B. Unterkunft Al Quoz")} /></label>
+            <label className="block"><span className={lbl}>{tx("Art")}</span><select className={inp} value={form.kind} onChange={(e) => setForm({ ...form, kind: e.target.value })}>{PLACE_KINDS.map(([k, l]) => <option key={k} value={k}>{tx(l)}</option>)}</select></label>
+          </div>
+          <AddressFields value={form} onChange={setForm} org={org} optional noLabel />
+          <div className="mt-3 flex gap-2"><button type="button" className={btnPrimary} onClick={save}>{tx("Speichern")}</button><button type="button" className={btnLight} onClick={() => setForm(null)}>{tx("Abbrechen")}</button></div>
+        </div>
+      ) : <button type="button" className={`${btnLight} mt-3`} onClick={() => setForm({ id: null, name: "", kind: "accommodation", ...emptyAddr() })}><Plus size={15} />{tx("Ort")}</button>}
+    </section>
+  );
+}
+
+function SkillsSection({ org, data, done }) {
+  const [name, setName] = useState("");
+  const [edit, setEdit] = useState({});
+  const list = [...data.skills].sort((a, b) => a.sort_order - b.sort_order);
+  const add = async () => { if (blank(name)) return; if (await done(await org.supabase.from("skills").insert({ org_id: org.orgId, name: name.trim(), sort_order: (list.length ? list[list.length - 1].sort_order : 0) + 1 }), tx("„{0}“ angelegt ✓", name.trim()))) setName(""); };
+  const rename = async (k) => { const n = edit[k.id]; if (blank(n) || n === k.name) return; await done(await org.supabase.from("skills").update({ name: n.trim() }).eq("id", k.id), tx("„{0}“ gespeichert ✓", n.trim())); };
+  return (
+    <section className="rounded-xl border border-slate-200 bg-white p-4">
+      <h2 className="text-base font-semibold text-slate-800">{tx("Fähigkeiten / Qualifikationen")}</h2>
+      <p className="mb-3 text-xs text-slate-500">{tx("Z. B. Pflegefachkraft, Führerschein, Glasreinigung. Bei den Mitarbeitenden ankreuzen, bei den Leistungen als „nötig“ markieren – dann wird nur vorgeschlagen, wer es kann.")}</p>
+      <div className="space-y-1.5">
+        {list.map((k) => (
+          <div key={k.id} className={`flex flex-wrap items-center gap-2 ${k.active ? "" : "opacity-60"}`}>
+            <input className={`${inp} max-w-xs`} value={edit[k.id] ?? k.name} onChange={(e) => setEdit({ ...edit, [k.id]: e.target.value })} onBlur={() => rename(k)} aria-label={tx("Name der Fähigkeit")} />
+            <button type="button" className="text-xs text-slate-600 underline" onClick={async () => done(await org.supabase.from("skills").update({ active: !k.active }).eq("id", k.id), k.active ? tx("„{0}“ ist inaktiv.", k.name) : tx("„{0}“ ist wieder aktiv ✓", k.name))}>{k.active ? tx("inaktiv setzen") : tx("wieder aktivieren")}</button>
+          </div>
+        ))}
+        {list.length === 0 && <p className="text-sm text-slate-500">{tx("Noch keine Fähigkeit angelegt.")}</p>}
+      </div>
+      <div className="mt-3 flex gap-2"><input className={`${inp} max-w-xs`} value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") add(); }} placeholder={tx("z. B. Führerschein")} aria-label={tx("Neue Fähigkeit")} /><button type="button" className={btnPrimary} onClick={add}><Plus size={15} />{tx("Fähigkeit")}</button></div>
+    </section>
   );
 }
 
@@ -668,8 +1166,19 @@ function SettingsView({ org, data, reload }) {
   };
   const patchField = async (f, patch, okText) => done(await sb.from("custom_fields").update(patch).eq("id", f.id), okText);
 
+  const activeSkills = data.skills.filter((k) => k.active);
+  const needs = (svcId, skId) => data.serviceSkills.some((x) => x.service_type_id === svcId && x.skill_id === skId);
+  const toggleNeed = async (svc, sk) => {
+    const q = needs(svc.id, sk.id)
+      ? sb.from("service_skills").delete().eq("service_type_id", svc.id).eq("skill_id", sk.id)
+      : sb.from("service_skills").insert({ service_type_id: svc.id, skill_id: sk.id, org_id: org.orgId });
+    await done(await q, tx("Gespeichert ✓"));
+  };
   return (
     <div className="space-y-6">
+      <RulesSection org={org} data={data} done={done} />
+      <PlacesSection org={org} data={data} done={done} />
+      <SkillsSection org={org} data={data} done={done} />
       <section className="rounded-xl border border-slate-200 bg-white p-4">
         <h2 className="text-base font-semibold text-slate-800">{tx("Leistungen")}</h2>
         <p className="mb-3 text-xs text-slate-500">{tx("Die Liste, aus der beim Auftrag gewählt wird – z. B. Grundreinigung, Fensterreinigung, Wartung. Jede Firma legt ihre eigene an.")}</p>
@@ -680,6 +1189,11 @@ function SettingsView({ org, data, reload }) {
               <button type="button" className="rounded px-1.5 text-slate-500 hover:bg-slate-100 disabled:opacity-30" disabled={i === 0} onClick={() => moveSvc(i, -1)} aria-label={tx("nach oben")}>↑</button>
               <button type="button" className="rounded px-1.5 text-slate-500 hover:bg-slate-100 disabled:opacity-30" disabled={i === services.length - 1} onClick={() => moveSvc(i, 1)} aria-label={tx("nach unten")}>↓</button>
               <button type="button" className="text-xs text-slate-600 underline" onClick={async () => done(await sb.from("service_types").update({ active: !s.active }).eq("id", s.id), s.active ? tx("„{0}“ ist inaktiv.", s.name) : tx("„{0}“ ist wieder aktiv ✓", s.name))}>{s.active ? tx("inaktiv setzen") : tx("wieder aktivieren")}</button>
+              {activeSkills.length > 0 && (
+                <span className="flex w-full flex-wrap items-center gap-1 pl-1 text-[11px] text-slate-500">{tx("nötig:")}
+                  {activeSkills.map((k) => <button key={k.id} type="button" aria-pressed={needs(s.id, k.id)} onClick={() => toggleNeed(s, k)} className={`rounded-full border px-2 py-0.5 ${needs(s.id, k.id) ? "border-teal-600 bg-teal-600 text-white" : "border-slate-300 bg-white text-slate-600"}`}>{k.name}</button>)}
+                </span>
+              )}
             </div>
           ))}
           {services.length === 0 && <p className="text-sm text-slate-500">{tx("Noch keine Leistung angelegt.")}</p>}
@@ -735,8 +1249,11 @@ export default function TourenView() {
   const org = useContext(OrgContext);
   const isLeader = ["owner", "supervisor"].includes(org.role);
   const [tab, setTab] = useState("jobs");
-  const [data, setData] = useState({ customers: [], addresses: [], services: [], fields: [] });
+  const [data, setData] = useState({ customers: [], addresses: [], services: [], fields: [], settings: DEFAULT_SETTINGS, skills: [], places: [], serviceSkills: [], prefs: [], staffList: [] });
   const [jobs, setJobs] = useState([]);
+  const [assign, setAssign] = useState([]); // job_staff der sichtbaren Aufträge
+  const [openCount, setOpenCount] = useState(0);
+  const [assignDlg, setAssignDlg] = useState(null); // Auftrag, für den Personal gewählt wird
   const [day, setDay] = useState(() => isoOf(new Date()));
   const [mode, setMode] = useState("day");
   const [showCancelled, setShowCancelled] = useState(false);
@@ -746,18 +1263,29 @@ export default function TourenView() {
   const [custDlg, setCustDlg] = useState(null); // { customer } | {}
   const [flash, setFlash] = useState(null);
   const [zugOpen, setZugOpen] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
   const sb = org.supabase;
 
   const loadBase = useCallback(async () => {
-    const [c, a, s, f] = await Promise.all([
+    const [c, a, s, f, ts, sk, pl, ss, pr, ctx, oc] = await Promise.all([
       sb.from("customers").select("*").eq("org_id", org.orgId).order("customer_no"),
       sb.from("customer_addresses").select("*").eq("org_id", org.orgId).order("created_at"),
       sb.from("service_types").select("*").eq("org_id", org.orgId).order("sort_order"),
       sb.from("custom_fields").select("*").eq("org_id", org.orgId).order("sort_order"),
+      sb.from("touren_settings").select("*").eq("org_id", org.orgId).maybeSingle(),
+      sb.from("skills").select("*").eq("org_id", org.orgId).order("sort_order"),
+      sb.from("touren_places").select("*").eq("org_id", org.orgId).order("created_at"),
+      sb.from("service_skills").select("*").eq("org_id", org.orgId),
+      sb.from("customer_staff_pref").select("*").eq("org_id", org.orgId),
+      sb.rpc("touren_day_context", { p_org: org.orgId, p_day: isoOf(new Date()) }),
+      sb.rpc("touren_open_count", { p_org: org.orgId }),
     ]);
-    const err = c.error || a.error || s.error || f.error;
+    const err = c.error || a.error || s.error || f.error || ts.error || sk.error || pl.error || ss.error || pr.error || ctx.error;
     if (err) { setLoadErr(errText(err)); return; }
-    setData({ customers: c.data || [], addresses: a.data || [], services: s.data || [], fields: f.data || [] });
+    setData({ customers: c.data || [], addresses: a.data || [], services: s.data || [], fields: f.data || [],
+      settings: { ...DEFAULT_SETTINGS, ...(ts.data || {}) }, skills: sk.data || [], places: pl.data || [], serviceSkills: ss.data || [], prefs: pr.data || [],
+      staffList: ((ctx.data && ctx.data.staff) || []).map((x) => ({ id: x.id, name: x.name })) });
+    setOpenCount(oc.error ? 0 : oc.data || 0);
     setLoaded(true);
   }, [sb, org.orgId]);
 
@@ -766,6 +1294,9 @@ export default function TourenView() {
     const r = await sb.from("jobs").select("*").eq("org_id", org.orgId).gte("work_date", range[0]).lte("work_date", range[1]).order("work_date").order("start_time");
     if (r.error) { setLoadErr(errText(r.error)); return; }
     setJobs(r.data || []);
+    const ids = (r.data || []).map((j) => j.id);
+    const js = ids.length ? await sb.from("job_staff").select("job_id, staff_id").in("job_id", ids) : { data: [] };
+    setAssign(js.data || []);
   }, [sb, org.orgId, range[0], range[1]]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { loadBase(); }, [loadBase]);
@@ -779,10 +1310,12 @@ export default function TourenView() {
     else if (!keepOpen) setCustDlg({ customer });
   };
 
+  TERMS = data.settings.industry || "general";
+  const afterAssign = async () => { await loadJobs(); const oc = await sb.rpc("touren_open_count", { p_org: org.orgId }); if (!oc.error) setOpenCount(oc.data || 0); };
   const hasPlanner = PLANNER_ROLES.includes(org.role) && (org.products || []).some((p) => p === "generic_planner" || p === "lab_planner");
   const plannerHref = (org.products || []).includes("generic_planner") ? "/allgemein" : "/labor";
-  const item = (icon, label, key) => { const Icon = icon; return (
-    <button type="button" className="dg-item" aria-current={tab === key ? "page" : undefined} onClick={() => setTab(key)}><Icon size={18} strokeWidth={1.9} aria-hidden="true" /><span className="dg-item-label">{tx(label)}</span></button>
+  const item = (icon, label, key, badge) => { const Icon = icon; return (
+    <button type="button" className={`dg-item${badge ? " dg-item-alert" : ""}`} aria-current={tab === key ? "page" : undefined} onClick={() => setTab(key)} title={badge ? tx("{0} Aufträge ohne volles Personal (nächste 30 Tage)", badge) : undefined}><Icon size={18} strokeWidth={1.9} aria-hidden="true" /><span className="dg-item-label">{tx(label)}</span>{badge ? <span className="dg-badge">{badge}</span> : null}</button>
   ); };
   const sidebar = (
     <nav aria-label={tx("Hauptmenü")} className="dg-nav">
@@ -792,8 +1325,9 @@ export default function TourenView() {
       </div>
       <div className="dg-group">
         <div className="dg-group-label">{tx("Touren")}</div>
-        {item(ClipboardList, "Aufträge", "jobs")}
+        {item(ClipboardList, "Aufträge", "jobs", openCount)}
         {item(Users, "Kunden", "customers")}
+        {isLeader && item(UserCog, "Mitarbeitende", "staff")}
         {isLeader && item(Settings, "Einstellungen", "settings")}
       </div>
       {isLeader && (
@@ -815,23 +1349,49 @@ export default function TourenView() {
     </nav>
   );
 
-  const titles = { jobs: ["Aufträge", "Jeder Auftrag mit eigener Zeit, Adresse und Personenzahl – von Hand eingetragen, z. B. nach einem Anruf."], customers: ["Kunden", "Kontaktdaten, Adressen mit Standort und Hinweise für die Mitarbeitenden."], settings: ["Einstellungen", "Leistungen und eigene Zusatzfelder für Ihre Firma."] };
+  const titles = { jobs: ["Aufträge", "Jeder Auftrag mit eigener Zeit, Adresse und Anzahl Personal – von Hand eingetragen, z. B. nach einem Anruf."], customers: ["Kunden", "Kontaktdaten, Adressen mit Standort und Hinweise für die Mitarbeitenden."], settings: ["Einstellungen", "Regeln für Vorschläge, Orte, Fähigkeiten, Leistungen und eigene Zusatzfelder für Ihre Firma."], staff: ["Mitarbeitende", "Die Personen, die beim Kunden arbeiten – gleiche Liste wie im Dienstplan und in der Zeiterfassung."] };
   const [h1, sub] = titles[tab] || titles.jobs;
   return (
-    <div className="dg-root min-h-screen bg-[#F4F6FA] p-3 sm:p-5">
+    <div className="tv-root dg-root min-h-screen bg-[#F4F6FA] p-3 sm:p-5">
+      <style>{MOBILE_CSS}</style>
+      {/* Handy: schmale Kopfzeile statt Menü-Karte */}
+      <div className="tv-only-phone mb-1 flex items-center gap-2 px-1 pt-1">
+        <span className="dg-mark" aria-hidden="true"><MapPin size={16} strokeWidth={2} /></span>
+        <span className="min-w-0 flex-1 truncate text-sm text-slate-600"><b className="text-slate-800">Dienstigo</b> · {org.orgName} · {tx(ROLE_LABEL[org.role] || org.role)}</span>
+      </div>
       <PlannerShell sidebar={sidebar}>
         <header className="dg-pagehead"><div><h1>{tx(h1)}</h1><p>{tx(sub)}</p></div></header>
         {loadErr && <div role="alert" className="rounded-xl bg-rose-50 px-4 py-3 text-sm text-rose-800">{loadErr}</div>}
         {!loadErr && !loaded && <p className="text-sm text-slate-500">{tx("Lädt …")}</p>}
         {!loadErr && loaded && tab === "jobs" && (
-          <JobsView org={org} data={data} jobs={jobs} day={day} setDay={setDay} mode={mode} setMode={setMode} showCancelled={showCancelled} setShowCancelled={setShowCancelled}
+          <JobsView org={org} data={data} jobs={jobs} assign={assign} onAssign={(j) => setAssignDlg(j)} day={day} setDay={setDay} mode={mode} setMode={setMode} showCancelled={showCancelled} setShowCancelled={setShowCancelled}
             onNew={(d) => setJobDlg({ preset: { date: d } })} onOpen={(j) => setJobDlg({ job: j })} />
         )}
         {!loadErr && loaded && tab === "customers" && <CustomersView data={data} onNew={() => setCustDlg({})} onOpen={(c) => setCustDlg({ customer: c })} />}
         {!loadErr && loaded && tab === "settings" && isLeader && <SettingsView org={org} data={data} reload={loadBase} />}
+        {!loadErr && loaded && tab === "staff" && isLeader && <StaffView org={org} data={data} onChanged={loadBase} />}
       </PlannerShell>
+      {/* Handy: Leiste unten wie in einer App */}
+      <nav className="tv-only-phone tv-tabbar" aria-label={tx("Hauptmenü")}>
+        {[[ClipboardList, "Aufträge", "jobs"], [Users, "Kunden", "customers"], ...(isLeader ? [[UserCog, "Mitarbeitende", "staff"]] : [])].map(([Icon, label, key]) => (
+          <button key={key} type="button" aria-current={tab === key ? "page" : undefined} onClick={() => { setTab(key); setMoreOpen(false); window.scrollTo(0, 0); }}><span className="relative"><Icon size={20} aria-hidden="true" />{key === "jobs" && openCount > 0 ? <span className="absolute -right-3 -top-2 min-w-[18px] rounded-full bg-rose-600 px-1 text-center text-[10px] font-bold leading-[18px] text-white">{openCount}</span> : null}</span><span>{tx(label)}</span></button>
+        ))}
+        <button type="button" aria-expanded={moreOpen} aria-current={tab === "settings" ? "page" : undefined} onClick={() => setMoreOpen((v) => !v)}><MoreHorizontal size={20} aria-hidden="true" /><span>{tx("Mehr")}</span></button>
+      </nav>
+      {moreOpen && (
+        <div className="tv-only-phone fixed inset-0 z-40 bg-slate-900/30" onClick={() => setMoreOpen(false)}>
+          <div className="tv-sheet" onClick={(e) => e.stopPropagation()}>
+            {isLeader && <button type="button" onClick={() => { setTab("settings"); setMoreOpen(false); window.scrollTo(0, 0); }}><Settings size={18} aria-hidden="true" />{tx("Einstellungen")}</button>}
+            {isLeader && <button type="button" onClick={() => { setZugOpen(true); setMoreOpen(false); }}><KeyRound size={18} aria-hidden="true" />{tx("Zugänge")}</button>}
+            {hasPlanner && <a href={plannerHref}><CalendarDays size={18} aria-hidden="true" />{tx("Dienstplan")}</a>}
+            <button type="button" onClick={() => sb.auth.signOut()}><LogOut size={18} aria-hidden="true" />{tx("Abmelden")}</button>
+          </div>
+        </div>
+      )}
+      {flash && <div role="status" className="tv-only-phone tv-toast">{flash}</div>}
       {zugOpen && <ZugaengeDialog onClose={() => setZugOpen(false)} />}
-      {jobDlg && <JobDialog org={org} data={data} job={jobDlg.job} preset={jobDlg.preset} onClose={() => setJobDlg(null)} onSaved={onJobSaved} />}
+      {assignDlg && <AssignPanel org={org} job={assignDlg} data={data} onClose={() => setAssignDlg(null)} onChanged={afterAssign} />}
+      {jobDlg && <JobDialog org={org} data={data} job={jobDlg.job} preset={jobDlg.preset} onClose={() => setJobDlg(null)} onSaved={onJobSaved} onAssign={(j) => { setJobDlg(null); setAssignDlg(j); }} />}
       {custDlg && <CustomerDialog key={custDlg.customer ? custDlg.customer.id : "new"} org={org} data={data} customer={custDlg.customer ? data.customers.find((x) => x.id === custDlg.customer.id) || custDlg.customer : null} onClose={() => setCustDlg(null)} onSaved={onCustSaved}
         onNewJob={(c) => { setCustDlg(null); setTab("jobs"); setJobDlg({ preset: { customerId: c.id, date: day } }); }} />}
     </div>

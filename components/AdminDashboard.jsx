@@ -568,6 +568,7 @@ function FinanzenLink({ firms }) {
 }
 
 // Paket D1: Land + Sprache einer Firma (Zeitzone und Währung folgen dem Land)
+const INDUSTRY_LABEL = { general: "Allgemein", cleaning: "Reinigung", care: "Pflege & Betreuung", facility: "Hausmeister & Technik" };
 function LandBox({ f, act, busy, label }) {
   const land = f.land || { country: "DE", language: "de", timezone: "Europe/Berlin", currency: "EUR" };
   const save = (country, language) => {
@@ -588,6 +589,18 @@ function LandBox({ f, act, busy, label }) {
         </select>
       </label>
       <span>{label("land" + f.id, `${land.timezone} · ${land.currency}`)}</span>
+      {f.industry !== null && f.industry !== undefined && (
+        <label style={{ display: "flex", gap: 6, alignItems: "center" }} title="Touren: Wörter, Vorschläge, Beispiel-Leistungen und -Fähigkeiten (nur wenn noch keine da sind)">Branche (Touren)
+          <select aria-label={`Branche ${f.name}`} value={f.industry} disabled={busy} onChange={(e) => {
+            const v = e.target.value;
+            if (!window.confirm(`„${f.name}“: Branche „${INDUSTRY_LABEL[v]}“?\n\nWörter und Vorschläge in Touren passen sich an. Beispiel-Leistungen und -Fähigkeiten werden nur angelegt, wenn die Firma noch keine hat – Vorhandenes bleibt.`)) return;
+            act({ action: "set_industry", orgId: f.id, industry: v }, { key: "ind" + f.id, okText: `„${f.name}“: ${INDUSTRY_LABEL[v]}.` });
+          }} style={sel}>
+            {Object.keys(INDUSTRY_LABEL).map((k) => <option key={k} value={k}>{INDUSTRY_LABEL[k]}</option>)}
+          </select>
+          <span>{label("ind" + f.id, "")}</span>
+        </label>
+      )}
     </div>
   );
 }

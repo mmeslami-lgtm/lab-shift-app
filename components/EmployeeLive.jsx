@@ -1,11 +1,12 @@
 "use client";
 
 import React, { useContext, useEffect, useMemo, useState } from "react";
-import { CalendarDays, Users, FileText, Clock, Gift, ChevronLeft, ChevronRight, Sunrise, Sunset, Moon } from "lucide-react";
+import { CalendarDays, Users, FileText, Clock, Gift, ChevronLeft, ChevronRight, Sunrise, Sunset, Moon, MapPin } from "lucide-react";
 import { OrgContext } from "../lib/orgContext";
 import EmployeeWishes from "./EmployeeWishes";
 import EmployeeTimes from "./EmployeeTimes";
 import EmployeeRequests from "./EmployeeRequests";
+import EmployeeJobs from "./EmployeeJobs";
 import StampReminder from "./StampReminder";
 import ScanStamp from "./ScanStamp";
 import MobileStamp from "./MobileStamp";
@@ -91,7 +92,9 @@ export default function EmployeeLive() {
   const org = useContext(OrgContext);
   const now = useMemo(() => new Date(), []);
   const todayIso = isoOf(now.getFullYear(), now.getMonth(), now.getDate());
-  const [tab, setTab] = useState("plan");
+  // Touren D3b: Firmen mit „touren“ bekommen den Reiter „Einsätze“ (My jobs) und starten dort; alle anderen unverändert
+  const hasTouren = (org.products || []).includes("touren");
+  const [tab, setTab] = useState(hasTouren ? "jobs" : "plan");
   const [scanOpen, setScanOpen] = useState(false); // "📷 Stempeln": camera inside the app
   const [mobilOpen, setMobilOpen] = useState(false);
   const [schulung, setSchulung] = useState(false); // 🎓 Schulung (free, no AI) // "Mobil stempeln" (company feature mobil_stempeln)
@@ -257,7 +260,7 @@ export default function EmployeeLive() {
   const selDate = parseIso(selIso);
   const selKey = myMonth[selIso];
   const monthHours = Object.values(myMonth).reduce((sum, k) => sum + (defByKey[k] ? netHours(defByKey[k]) : 0), 0);
-  const tabs = [["plan", tx("Plan"), CalendarDays], ["team", tx("Team"), Users], ["requests", tx("Anträge"), FileText], ["time", tx("Zeiten"), Clock], ["wishes", tx("Wünsche"), Gift]];
+  const tabs = [...(hasTouren ? [["jobs", tx("Einsätze"), MapPin]] : []), ["plan", tx("Plan"), CalendarDays], ["team", tx("Team"), Users], ["requests", tx("Anträge"), FileText], ["time", tx("Zeiten"), Clock], ["wishes", tx("Wünsche"), Gift]];
 
   return (
     <div dir="ltr" style={{ background: PAPER, color: INK, fontFamily: "system-ui, -apple-system, 'Segoe UI', sans-serif", minHeight: "100vh", paddingBottom: 96 }}>
@@ -435,10 +438,11 @@ export default function EmployeeLive() {
         {tab === "time" && <EmployeeTimes org={org} />}
 
         {tab === "requests" && <EmployeeRequests org={org} />}
+        {tab === "jobs" && hasTouren && <EmployeeJobs org={org} />}
       </div>
 
       <nav style={{ position: "fixed", left: 0, right: 0, bottom: 0, background: "#fff", borderTop: "1px solid #E1E5EC", paddingBottom: "env(safe-area-inset-bottom, 0px)", zIndex: 10 }}>
-        <div style={{ maxWidth: 440, margin: "0 auto", display: "grid", gridTemplateColumns: "repeat(5, 1fr)" }}>
+        <div style={{ maxWidth: 440, margin: "0 auto", display: "grid", gridTemplateColumns: `repeat(${tabs.length}, 1fr)` }}>
           {tabs.map(([k, label, Icon]) => (
             <button key={k} onClick={() => setTab(k)} aria-current={tab === k ? "page" : undefined}
               style={{ background: "none", border: 0, padding: "10px 0 9px", display: "flex", flexDirection: "column", alignItems: "center", gap: 3, color: tab === k ? PRIMARY : "#8A93A5", fontWeight: tab === k ? 700 : 500, cursor: "pointer" }}>
