@@ -837,22 +837,26 @@ const PRINT_CSS = `
   @page { size: A4; margin: 12mm; }
 }`;
 
-function printRange(kind, day) {
+function printRange(kind, day, o) {
+  if (kind === "custom") return [o.from, o.to];
   if (kind === "week") { const a = mondayOf(day); return [a, addDays(a, 6)]; }
   if (kind === "month") { const d = dateOf(day); const a = isoOf(new Date(d.getFullYear(), d.getMonth(), 1, 12)); const b = isoOf(new Date(d.getFullYear(), d.getMonth() + 1, 0, 12)); return [a, b]; }
   return [day, day];
 }
 
 function PrintDialog({ org, data, day, mode, onClose }) {
-  const [o, setO] = useState({ range: mode === "week" ? "week" : "day", date: day, layout: "overview", pages: true, phone: false, notes: true, back: true });
+  const [o, setO] = useState({ range: mode === "week" ? "week" : "day", date: day, from: mode === "week" ? mondayOf(day) : day, to: mode === "week" ? addDays(mondayOf(day), 6) : day, layout: "overview", pages: true, phone: false, notes: true, back: true });
   const [sheet, setSheet] = useState(null); // geladene Daten → Vorschau
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState(null);
   const set = (k, v) => setO((p) => ({ ...p, [k]: v }));
   async function preview() {
     setBusy(true); setMsg(null);
-    if (!o.date) { setBusy(false); return setMsg({ kind: "err", text: tx("Bitte ein Datum wählen.") }); }
-    const [from, to] = printRange(o.range, o.date);
+    if (o.range === "custom" ? !o.from || !o.to : !o.date) { setBusy(false); return setMsg({ kind: "err", text: tx("Bitte ein Datum wählen.") }); }
+    const [from, to] = printRange(o.range, o.date, o);
+    if (to < from) { setBusy(false); return setMsg({ kind: "err", text: tx("„Bis“ liegt vor „Von“.") }); }
+    const maxDays = o.layout === "transport" ? 31 : 62;
+    if ((dateOf(to) - dateOf(from)) / 86400000 >= maxDays) { setBusy(false); return setMsg({ kind: "err", text: tx("Höchstens {0} Tage auf einmal.", maxDays) }); }
     const sb = org.supabase;
     if (o.layout === "transport") {
       const t = await sb.rpc("touren_transport", { p_org: org.orgId, p_from: from, p_to: to });
@@ -880,7 +884,14 @@ function PrintDialog({ org, data, day, mode, onClose }) {
     <Modal title={tx("Drucken")} onClose={onClose}>
       <div className="space-y-4">
         <div><span className={lbl}>{tx("Zeitraum")}</span>
-          <div role="radiogroup" className="inline-flex overflow-hidden rounded-lg border border-slate-300 text-sm">{opt("range", "day", tx("Tag"))}{opt("range", "week", tx("Woche"))}{opt("range", "month", tx("Monat"))}</div>
+          <div role="radiogroup" className="inline-flex overflow-hidden rounded-lg border border-slate-300 text-sm">{opt("range", "day", tx("Tag"))}{opt("range", "week", tx("Woche"))}{opt("range", "month", tx("Monat"))}{opt("range", "custom", tx("Von – bis"))}</div>
+          {o.range === "custom" ? (
+          <div className="mt-2 flex flex-wrap items-center gap-3">
+            <label className="text-xs text-slate-600">{tx("Von")}<input type="date" className={`${inpBase} ml-2`} value={o.from} onChange={(e) => setO((p) => ({ ...p, from: e.target.value, to: p.to && p.to < e.target.value ? e.target.value : p.to }))} /></label>
+            <label className="text-xs text-slate-600">{tx("Bis")}<input type="date" className={`${inpBase} ml-2`} value={o.to} min={o.from} onChange={(e) => set("to", e.target.value)} /></label>
+            {o.from && o.to && o.to >= o.from && <p className="w-full text-xs font-medium text-slate-700">{dmy(dateOf(o.from))} – {dmy(dateOf(o.to))} · {tx("{0} Tage", Math.round((dateOf(o.to) - dateOf(o.from)) / 86400000) + 1)}</p>}
+          </div>
+          ) : (<>
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <label className="text-xs text-slate-600">{o.range === "day" ? tx("Tag") : o.range === "week" ? tx("Ein Tag in der Woche") : tx("Ein Tag im Monat")}
               <input type="date" className={`${inpBase} ml-2`} value={o.date} onChange={(e) => set("date", e.target.value)} /></label>
@@ -890,6 +901,7 @@ function PrintDialog({ org, data, day, mode, onClose }) {
             </div>
           </div>
           {o.date && <p className="mt-1 text-xs font-medium text-slate-700">{(() => { const [a, b] = printRange(o.range, o.date); return o.range === "month" ? `${monthName(dateOf(a).getMonth())} ${dateOf(a).getFullYear()}` : a === b ? `${wdLong(dateOf(a).getDay())}, ${dmy(dateOf(a))}` : `${dmy(dateOf(a))} – ${dmy(dateOf(b))}`; })()}</p>}
+          </>)}
         </div>
         <div><span className={lbl}>{tx("Ansicht")}</span>
           <div role="radiogroup" className="inline-flex overflow-hidden rounded-lg border border-slate-300 text-sm">{opt("layout", "overview", tx("Alle Aufträge"))}{opt("layout", "staff", tx("Pro Mitarbeiter:in"))}{opt("layout", "transport", tx("Transport"))}</div>
