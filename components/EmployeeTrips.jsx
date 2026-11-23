@@ -26,9 +26,21 @@ export default function EmployeeTrips({ org, initial }) {
   useEffect(() => { if (!initial) load(); }, [load, initial]);
 
   if (!data) return <div style={{ fontSize: 14, color: MUTED }}>{tx("Lädt …")}</div>;
-  const days = buildTrips(data, { back: true, homeLabel: tx("Zuhause") });
+  const days = buildTrips(data, { back: true, homeLabel: tx("Zuhause"), single: true });
+  const WARN = { overlap: tx("⚠ Überschneidung mit einer anderen Fahrt – bitte das Büro fragen"), self: tx("⚠ Du arbeitest zu dieser Zeit selbst – bitte das Büro fragen"), late: tx("⚠ Zeit reicht knapp nicht") };
+  const people = (who) => who.map((w) => (
+    <div key={w.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "3px 0" }}>
+      <span style={{ fontWeight: 600 }}>{w.name}</span>
+      {w.phone && <a href={`tel:${w.phone}`} aria-label={tx("{0} anrufen", w.name)} style={{ display: "inline-flex", alignItems: "center", gap: 4, minHeight: 36, borderRadius: 10, border: "1.5px solid #9AAED0", color: INK, fontSize: 13, textDecoration: "none", padding: "0 10px" }}><Phone size={14} />{tx("Anrufen")}</a>}
+    </div>));
+  const stopBlock = (st, label) => (
+    <div style={{ borderLeft: "3px solid #C9D3E6", paddingLeft: 10 }}>
+      <div style={{ fontSize: 12, color: MUTED }}><b className="tn" style={{ color: INK }}>{st.time}</b> · {label}</div>
+      {place(st.place)}
+      {people(st.who)}
+    </div>);
   const today = data.today || addIso(new Date().toISOString().slice(0, 10), 0);
-  const KIND = { pick: tx("Abholen"), next: tx("Weiterfahrt"), back: tx("Rückfahrt") };
+  const KIND = { pick: tx("Abholen"), next: tx("Weiterfahrt"), back: tx("Rückfahrt"), out: tx("Weiter- und Rückfahrt") };
   const place = (p) => {
     const href = mapsHref({ lat: p.lat, lng: p.lng, maps_url: p.maps_url, address: p.addr });
     return (
@@ -61,18 +73,13 @@ export default function EmployeeTrips({ org, initial }) {
                   <span style={{ fontSize: 13, fontWeight: 650, color: r.kind === "back" ? MUTED : PRIMARY }}>{KIND[r.kind]}</span>
                   {r.arrive && <span style={{ marginLeft: "auto", fontSize: 13, color: MUTED }}>{tx("Beginn {0}", r.arrive)}</span>}
                 </div>
-                <div style={{ display: "grid", gap: 8, marginTop: 8 }}>
-                  <div><div style={{ fontSize: 12, color: MUTED }}>{tx("Von")}</div>{place(r.from)}</div>
-                  <div>
-                    <div style={{ fontSize: 12, color: MUTED }}>{tx("Wer")}</div>
-                    {r.who.map((w) => (
-                      <div key={w.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "3px 0" }}>
-                        <span style={{ fontWeight: 600 }}>{w.name}</span>
-                        {w.phone && <a href={`tel:${w.phone}`} aria-label={tx("{0} anrufen", w.name)} style={{ display: "inline-flex", alignItems: "center", gap: 4, minHeight: 36, borderRadius: 10, border: "1.5px solid #9AAED0", color: INK, fontSize: 13, textDecoration: "none", padding: "0 10px" }}><Phone size={14} />{tx("Anrufen")}</a>}
-                      </div>
-                    ))}
-                  </div>
-                  <div><div style={{ fontSize: 12, color: MUTED }}>{tx("Nach")}</div>{place(r.to)}</div>
+                {r.warn.map((w) => <div key={w} role="alert" style={{ marginTop: 6, fontSize: 13, fontWeight: 600, color: "#8F1B1B" }}>{WARN[w]}</div>)}
+                <div style={{ display: "grid", gap: 10, marginTop: 8 }}>
+                  {r.kind === "pick" && <>{r.stops.map((st, i) => <div key={i}>{stopBlock(st, tx("Abholen"))}</div>)}
+                    <div><div style={{ fontSize: 12, color: MUTED }}>{tx("Nach")} · <b className="tn" style={{ color: INK }}>{r.arrive}</b></div>{place(r.to)}</div></>}
+                  {r.kind !== "pick" && <>
+                    <div><div style={{ fontSize: 12, color: MUTED }}>{tx("Von")}</div>{place(r.from)}</div>
+                    {r.stops.map((st, i) => <div key={i}>{stopBlock(st, st.deadline ? tx("Bringen – Beginn {0}", st.deadline) : tx("Absetzen"))}</div>)}</>}
                 </div>
               </article>
             ))}
@@ -80,7 +87,7 @@ export default function EmployeeTrips({ org, initial }) {
           </section>
         );
       })}
-      <div style={{ fontSize: 12, color: MUTED, margin: "4px 2px 0" }}>{tx("Abholzeit = Beginn minus Fahrzeit. Änderungen macht das Büro.")}</div>
+      <div style={{ fontSize: 12, color: MUTED, margin: "4px 2px 0" }}>{tx("Zeiten sind aus der Entfernung geschätzt. Änderungen macht das Büro.")}</div>
     </div>
   );
 }

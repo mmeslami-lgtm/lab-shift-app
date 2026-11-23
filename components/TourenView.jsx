@@ -911,7 +911,7 @@ function PrintDialog({ org, data, day, mode, onClose }) {
         {o.layout === "transport" ? (
         <div className="space-y-1.5 text-sm">
           <label className="flex items-center gap-2"><input type="checkbox" checked={o.back} onChange={(e) => set("back", e.target.checked)} />{tx("Rückfahrt nach dem letzten Auftrag")}</label>
-          <p className="text-xs text-slate-500">{tx("Abholzeit = Beginn minus Fahrzeit aus den Einstellungen. Startpunkt je Person: „Mitarbeitende“ → „Bearbeiten“.")}</p>
+          <p className="text-xs text-slate-500">{tx("Wer mit derselben Fahrer:in zum selben Auftrag fährt, kommt in eine Fahrt mit mehreren Haltestellen. Die Zeiten werden aus der Entfernung geschätzt (ohne Kartenpunkt: Fahrzeit aus den Einstellungen). Startpunkt je Person: „Mitarbeitende“ → „Bearbeiten“.")}</p>
           <p className="text-xs text-amber-700">{tx("Enthält Wohnadressen und Telefonnummern des Personals – nur dem Fahrer geben.")}</p>
         </div>
         ) : (
@@ -979,7 +979,8 @@ function PrintSheet({ org, data, sheet, onBack, onClose, onReload }) {
     if (err) { setDrvErr(errText(err)); return; }
     if (onReload) onReload();
   }
-  const KIND = { pick: tx("Abholen"), next: tx("Weiterfahrt"), back: tx("Rückfahrt") };
+  const KIND = { pick: tx("Abholen"), next: tx("Weiterfahrt"), back: tx("Rückfahrt"), out: tx("Weiter- und Rückfahrt") };
+  const WARN = { overlap: tx("⚠ Überschneidung – andere Fahrer:in wählen"), self: tx("⚠ Fahrer:in arbeitet zu dieser Zeit selbst"), late: tx("⚠ Zeit reicht knapp nicht") };
   const body = opts.layout === "transport" ? (
     <>
       {drvErr && <div className="dgp-noprint" role="alert" style={{ color: "#b91c1c", marginBottom: 8 }}>{drvErr}</div>}
@@ -996,10 +997,15 @@ function PrintSheet({ org, data, sheet, onBack, onClose, onReload }) {
               <thead><tr><th>{tx("Abfahrt")}</th><th>{tx("Von")}</th><th>{tx("Wer")}</th><th>{tx("Nach")}</th><th>{tx("Beginn")}</th></tr></thead>
               <tbody>{g.rows.map((r) => (
                 <tr key={r.key}>
-                  <td><div className="dgp-time" style={{ fontSize: "12pt" }}>{r.time}</div><div className="dgp-muted">{KIND[r.kind]}</div></td>
-                  <td><div style={{ fontWeight: 600 }}>{r.from.label}</div><div>{r.from.addr}</div></td>
-                  <td>{r.who.map((w) => <div key={w.id} style={{ marginBottom: 2 }}><span style={{ fontWeight: 600 }}>{w.name}</span>{w.phone ? <div className="dgp-muted">☎ {w.phone}</div> : null}</div>)}</td>
-                  <td><div style={{ fontWeight: 600 }}>{r.to.label}</div><div>{r.to.addr}</div></td>
+                  <td><div className="dgp-time" style={{ fontSize: "12pt" }}>{r.time}</div><div className="dgp-muted">{KIND[r.kind]}</div>
+                    {r.warn.map((w) => <div key={w} className="dgp-warn" style={{ fontSize: "8.5pt", marginTop: 3 }}>{WARN[w]}</div>)}</td>
+                  <td>{r.kind === "pick" ? r.stops.map((st, i) => <div key={i} style={{ marginBottom: 4 }}>{r.stops.length > 1 && <span className="dgp-time">{st.time} </span>}<span style={{ fontWeight: 600 }}>{st.place.label}</span><div>{st.place.addr}</div></div>)
+                    : <><div style={{ fontWeight: 600 }}>{r.from.label}</div><div>{r.from.addr}</div></>}</td>
+                  <td>{r.stops.map((st, i) => (
+                    <div key={i} style={{ marginBottom: 4 }}>{r.stops.length > 1 && <div className="dgp-muted">{st.time} · {st.place.label}</div>}
+                      {st.who.map((w) => <div key={w.id} style={{ marginBottom: 2 }}><span style={{ fontWeight: 600 }}>{w.name}</span>{w.phone ? <div className="dgp-muted">☎ {w.phone}</div> : null}</div>)}</div>))}</td>
+                  <td>{r.kind !== "pick" ? r.stops.map((st, i) => <div key={i} style={{ marginBottom: 4 }}><span className="dgp-time">{st.time} </span><span style={{ fontWeight: 600 }}>{st.place.label}</span><div>{st.place.addr}</div>{st.deadline && <div className="dgp-muted">{tx("Beginn {0}", st.deadline)}</div>}</div>)
+                    : <><div style={{ fontWeight: 600 }}>{r.to.label}</div><div>{r.to.addr}</div></>}</td>
                   <td><div className="dgp-time">{r.arrive || "–"}</div>
                     {drivers.length > 0 && (
                       <select className="dgp-noprint" aria-label={tx("Fahrer:in")} disabled={drvBusy} value={r.manual ? r.driverId || "" : ""} onChange={(e) => setDriver(t.day, r, e.target.value)} style={{ marginTop: 4, width: "100%", fontSize: "9pt", border: "1px solid #cbd5e1", borderRadius: 6, padding: "2px 4px" }}>
