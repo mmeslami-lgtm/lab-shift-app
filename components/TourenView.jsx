@@ -92,6 +92,19 @@ function errText(e) {
 
 const inpBase = "border border-slate-300 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 bg-white";
 const inp = `w-full ${inpBase}`;
+// Löschen (SQL 49): die Datenbank löscht nur, wenn die Regel erlaubt; sonst kommt 0 Zeilen zurück → Hinweis
+const ask = (text) => typeof window === "undefined" || window.confirm(text);
+// für Einstellungen: liefert ein Ergebnis im Format von done() – blockiert → Fehlermeldung mit Hinweis
+async function delOrHint(query, hint) {
+  const r = await removeRow(query);
+  if (r.error) return { error: r.error };
+  return r.blocked ? { error: { message: hint } } : { error: null };
+}
+async function removeRow(query) {
+  const r = await query.select();
+  if (r.error) return { error: r.error };
+  return { blocked: !r.data || r.data.length === 0 };
+}
 const btn = "inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors disabled:opacity-50";
 const btnPrimary = `${btn} bg-teal-600 hover:bg-teal-700 text-white`;
 const btnLight = `${btn} border border-slate-300 bg-white hover:bg-slate-50 text-slate-700`;
@@ -348,6 +361,13 @@ function JobDialog({ org, data, job, preset, onClose, onSaved, onAssign }) {
     }
   }
 
+  async function deleteJob() {
+    if (!ask(tx("Auftrag Nr. {0} wirklich löschen?\n\nDas geht nicht rückgängig. Wenn der Kunde nur abgesagt hat, besser „Stornieren“.", job.job_no))) return;
+    setBusy(true);
+    const r = await removeRow(org.supabase.from("jobs").delete().eq("id", job.id));
+    if (r.error || r.blocked) { setMsg({ kind: "err", text: r.error ? errText(r.error) : tx("Erledigte oder stornierte Aufträge können nicht gelöscht werden.") }); setBusy(false); return; }
+    onSaved(tx("Auftrag gelöscht"), job.work_date);
+  }
   async function cancelJob() {
     if (blank(cancelReason)) return setMsg({ kind: "err", text: tx("Bitte einen Grund für die Stornierung eintragen.") });
     setBusy(true);
@@ -479,6 +499,7 @@ function JobDialog({ org, data, job, preset, onClose, onSaved, onAssign }) {
         <div>
           {editing && job.status !== "cancelled" && !cancelOpen && <button type="button" className="text-sm text-rose-700 underline" onClick={() => setCancelOpen(true)}>{tx("Auftrag stornieren …")}</button>}
           {editing && job.status !== "cancelled" && job.status !== "done" && !cancelOpen && onAssign && <button type="button" className="ml-3 text-sm text-teal-700 underline" onClick={() => onAssign(job)}>{tx("Personal zuteilen")}</button>}
+          {editing && ["new", "accepted"].includes(job.status) && !cancelOpen && <button type="button" className="ml-3 text-sm text-slate-500 underline" onClick={deleteJob} disabled={busy}>{tx("Löschen")}</button>}
           {cancelOpen && (
             <div className="flex flex-wrap items-center gap-2">
               <input className={`${inpBase} w-64`} value={cancelReason} onChange={(e) => setCancelReason(e.target.value)} placeholder={tx("Grund, z. B. Kunde hat abgesagt")} autoFocus />
@@ -725,6 +746,20 @@ function CustomerDialog({ org, data, customer, onClose, onSaved, onNewJob }) {
     setAddrEdit(null);
     onSaved(tx("Adresse gespeichert ✓"), customer, true, true);
   }
+  async function deleteAddr(a) {
+    if (!ask(tx("Adresse „{0}“ löschen?\n\nFrühere Aufträge behalten den Adresstext.", a.address))) return;
+    const r = await removeRow(org.supabase.from("customer_addresses").delete().eq("id", a.id));
+    if (r.error || r.blocked) return setMsg({ kind: "err", text: r.error ? errText(r.error) : tx("Konnte nicht gelöscht werden.") });
+    onSaved(tx("Adresse gelöscht"), customer, true, true);
+  }
+  async function deleteCustomer() {
+    if (!ask(tx("Kunde „{0}“ wirklich löschen?\n\nDas geht nicht rückgängig. Adressen werden mit gelöscht.", custName(customer)))) return;
+    setBusy(true);
+    const r = await removeRow(org.supabase.from("customers").delete().eq("id", customer.id));
+    setBusy(false);
+    if (r.error || r.blocked) return setMsg({ kind: "err", text: r.error ? errText(r.error) : tx("Dieser Kunde hat schon Aufträge und kann nicht gelöscht werden – bitte „Aktiv“ ausschalten.") });
+    onSaved(tx("Kunde gelöscht"), customer, true);
+  }
   async function toggleAddr(a) {
     const r = await org.supabase.from("customer_addresses").update({ active: !a.active }).eq("id", a.id);
     if (r.error) return setMsg({ kind: "err", text: errText(r.error) });
@@ -761,6 +796,7 @@ function CustomerDialog({ org, data, customer, onClose, onSaved, onNewJob }) {
                 <MapLink a={a} />
                 <button type="button" className="text-xs text-teal-700 underline" onClick={() => setAddrEdit({ ...a, maps_url: a.maps_url || "", label: a.label || "", coordState: a.lat !== null && a.lat !== undefined ? "ok" : "none" })}>{tx("Bearbeiten")}</button>
                 <button type="button" className="text-xs text-slate-600 underline" onClick={() => toggleAddr(a)}>{a.active ? tx("inaktiv setzen") : tx("wieder aktivieren")}</button>
+                <button type="button" className="text-xs text-slate-500 underline" onClick={() => deleteAddr(a)}>{tx("löschen")}</button>
               </div>
             )))}
             {addrEdit && (
@@ -790,7 +826,8 @@ function CustomerDialog({ org, data, customer, onClose, onSaved, onNewJob }) {
       )}
 
       <Msg msg={msg} />
-      <div className="tv-actions mt-4 flex justify-end gap-2">
+      <div className="tv-actions mt-4 flex flex-wrap items-center justify-end gap-2">
+        {editing && <button type="button" className="mr-auto text-sm text-slate-500 underline" onClick={deleteCustomer} disabled={busy}>{tx("Kunde löschen")}</button>}
         <button type="button" className={btnLight} onClick={onClose}>{tx("Schließen")}</button>
         <button type="button" className={btnPrimary} onClick={save} disabled={busy}>{busy ? tx("Speichert …") : tx("Speichern")}</button>
       </div>
@@ -1101,6 +1138,7 @@ function PlacesSection({ org, data, done }) {
             {pl.lat !== null && pl.lat !== undefined ? <span className="text-[11px] text-emerald-700">{tx("✓ Standort")}</span> : <span className="text-[11px] text-amber-700">{tx("ohne Standort")}</span>}
             <button type="button" className="text-xs text-teal-700 underline" onClick={() => setForm({ ...pl, address: pl.address || "", maps_url: pl.maps_url || "", coordState: pl.lat !== null && pl.lat !== undefined ? "ok" : "none" })}>{tx("Bearbeiten")}</button>
             <button type="button" className="text-xs text-slate-600 underline" onClick={async () => done(await org.supabase.from("touren_places").update({ active: !pl.active }).eq("id", pl.id), pl.active ? tx("„{0}“ ist inaktiv.", pl.name) : tx("„{0}“ ist wieder aktiv ✓", pl.name))}>{pl.active ? tx("inaktiv setzen") : tx("wieder aktivieren")}</button>
+            <button type="button" className="text-xs text-slate-500 underline" onClick={async () => { if (!ask(tx("„{0}“ löschen?", pl.name))) return; done(await delOrHint(org.supabase.from("touren_places").delete().eq("id", pl.id), tx("Hier starten noch Mitarbeitende – bitte zuerst deren Startpunkt ändern oder „inaktiv setzen“.")), tx("„{0}“ gelöscht", pl.name)); }}>{tx("löschen")}</button>
           </li>
         ))}
         {data.places.length === 0 && <p className="text-sm text-slate-500">{tx("Noch kein Ort angelegt.")}</p>}
@@ -1134,6 +1172,7 @@ function SkillsSection({ org, data, done }) {
           <div key={k.id} className={`flex flex-wrap items-center gap-2 ${k.active ? "" : "opacity-60"}`}>
             <input className={`${inp} max-w-xs`} value={edit[k.id] ?? k.name} onChange={(e) => setEdit({ ...edit, [k.id]: e.target.value })} onBlur={() => rename(k)} aria-label={tx("Name der Fähigkeit")} />
             <button type="button" className="text-xs text-slate-600 underline" onClick={async () => done(await org.supabase.from("skills").update({ active: !k.active }).eq("id", k.id), k.active ? tx("„{0}“ ist inaktiv.", k.name) : tx("„{0}“ ist wieder aktiv ✓", k.name))}>{k.active ? tx("inaktiv setzen") : tx("wieder aktivieren")}</button>
+            <button type="button" className="text-xs text-slate-500 underline" onClick={async () => { if (!ask(tx("„{0}“ löschen?", k.name))) return; done(await delOrHint(org.supabase.from("skills").delete().eq("id", k.id), tx("Diese Fähigkeit ist bei Mitarbeitenden oder Leistungen eingetragen – bitte dort entfernen oder „inaktiv setzen“.")), tx("„{0}“ gelöscht", k.name)); }}>{tx("löschen")}</button>
           </div>
         ))}
         {list.length === 0 && <p className="text-sm text-slate-500">{tx("Noch keine Fähigkeit angelegt.")}</p>}
@@ -1189,6 +1228,7 @@ function SettingsView({ org, data, reload }) {
               <button type="button" className="rounded px-1.5 text-slate-500 hover:bg-slate-100 disabled:opacity-30" disabled={i === 0} onClick={() => moveSvc(i, -1)} aria-label={tx("nach oben")}>↑</button>
               <button type="button" className="rounded px-1.5 text-slate-500 hover:bg-slate-100 disabled:opacity-30" disabled={i === services.length - 1} onClick={() => moveSvc(i, 1)} aria-label={tx("nach unten")}>↓</button>
               <button type="button" className="text-xs text-slate-600 underline" onClick={async () => done(await sb.from("service_types").update({ active: !s.active }).eq("id", s.id), s.active ? tx("„{0}“ ist inaktiv.", s.name) : tx("„{0}“ ist wieder aktiv ✓", s.name))}>{s.active ? tx("inaktiv setzen") : tx("wieder aktivieren")}</button>
+              <button type="button" className="text-xs text-slate-500 underline" onClick={async () => { if (!ask(tx("„{0}“ löschen?", s.name))) return; done(await delOrHint(sb.from("service_types").delete().eq("id", s.id), tx("Diese Leistung wird schon in Aufträgen benutzt – bitte „inaktiv setzen“.")), tx("„{0}“ gelöscht", s.name)); }}>{tx("löschen")}</button>
               {activeSkills.length > 0 && (
                 <span className="flex w-full flex-wrap items-center gap-1 pl-1 text-[11px] text-slate-500">{tx("nötig:")}
                   {activeSkills.map((k) => <button key={k.id} type="button" aria-pressed={needs(s.id, k.id)} onClick={() => toggleNeed(s, k)} className={`rounded-full border px-2 py-0.5 ${needs(s.id, k.id) ? "border-teal-600 bg-teal-600 text-white" : "border-slate-300 bg-white text-slate-600"}`}>{k.name}</button>)}
@@ -1218,6 +1258,7 @@ function SettingsView({ org, data, reload }) {
                     <label className="flex items-center gap-1 text-xs"><input type="checkbox" checked={f.required} onChange={(e) => patchField(f, { required: e.target.checked }, tx("Gespeichert ✓"))} />{tx("Pflichtfeld")}</label>
                     <label className="flex items-center gap-1 text-xs"><input type="checkbox" checked={f.staff_visible} onChange={(e) => patchField(f, { staff_visible: e.target.checked }, tx("Gespeichert ✓"))} />{tx("Für Mitarbeitende sichtbar")}</label>
                     <button type="button" className="text-xs text-slate-600 underline" onClick={() => patchField(f, { active: !f.active }, f.active ? tx("„{0}“ ist inaktiv.", f.name) : tx("„{0}“ ist wieder aktiv ✓", f.name))}>{f.active ? tx("inaktiv setzen") : tx("wieder aktivieren")}</button>
+                    <button type="button" className="text-xs text-slate-500 underline" onClick={async () => { if (!ask(tx("Feld „{0}“ löschen?\n\nAlle dort eingetragenen Werte werden auch gelöscht. Nur ausblenden: „inaktiv setzen“.", f.name))) return; done(await delOrHint(sb.from("custom_fields").delete().eq("id", f.id), tx("Konnte nicht gelöscht werden.")), tx("Feld „{0}“ gelöscht", f.name)); }}>{tx("löschen")}</button>
                   </li>
                 ))}
               </ul>
