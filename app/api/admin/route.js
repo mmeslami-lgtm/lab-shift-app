@@ -18,8 +18,8 @@ export const dynamic = "force-dynamic";
 //    their own password before using the app (table first_login_flags, see the profile page).
 //  * Every action is written to admin_log (who, what, which company).
 
-const PRODUCTS = ["lab_planner", "generic_planner", "employee_app", "time_tracking"];
-const ROLES = ["supervisor", "planner", "employee"];
+const PRODUCTS = ["lab_planner", "generic_planner", "employee_app", "time_tracking", "touren"];
+const ROLES = ["supervisor", "planner", "employee", "office"];
  // never "owner" here; owners are created with a company
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -129,6 +129,9 @@ export async function GET(request) {
     const lr = await supabaseAdmin.from("organizations").select("id, country, language, timezone, currency");
     const landOf = {}; if (!lr.error) (lr.data || []).forEach((l) => { landOf[l.id] = { country: l.country, language: l.language, timezone: l.timezone, currency: l.currency }; });
     const ch = await supabaseAdmin.from("country_holidays").select("country, day, name").order("day");
+    // Touren D3b: Branche je Firma (script 48). Fehlt die Tabelle = „Allgemein“.
+    const ti = await supabaseAdmin.from("touren_settings").select("org_id, industry");
+    const industryOf = {}; if (!ti.error) (ti.data || []).forEach((t) => { industryOf[t.org_id] = t.industry; });
     const firms = orgs.data.map((o) => ({
       ...o,
       products: Object.fromEntries(PRODUCTS.map((p) => [p, !!prods.data.find((x) => x.org_id === o.id && x.product === p && x.enabled)])),
@@ -137,6 +140,7 @@ export async function GET(request) {
       staff: staff.data.filter((s) => s.org_id === o.id && s.active).map((s) => ({ id: s.id, name: s.name, hasLogin: mems.data.some((m) => m.staff_id === s.id) })),
       trialUntil: trialOf[o.id] || null,
       land: landOf[o.id] || { country: "DE", language: "de", timezone: "Europe/Berlin", currency: "EUR" },
+      industry: ti.error ? null : (industryOf[o.id] || "general"),
       billing: bl.error ? null : ((bl.data || []).find((b) => b.org_id === o.id) || null),
       payments: py.error ? [] : (py.data || []).filter((p) => p.org_id === o.id).slice(0, 6),
       acceptances: la.error ? [] : (la.data || []).filter((a) => a.org_id === o.id).map((a) => ({ doc: a.doc, version: a.version, at: a.accepted_at, email: a.user_email })),
@@ -182,6 +186,18 @@ export async function POST(request) {
         if (r.error) throw r.error;
         if (!r.data || r.data.length === 0) return json({ error: "Firma nicht gefunden." }, 404);
         await log(me, "set_land", orgId, null, { country, language, timezone: c.timezone, currency: c.currency });
+        return json({ ok: true });
+      }
+      case "set_industry": {
+        // Touren D3b: Branchenvorlage. Setzt die Branche; legt Leistungen/Fähigkeiten nur an, wenn die Firma noch keine hat.
+        const orgId = String(body.orgId || ""), industry = String(body.industry || "");
+        if (!["cleaning", "care", "facility", "general"].includes(industry)) return json({ error: "Ungültige Branche." }, 400);
+        const o = await supabaseAdmin.from("organizations").select("id, language").eq("id", orgId).maybeSingle();
+        if (o.error) throw o.error;
+        if (!o.data) return json({ error: "Firma nicht gefunden." }, 404);
+        const r = await supabaseAdmin.rpc("touren_apply_template", { p_org: orgId, p_industry: industry, p_lang: o.data.language || "de" });
+        if (r.error) throw r.error;
+        await log(me, "set_industry", orgId, null, { industry });
         return json({ ok: true });
       }
       case "holiday_add": {

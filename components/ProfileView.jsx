@@ -5,14 +5,16 @@ import { createClient } from "@supabase/supabase-js";
 import { supabase, supabaseConfigured } from "../lib/supabaseClient";
 import LoginForm from "./LoginForm";
 import { tx, loc } from "../lib/i18n";
+import { loginName } from "../lib/phoneLogin";
 
 const INK = "#1B2433", PRIMARY = "#243B6B", PAPER = "#E9EEF8", MUTED = "#6B7588", LINE = "#D9DEE7";
-const ROLE_LABEL = { owner: "Inhaber", supervisor: "Leitung", planner: "Schichtplaner", employee: "Mitarbeitende" };
+const ROLE_LABEL = { owner: "Inhaber", supervisor: "Leitung", planner: "Schichtplaner", employee: "Mitarbeitende", office: "Büro" };
 // the three modules: Labor / Allgemein / Personnel
 const MODULES = [
   { product: "lab_planner", short: "Labor", long: "Dienstplaner Labor", href: "/labor", planningOnly: true },
   { product: "generic_planner", short: "Allgemein", long: "Dienstplaner allgemein", href: "/allgemein", planningOnly: true },
   { product: "employee_app", short: "Personnel", long: "Mitarbeiter-App", href: "/mitarbeiter", planningOnly: false },
+  { product: "touren", short: "Touren", long: "Kunden & Aufträge", href: "/touren", roles: ["owner", "supervisor", "office"] },
 ];
 const card = { background: "#fff", borderRadius: 18, padding: 16, marginBottom: 12 };
 const fld = { display: "block", width: "100%", boxSizing: "border-box", border: `1px solid ${LINE}`, borderRadius: 12, padding: "12px 76px 12px 12px", fontSize: 16, background: "#fff", color: INK };
@@ -88,9 +90,10 @@ export default function ProfileView({ forced = false }) {
 
   function homeFor() {
     const firms = (info && info.firms) || [];
-    const plans = (p) => firms.some((x) => x.role !== "employee" && x.products.includes(p));
+    const plans = (p) => firms.some((x) => ["owner", "supervisor", "planner"].includes(x.role) && x.products.includes(p));
     if (plans("lab_planner")) return "/labor";
     if (plans("generic_planner")) return "/allgemein";
+    if (firms.some((x) => ["owner", "supervisor", "office"].includes(x.role) && x.products.includes("touren"))) return "/touren";
     if (firms.some((x) => x.products.includes("employee_app"))) return "/mitarbeiter";
     return "/profil";
   }
@@ -118,8 +121,10 @@ export default function ProfileView({ forced = false }) {
         const target = await (async () => {
           const mem = await supabase.from("memberships").select("user_id, role"); const prod = await supabase.from("org_products").select("org_id, product, enabled").eq("enabled", true);
           const mine = (mem.data || []).filter((m) => m.user_id === session.user.id);
-          if (mine.some((m) => m.role !== "employee") && (prod.data || []).some((p) => p.product === "lab_planner")) return "/labor";
-          if (mine.some((m) => m.role !== "employee") && (prod.data || []).some((p) => p.product === "generic_planner")) return "/allgemein";
+          const planner = mine.some((m) => ["owner", "supervisor", "planner"].includes(m.role));
+          if (planner && (prod.data || []).some((p) => p.product === "lab_planner")) return "/labor";
+          if (planner && (prod.data || []).some((p) => p.product === "generic_planner")) return "/allgemein";
+          if (mine.some((m) => ["owner", "supervisor", "office"].includes(m.role)) && (prod.data || []).some((p) => p.product === "touren")) return "/touren";
           if ((prod.data || []).some((p) => p.product === "employee_app")) return "/mitarbeiter";
           return "/profil";
         })();
@@ -160,7 +165,7 @@ export default function ProfileView({ forced = false }) {
         <>
           <div style={card}>
             <div style={{ fontSize: 12, color: MUTED }}>{tx("Angemeldet als")}</div>
-            <div style={{ fontSize: 17, fontWeight: 700, wordBreak: "break-all" }}>{user.email}</div>
+            <div style={{ fontSize: 17, fontWeight: 700, wordBreak: "break-all" }}>{loginName(user.email)}</div>
             {user.last_sign_in_at && <div style={{ fontSize: 12, color: MUTED, marginTop: 4 }}>{tx("Letzte Anmeldung:")} {fmt(user.last_sign_in_at)}</div>}
           </div>
 
@@ -174,9 +179,9 @@ export default function ProfileView({ forced = false }) {
               </div>
               <div style={{ fontSize: 12, color: MUTED, margin: "10px 0 6px" }}>{tx("Module")}</div>
               <div style={{ display: "grid", gap: 8 }}>
-                {MODULES.map((mod) => {
+                {MODULES.filter((mod) => mod.product !== "touren" || firm.products.includes("touren")).map((mod) => {
                   const active = firm.products.includes(mod.product);
-                  const canOpen = active && (!mod.planningOnly || firm.role !== "employee");
+                  const canOpen = active && (mod.roles ? mod.roles.includes(firm.role) : (!mod.planningOnly || ["owner", "supervisor", "planner"].includes(firm.role)));
                   return (
                     <div key={mod.product} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, border: `1px solid ${active ? "#B7E1CB" : LINE}`, background: active ? "#F0FAF5" : "#FAFBFC", borderRadius: 12, padding: "9px 12px" }}>
                       <div>

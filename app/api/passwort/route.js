@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from "crypto";
 import { supabaseAdmin } from "../../../lib/supabaseAdmin";
 import { sendMail, smtpConfigured } from "../../../lib/mailer";
+import { isPhoneEmail } from "../../../lib/phoneLogin";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -41,6 +42,8 @@ export async function POST(request) {
     const body = await request.json().catch(() => ({}));
     const email = String(body.email || "").trim().toLowerCase();
     if (!EMAIL.test(email) || email.length > 200) return json({ error: "Bitte eine gültige E-Mail-Adresse eingeben." }, 400);
+    // Anmeldung mit Handynummer: diese interne Adresse bekommt nie Post – neues Passwort gibt die Leitung
+    if (isPhoneEmail(email)) return json({ error: "Passwort vergessen? Bitte die Leitung fragen – sie gibt Ihnen ein neues." }, 400);
     if (!smtpConfigured()) return json({ error: "Der E-Mail-Versand ist gerade nicht eingerichtet. Bitte die Leitung fragen." }, 503);
 
     const hourAgo = new Date(Date.now() - 3600000).toISOString();

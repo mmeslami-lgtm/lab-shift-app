@@ -4,6 +4,7 @@ import React, { useState } from "react";
 import { supabase } from "../lib/supabaseClient";
 import { tx, getLang } from "../lib/i18n";
 import { useLang } from "../lib/useLang";
+import { cleanPhone, phoneToEmail, guessCountry } from "../lib/phoneLogin";
 
 const INK = "#1B2433";
 const PRIMARY = "#243B6B";
@@ -28,9 +29,16 @@ function greeting() {
 }
 
 // Email + password sign-in. The session is picked up by whoever listens to supabase.auth.
-export default function LoginForm({ title }) {
+// phone (nur Mitarbeiter-App, 23.11.2026): darunter der Link „Mit Handynummer anmelden“ – das Formular bleibt sonst gleich.
+const MODE_KEY = "dg-login-mode";
+export default function LoginForm({ title, phone = false }) {
   useLang(); // neu zeichnen bei DE/EN
   if (!title) title = tx("Anmelden");
+  const [mode, setModeState] = useState(() => { if (!phone) return "email"; try { return localStorage.getItem(MODE_KEY) === "phone" ? "phone" : "email"; } catch (e) { return "email"; } });
+  const setMode = (m) => { setModeState(m); setError(""); setForgot(null); try { localStorage.setItem(MODE_KEY, m); } catch (e) { /* egal */ } };
+  const [tel, setTel] = useState("");
+  const [country, setCountry] = useState(() => guessCountry());
+  const usePhone = phone && mode === "phone";
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -50,10 +58,17 @@ export default function LoginForm({ title }) {
 
   async function signIn(e) {
     e.preventDefault();
-    setError(""); setBusy(true);
-    const { error: err } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
+    setError("");
+    let login = email.trim();
+    if (usePhone) {
+      const n = cleanPhone(tel, country);
+      if (!n) { setError(tx("Bitte die Handynummer prüfen.")); return; }
+      login = phoneToEmail(n);
+    }
+    setBusy(true);
+    const { error: err } = await supabase.auth.signInWithPassword({ email: login, password });
     setBusy(false);
-    if (err) setError(translateAuthError(err.message));
+    if (err) setError(usePhone && /invalid login/i.test(err.message) ? tx("Handynummer oder Passwort ist falsch.") : translateAuthError(err.message));
   }
 
   return (
@@ -63,9 +78,20 @@ export default function LoginForm({ title }) {
         <div style={{ fontSize: 15, color: MUTED, marginTop: 4 }}>{tx("Herzlich willkommen!")}</div>
       </div>
       <div style={{ fontSize: 16, fontWeight: 650, marginBottom: 10 }}>{title}</div>
-      <label style={{ display: "block", fontSize: 12, color: MUTED, marginBottom: 12 }}>{tx("E-Mail")}
-        <input type="email" autoComplete="username" autoCapitalize="none" autoCorrect="off" spellCheck={false} required value={email} onChange={(e) => setEmail(e.target.value)} style={fld} />
-      </label>
+      {usePhone ? (
+        <label style={{ display: "block", fontSize: 12, color: MUTED, marginBottom: 12 }}>{tx("Handynummer")}
+          <span style={{ display: "flex", gap: 8 }}>
+            <select aria-label={tx("Ländervorwahl")} value={country} onChange={(e) => setCountry(e.target.value)} style={{ ...fld, width: "auto", flex: "0 0 auto" }}>
+              <option value="AE">+971</option><option value="DE">+49</option>
+            </select>
+            <input type="tel" inputMode="tel" autoComplete="username" required value={tel} onChange={(e) => setTel(e.target.value)} placeholder={tx("z. B. 050 123 4567")} style={{ ...fld, flex: 1 }} />
+          </span>
+        </label>
+      ) : (
+        <label style={{ display: "block", fontSize: 12, color: MUTED, marginBottom: 12 }}>{tx("E-Mail")}
+          <input type="email" autoComplete="username" autoCapitalize="none" autoCorrect="off" spellCheck={false} required value={email} onChange={(e) => setEmail(e.target.value)} style={fld} />
+        </label>
+      )}
       <label style={{ display: "block", fontSize: 12, color: MUTED, marginBottom: 14 }}>{tx("Passwort")}
         <span style={{ position: "relative", display: "block" }}>
           <input
@@ -92,9 +118,18 @@ export default function LoginForm({ title }) {
       </label>
       {error && <div role="alert" style={{ fontSize: 13, color: "#B3263E", background: "#FCE5EA", borderRadius: 12, padding: "9px 12px", marginBottom: 12 }}>{tx(error)}</div>}
       <button type="submit" disabled={busy} style={{ ...btn, width: "100%", opacity: busy ? 0.6 : 1 }}>{busy ? tx("Moment …") : tx("Anmelden")}</button>
-      <div style={{ textAlign: "center", marginTop: 12 }}>
-        <button type="button" onClick={sendForgot} style={{ border: 0, background: "none", color: PRIMARY, fontSize: 15, fontWeight: 650, textDecoration: "underline", cursor: "pointer", padding: 6 }}>{tx("Passwort vergessen?")}</button>
-      </div>
+      {usePhone ? (
+        <div style={{ fontSize: 13, color: MUTED, textAlign: "center", marginTop: 12 }}>{tx("Passwort vergessen? Bitte die Leitung fragen – sie gibt Ihnen ein neues.")}</div>
+      ) : (
+        <div style={{ textAlign: "center", marginTop: 12 }}>
+          <button type="button" onClick={sendForgot} style={{ border: 0, background: "none", color: PRIMARY, fontSize: 15, fontWeight: 650, textDecoration: "underline", cursor: "pointer", padding: 6 }}>{tx("Passwort vergessen?")}</button>
+        </div>
+      )}
+      {phone && (
+        <div style={{ textAlign: "center", marginTop: 4 }}>
+          <button type="button" onClick={() => setMode(usePhone ? "email" : "phone")} style={{ border: 0, background: "none", color: PRIMARY, fontSize: 14, textDecoration: "underline", cursor: "pointer", padding: 6 }}>{usePhone ? tx("Mit E-Mail anmelden") : tx("Mit Handynummer anmelden")}</button>
+        </div>
+      )}
       {forgot && <div role="status" style={{ fontSize: 13, color: forgot.bad ? "#B3263E" : "#1F5F3A", background: forgot.bad ? "#FCE5EA" : "#E3F4EA", borderRadius: 12, padding: "9px 12px", marginTop: 8 }}>{tx(forgot.msg)}</div>}
       <div style={{ fontSize: 12, color: MUTED, marginTop: 10 }}>{tx("Zugänge werden von der Leitung vergeben. Eine Selbst-Registrierung gibt es nicht.")}</div>
     </form>

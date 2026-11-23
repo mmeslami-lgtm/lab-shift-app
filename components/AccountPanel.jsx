@@ -3,6 +3,7 @@
 import React, { useEffect, useState, useCallback } from "react";
 import { supabase, supabaseConfigured } from "../lib/supabaseClient";
 import LoginForm from "./LoginForm";
+import { loginName } from "../lib/phoneLogin";
 
 const INK = "#1B2433";
 const PRIMARY = "#243B6B";
@@ -93,7 +94,7 @@ export default function AccountPanel() {
             <div style={{ ...card, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
               <div style={{ minWidth: 0 }}>
                 <div style={{ fontSize: 12, color: MUTED }}>Angemeldet als</div>
-                <div style={{ fontSize: 15, fontWeight: 650, overflow: "hidden", textOverflow: "ellipsis" }}>{session.user.email}</div>
+                <div style={{ fontSize: 15, fontWeight: 650, overflow: "hidden", textOverflow: "ellipsis" }}>{loginName(session.user.email)}</div>
               </div>
               <button onClick={signOut} style={btnGhost}>Abmelden</button>
             </div>
