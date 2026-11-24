@@ -17,11 +17,15 @@ const routeBtn = { display: "inline-flex", alignItems: "center", gap: 4, minHeig
 export default function EmployeeTrips({ org, initial }) {
   const [data, setData] = useState(initial || null);
   const [err, setErr] = useState(null);
-  const load = useCallback(async () => {
-    setErr(null);
+  const [busy, setBusy] = useState(false); // Neu-laden-Knopf: dreht sich, danach kurz „aktualisiert ✓“
+  const [fresh, setFresh] = useState(false);
+  const load = useCallback(async (manual = false) => {
+    setErr(null); setBusy(true); setFresh(false);
     const r = await org.supabase.rpc("my_trips", { p_org: org.orgId });
+    setBusy(false);
     if (r.error) { setErr(tx("Fahrten konnten nicht geladen werden.")); return; }
     setData(r.data || { is_driver: false });
+    if (manual === true) { setFresh(true); setTimeout(() => setFresh(false), 2500); }
   }, [org]);
   useEffect(() => { if (!initial) load(); }, [load, initial]);
 
@@ -56,7 +60,8 @@ export default function EmployeeTrips({ org, initial }) {
     <div>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", margin: "0 2px 10px" }}>
         <div style={{ fontSize: 20, fontWeight: 750, color: INK, letterSpacing: -0.3 }}>{tx("Meine Fahrten")}</div>
-        <button onClick={load} aria-label={tx("Neu laden")} style={{ border: 0, background: "#fff", borderRadius: 12, width: 40, height: 40, display: "grid", placeItems: "center", color: PRIMARY, cursor: "pointer" }}><RefreshCw size={18} /></button>
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>{fresh && <span role="status" style={{ fontSize: 13, fontWeight: 600, color: "#15803D" }}>✓ {tx("aktualisiert")}</span>}<button onClick={() => load(true)} disabled={busy} aria-label={tx("Neu laden")} style={{ border: 0, background: "#fff", borderRadius: 12, width: 40, height: 40, display: "grid", placeItems: "center", color: PRIMARY, cursor: "pointer" }}><RefreshCw size={18} className={busy ? "dg-spin" : undefined} /></button></span>
+      <style>{`@keyframes dgspin{to{transform:rotate(360deg)}} .dg-spin{animation:dgspin .8s linear infinite}`}</style>
       </div>
       {err && <div role="alert" style={{ background: "#FDECEC", color: "#8F1B1B", borderRadius: 12, padding: "10px 12px", fontSize: 14, marginBottom: 10 }}>{err}</div>}
       {[[today, tx("Heute")], [addIso(today, 1), tx("Morgen")]].map(([iso, label]) => {

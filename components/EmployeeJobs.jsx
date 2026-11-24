@@ -36,16 +36,19 @@ export default function EmployeeJobs({ org }) {
   const [rows, setRows] = useState(null);
   const [next, setNext] = useState(undefined);
   const [err, setErr] = useState(null);
+  const [busy, setBusy] = useState(false); // Neu-laden-Knopf: dreht sich, danach kurz „aktualisiert ✓“
+  const [fresh, setFresh] = useState(false);
   const [day, setDay] = useState(0); // 0 = heute, 1 = morgen
   const [now, setNow] = useState(() => new Date());
-  const load = useCallback(async () => {
-    setErr(null);
+  const load = useCallback(async (manual = false) => {
+    setErr(null); setBusy(true); setFresh(false);
     const r = await org.supabase.rpc("my_jobs", { p_org: org.orgId });
-    if (r.error) { setErr(tx("Einsätze konnten nicht geladen werden.")); setRows([]); return; }
+    if (r.error) { setErr(tx("Einsätze konnten nicht geladen werden.")); setRows([]); setBusy(false); return; }
     setRows(r.data || []);
     // nächster Einsatz nach morgen – nur Datum/Uhrzeit; bei Fehler einfach nichts zeigen
     const n = await org.supabase.rpc("my_next_job", { p_org: org.orgId });
     setNext(!n.error ? n.data || null : null);
+    setBusy(false); if (manual === true) { setFresh(true); setTimeout(() => setFresh(false), 2500); }
   }, [org]);
   useEffect(() => { load(); }, [load]);
   useEffect(() => { const t = setInterval(() => setNow(new Date()), 60000); return () => clearInterval(t); }, []);
@@ -72,7 +75,8 @@ export default function EmployeeJobs({ org }) {
     <div>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", margin: "0 2px 12px" }}>
         <div style={{ fontSize: 20, fontWeight: 750, color: INK, letterSpacing: -0.3 }}>{tx("Meine Einsätze")}</div>
-        <button onClick={load} aria-label={tx("Neu laden")} style={{ border: 0, background: "#fff", borderRadius: 12, width: 40, height: 40, display: "grid", placeItems: "center", color: PRIMARY, cursor: "pointer", boxShadow: "0 1px 3px rgba(27,34,48,.08)" }}><RefreshCw size={18} /></button>
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>{fresh && <span role="status" style={{ fontSize: 13, fontWeight: 600, color: "#15803D" }}>✓ {tx("aktualisiert")}</span>}<button onClick={() => load(true)} disabled={busy} aria-label={tx("Neu laden")} style={{ border: 0, background: "#fff", borderRadius: 12, width: 40, height: 40, display: "grid", placeItems: "center", color: PRIMARY, cursor: "pointer", boxShadow: "0 1px 3px rgba(27,34,48,.08)" }}><RefreshCw size={18} className={busy ? "dg-spin" : undefined} /></button></span>
+      <style>{`@keyframes dgspin{to{transform:rotate(360deg)}} .dg-spin{animation:dgspin .8s linear infinite}`}</style>
       </div>
       {err && <div role="alert" style={{ background: "#FDECEC", color: "#8F1B1B", borderRadius: 12, padding: "10px 12px", fontSize: 14, marginBottom: 10 }}>{err}</div>}
       {rows === null && <div style={{ fontSize: 14, color: MUTED }}>{tx("Lädt …")}</div>}
