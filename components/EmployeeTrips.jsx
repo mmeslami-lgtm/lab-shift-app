@@ -40,6 +40,7 @@ export default function EmployeeTrips({ org, initial }) {
       {people(st.who)}
     </div>);
   const today = data.today || addIso(new Date().toISOString().slice(0, 10), 0);
+  const KCOL = { pick: "#2F80ED", next: "#D97706", back: "#16A34A", out: "#9333EA" };
   const KIND = { pick: tx("Abholen"), next: tx("Weiterfahrt"), back: tx("Rückfahrt"), out: tx("Weiter- und Rückfahrt") };
   const place = (p) => {
     const href = mapsHref({ lat: p.lat, lng: p.lng, maps_url: p.maps_url, address: p.addr });
@@ -54,7 +55,7 @@ export default function EmployeeTrips({ org, initial }) {
   return (
     <div>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", margin: "0 2px 10px" }}>
-        <div style={{ fontSize: 18, fontWeight: 700, color: INK }}>{tx("Meine Fahrten")}</div>
+        <div style={{ fontSize: 20, fontWeight: 750, color: INK, letterSpacing: -0.3 }}>{tx("Meine Fahrten")}</div>
         <button onClick={load} aria-label={tx("Neu laden")} style={{ border: 0, background: "#fff", borderRadius: 12, width: 40, height: 40, display: "grid", placeItems: "center", color: PRIMARY, cursor: "pointer" }}><RefreshCw size={18} /></button>
       </div>
       {err && <div role="alert" style={{ background: "#FDECEC", color: "#8F1B1B", borderRadius: 12, padding: "10px 12px", fontSize: 14, marginBottom: 10 }}>{err}</div>}
@@ -65,11 +66,12 @@ export default function EmployeeTrips({ org, initial }) {
         return (
           <section key={iso} style={{ marginBottom: 16 }}>
             <div style={{ fontSize: 13, fontWeight: 650, color: MUTED, margin: "0 2px 6px" }}>{label} · {wdLong(d.getDay())}, {dmy(d)}</div>
-            {rows.length === 0 && <div style={{ background: "#EDEFF4", borderRadius: 16, padding: "12px 14px", fontSize: 14, color: MUTED }}>{tx("Keine Fahrten.")}</div>}
+            {rows.length === 0 && <div style={{ background: "#fff", borderRadius: 16, padding: "16px 14px", fontSize: 14, color: MUTED, textAlign: "center" }}>🚐 {tx("Keine Fahrten.")}</div>}
             {rows.map((r) => (
-              <article key={r.key} style={{ background: "#fff", borderRadius: 16, padding: "12px 14px", marginBottom: 8, color: INK }}>
+              <article key={r.key} style={{ position: "relative", background: "#fff", borderRadius: 18, padding: "14px 14px 14px 18px", marginBottom: 10, color: INK, overflow: "hidden", boxShadow: "0 1px 4px rgba(27,34,48,.07)" }}>
+                <span aria-hidden="true" style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 6, background: KCOL[r.kind] || PRIMARY }} />
                 <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
-                  <span className="tn" style={{ fontSize: 20, fontWeight: 750 }}>{r.time}</span>
+                  <span className="tn" style={{ fontSize: 18, fontWeight: 750, background: "#EEF2F9", borderRadius: 10, padding: "3px 10px" }}>{r.time}</span>
                   <span style={{ fontSize: 13, fontWeight: 650, color: r.kind === "back" ? MUTED : PRIMARY }}>{KIND[r.kind]}</span>
                   {r.arrive && <span style={{ marginLeft: "auto", fontSize: 13, color: MUTED }}>{tx("Beginn {0}", r.arrive)}</span>}
                 </div>
