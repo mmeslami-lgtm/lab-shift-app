@@ -13,6 +13,7 @@ import ScanStamp from "./ScanStamp";
 import MobileStamp from "./MobileStamp";
 import Schulung from "./Schulung";
 import { withPlaceCodes, routeHref } from "../lib/locations";
+import { mapsHref } from "../lib/maps";
 import { tx, monthName, dayMonth, dec } from "../lib/i18n";
 
 // ---------------------------------------------------------------------------------------------
@@ -104,6 +105,9 @@ export default function EmployeeLive() {
     org.supabase.rpc("my_trips", { p_org: org.orgId }).then((r) => { if (alive && !r.error && r.data && r.data.is_driver) setTrips(r.data); }, () => {});
     return () => { alive = false; };
   }, [hasTouren, org.supabase, org.orgId]);
+  // Touren (24.11.2026): eigene Einsätze im Kalender „Plan“ (Monat) und als nächster Einsatz oben – my_jobs_range (56)
+  const [tJobs, setTJobs] = useState([]); // Einsätze im angezeigten Monat
+  const [tNext, setTNext] = useState(null); // nächster Einsatz ab jetzt (bis 60 Tage)
   const [scanOpen, setScanOpen] = useState(false); // "📷 Stempeln": camera inside the app
   const [mobilOpen, setMobilOpen] = useState(false);
   const [schulung, setSchulung] = useState(false); // 🎓 Schulung (free, no AI) // "Mobil stempeln" (company feature mobil_stempeln)
@@ -197,6 +201,27 @@ export default function EmployeeLive() {
     return () => { alive = false; };
   }, [sb, org.orgId, my, view, todayIso]);
 
+  // Touren: Einsätze im Monat + nächster Einsatz (bei Fehler einfach keine – der Kalender bleibt wie bisher)
+  useEffect(() => {
+    if (!hasTouren) return undefined;
+    let alive = true;
+    const from = isoOf(view.y, view.m, 1), to = isoOf(view.y, view.m, daysIn(view.y, view.m));
+    sb.rpc("my_jobs_range", { p_org: org.orgId, p_from: from, p_to: to }).then((r) => { if (alive) setTJobs(!r.error && Array.isArray(r.data) ? r.data : []); }, () => {});
+    return () => { alive = false; };
+  }, [hasTouren, sb, org.orgId, view]);
+  useEffect(() => {
+    if (!hasTouren) return undefined;
+    let alive = true;
+    const soon = new Date(); soon.setDate(soon.getDate() + 60);
+    sb.rpc("my_jobs_range", { p_org: org.orgId, p_from: todayIso, p_to: isoOf(soon.getFullYear(), soon.getMonth(), soon.getDate()) }).then((r) => {
+      if (!alive || r.error || !Array.isArray(r.data)) return;
+      const n = new Date(); const nowMin = n.getHours() * 60 + n.getMinutes();
+      const toM = (t) => { const [h, m] = String(t).split(":"); return (+h || 0) * 60 + (+m || 0); };
+      setTNext(r.data.find((j) => j.work_date > todayIso || toM(j.start_time) + (j.duration_min || 0) > nowMin) || null);
+    }, () => {});
+    return () => { alive = false; };
+  }, [hasTouren, sb, org.orgId, todayIso]);
+
   // my next shift from today on
   useEffect(() => {
     if (!my) { setNextShift(null); return; }
@@ -268,7 +293,11 @@ export default function EmployeeLive() {
 
   const selDate = parseIso(selIso);
   const selKey = myMonth[selIso];
-  const monthHours = Object.values(myMonth).reduce((sum, k) => sum + (defByKey[k] ? netHours(defByKey[k]) : 0), 0);
+  const tByIso = {}; tJobs.forEach((j) => { (tByIso[j.work_date] = tByIso[j.work_date] || []).push(j); });
+  const tEnd = (j) => { const [h, m] = String(j.start_time).split(":"); const e = ((+h || 0) * 60 + (+m || 0) + (j.duration_min || 0)) % 1440; return `${String(Math.floor(e / 60)).padStart(2, "0")}:${String(e % 60).padStart(2, "0")}`; };
+  const tHours = tJobs.reduce((a, j) => a + (j.duration_min || 0) / 60, 0);
+  const monthHours = Object.values(myMonth).reduce((sum, k) => sum + (defByKey[k] ? netHours(defByKey[k]) : 0), 0) + tHours;
+  const TCOL = { soft: "#DCE8FB", solid: "#2F80ED", ink: "#1E4E9A" }; // Farbe für Touren-Einsätze
   const tabs = [...(hasTouren ? [["jobs", tx("Einsätze"), MapPin]] : []), ...(trips ? [["trips", tx("Fahrten"), Truck]] : []), ["plan", tx("Plan"), CalendarDays], ["team", tx("Team"), Users], ["requests", tx("Anträge"), FileText], ["time", tx("Zeiten"), Clock], ["wishes", tx("Wünsche"), Gift]];
 
   return (
@@ -310,7 +339,14 @@ export default function EmployeeLive() {
                       <PlaceLine place={myPlaces[nextShift.shift_date]} dark />
                     </>
                   );
-                })() : <div style={{ fontSize: 15 }}>{tx("Für dich ist noch keine Schicht veröffentlicht.")}</div>}
+                })() : hasTouren && tNext ? (
+                  <>
+                    <div style={{ fontSize: 13, opacity: 0.75 }}>{tx("Dein nächster Einsatz")} · {relDay(tNext.work_date)}</div>
+                    <div className="tn" style={{ fontSize: 34, fontWeight: 700, margin: "6px 0 4px", letterSpacing: -0.8 }}>{tNext.start_time} – {tEnd(tNext)}</div>
+                    <div style={{ fontSize: 17, fontWeight: 650 }}>{tNext.customer}</div>
+                    <div style={{ fontSize: 14, opacity: 0.85, marginTop: 2 }}>{tNext.address}</div>
+                  </>
+                ) : <div style={{ fontSize: 15 }}>{hasTouren ? tx("Noch kein Einsatz geplant.") : tx("Für dich ist noch keine Schicht veröffentlicht.")}</div>}
               </div>
             )}
 
@@ -326,27 +362,30 @@ export default function EmployeeLive() {
               <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 4 }}>
                 {grid.map((d, i) => {
                   if (d === null) return <div key={`e${i}`} />;
-                  const iso = isoOf(view.y, view.m, d); const key = myMonth[iso]; const st = key ? styleOf(key) : null;
+                  const iso = isoOf(view.y, view.m, d); const key = myMonth[iso]; const tj = tByIso[iso] || []; const st = key ? styleOf(key) : tj.length ? TCOL : null;
                   const today = iso === todayIso;
                   return (
-                    <button key={d} onClick={() => setSelIso(iso)} aria-label={`${dayMonth(new Date(view.y, view.m, d))}${key && defByKey[key] ? ", " + defByKey[key].label : tx(", frei")}${(myChanges[iso] || []).length ? tx(" (geändert)") : ""}`}
+                    <button key={d} onClick={() => setSelIso(iso)} aria-label={`${dayMonth(new Date(view.y, view.m, d))}${key && defByKey[key] ? ", " + defByKey[key].label : (tByIso[isoOf(view.y, view.m, d)] || []).length ? ", " + tx("{0} Einsätze", (tByIso[isoOf(view.y, view.m, d)] || []).length) : tx(", frei")}${(myChanges[iso] || []).length ? tx(" (geändert)") : ""}`}
                       style={{ position: "relative", height: 54, borderRadius: 12, border: iso === selIso ? `2px solid ${PRIMARY}` : "2px solid transparent", background: st ? st.soft : PAPER, padding: "5px 0", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "space-between", cursor: "pointer" }}>
                       <span className="tn" style={{ fontSize: 13, fontWeight: today ? 800 : 500, color: today ? "#fff" : INK, background: today ? PRIMARY : "transparent", borderRadius: 10, minWidth: 22, lineHeight: "22px", textAlign: "center" }}>{d}</span>
-                      {st ? <span style={{ fontSize: 11, fontWeight: 700, color: st.ink }}>{codes[key] || "?"}</span>
+                      {key ? <span style={{ fontSize: 11, fontWeight: 700, color: st.ink }}>{codes[key] || "?"}</span>
+                        : tj.length ? <span className="tn" style={{ fontSize: 10.5, fontWeight: 700, color: TCOL.ink }}>{tj.length === 1 ? tj[0].start_time : tx("{0} Eins.", tj.length)}</span>
                         : (myChanges[iso] || []).some((c) => c.kind === "cancelled") ? <span style={{ fontSize: 11, fontWeight: 700, color: "#B45309" }}>✕</span>
                         : closedDays.has(iso) ? <span style={{ fontSize: 10, fontWeight: 600, color: MUTED }}>{tx("zu")}</span>
                         : halfDays[iso] ? <span style={{ fontSize: 10, fontWeight: 600, color: MUTED }}>½</span> : <span style={{ height: 14 }} />}
                       {(myChanges[iso] || []).length > 0 && <i aria-hidden="true" style={{ position: "absolute", top: 4, right: 5, width: 7, height: 7, borderRadius: 7, background: "#F59E0B" }} />}
+                      {key && tj.length > 0 && <i aria-hidden="true" style={{ position: "absolute", top: 4, left: 5, width: 7, height: 7, borderRadius: 7, background: TCOL.solid }} />}
                     </button>
                   );
                 })}
               </div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: "6px 14px", marginTop: 12, paddingLeft: 4, fontSize: 11, color: MUTED }}>
                 {shownDefs.map((d) => <span key={d.key} style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><i style={{ width: 9, height: 9, borderRadius: 3, background: styleOf(d.key).solid, display: "inline-block" }} />{codes[d.key]} {d.label}</span>)}
+                {hasTouren && tJobs.length > 0 && <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><i style={{ width: 9, height: 9, borderRadius: 3, background: TCOL.solid, display: "inline-block" }} />{tx("Einsatz")}</span>}
               </div>
               {Object.keys(myChanges).length > 0 && <div style={{ fontSize: 11, color: "#B45309", marginTop: 8, paddingLeft: 4 }}>{tx("● geändert · ✕ entfällt")}</div>}
               {(closedDays.size > 0 || Object.keys(halfDays).length > 0) && <div style={{ fontSize: 11, color: MUTED, marginTop: 6, paddingLeft: 4 }}>{[closedDays.size > 0 && tx("zu = Betrieb geschlossen"), Object.keys(halfDays).length > 0 && tx("½ = nur halber Tag geöffnet")].filter(Boolean).join(" · ")}</div>}
-              <div className="tn" style={{ fontSize: 12, color: MUTED, marginTop: 10, paddingLeft: 4 }}>{tx("Geplant in diesem Monat:")} {fmtH(monthHours)} {tx("Std.")}</div>
+              <div className="tn" style={{ fontSize: 12, color: MUTED, marginTop: 10, paddingLeft: 4 }}>{tx("Geplant in diesem Monat:")} {fmtH(monthHours)} {tx("Std.")}{hasTouren && tJobs.length > 0 ? ` · ${tJobs.length === 1 ? tx("1 Einsatz") : tx("{0} Einsätze", tJobs.length)}` : ""}</div>
             </Card>
 
             <Card style={{ marginTop: 14 }}>
@@ -369,8 +408,19 @@ export default function EmployeeLive() {
                     <div className="tn" style={{ fontSize: 13, fontWeight: 650, color: st.ink }}>{fmtH(netHours(def))} {tx("Std.")}</div>
                   </div>
                 );
-              })() : <div style={{ fontSize: 14, color: MUTED }}>{closedDays.has(selIso) ? tx("Der Betrieb ist an diesem Tag geschlossen.") : halfDays[selIso] ? tx("Kein Dienst. Der Betrieb ist an diesem Tag nur {0} geöffnet.", halfDays[selIso] === "am" ? "vormittags" : "nachmittags") : tx("Kein Dienst. Der Tag ist frei.")}</div>}
+              })() : (tByIso[selIso] || []).length ? null : <div style={{ fontSize: 14, color: MUTED }}>{closedDays.has(selIso) ? tx("Der Betrieb ist an diesem Tag geschlossen.") : halfDays[selIso] ? tx("Kein Dienst. Der Betrieb ist an diesem Tag nur {0} geöffnet.", halfDays[selIso] === "am" ? "vormittags" : "nachmittags") : tx("Kein Dienst. Der Tag ist frei.")}</div>}
               {selKey && defByKey[selKey] && <PlaceLine place={myPlaces[selIso]} />}
+              {(tByIso[selIso] || []).map((j) => { const href = mapsHref({ lat: j.lat, lng: j.lng, maps_url: j.maps_url, address: j.address }); return (
+                <div key={j.id} style={{ display: "flex", gap: 12, alignItems: "flex-start", background: TCOL.soft, borderRadius: 14, padding: 12, marginTop: selKey ? 10 : 0, marginBottom: 8 }}>
+                  <i aria-hidden="true" style={{ width: 5, alignSelf: "stretch", borderRadius: 3, background: TCOL.solid }} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div className="tn" style={{ fontWeight: 700, color: TCOL.ink }}>{j.start_time} – {tEnd(j)}</div>
+                    <div style={{ fontWeight: 650, marginTop: 2 }}>{j.customer}</div>
+                    <div style={{ fontSize: 13, color: MUTED }}>{j.address}{j.service ? ` · ${j.service}` : ""}</div>
+                  </div>
+                  {href && <a href={href} target="_blank" rel="noopener noreferrer" aria-label={tx("Route")} style={{ display: "grid", placeItems: "center", width: 40, height: 40, borderRadius: 12, background: "#fff", color: TCOL.ink, flex: "0 0 auto" }}><MapPin size={18} /></a>}
+                </div>); })}
+              {(tByIso[selIso] || []).length > 0 && selIso !== todayIso && <div style={{ fontSize: 12, color: MUTED }}>{tx("Hinweise zum Einsatz stehen am Tag selbst unter „Einsätze“.")}</div>}
               {(myChanges[selIso] || []).map((c, i) => (
                 <div key={i} style={{ marginTop: 10, background: "#FFF1D2", color: "#7A4E00", borderRadius: 12, padding: "9px 12px", fontSize: 13, fontWeight: 600 }}>
                   {c.kind === "cancelled"

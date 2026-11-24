@@ -8,6 +8,9 @@
 // (mit dem nächsten Einsatz aus my_next_job – nur Datum/Uhrzeit).
 import React, { useCallback, useEffect, useState } from "react";
 import { MapPin, RefreshCw, Navigation } from "lucide-react";
+// D3c-1 (24.11.2026): in der großen Karte „▶ Ich bin da“ → „✓ Fertig“ (job_checkin / job_finish);
+// beim Fertig ein Fenster von unten: „Alles erledigt“ oder „Nicht fertig – morgen weiter“ (+ Restdauer);
+// dauerte es >15 Min. länger: Grund per Tipp (optional). Gründe werden als deutscher Schlüssel gespeichert.
 import { tx, wdLong, wdShort, dmy, dm } from "../lib/i18n";
 import { mapsHref } from "../lib/maps";
 
@@ -40,6 +43,9 @@ export default function EmployeeJobs({ org }) {
   const [fresh, setFresh] = useState(false);
   const [day, setDay] = useState(0); // 0 = heute, 1 = morgen
   const [now, setNow] = useState(() => new Date());
+  const [act, setAct] = useState(false); // Knopf gedrückt (warten auf Server)
+  const [sheet, setSheet] = useState(null); // { job, step: "choose" | "rest", reason, rest }
+  const [thanks, setThanks] = useState("");
   const load = useCallback(async (manual = false) => {
     setErr(null); setBusy(true); setFresh(false);
     const r = await org.supabase.rpc("my_jobs", { p_org: org.orgId });
@@ -57,11 +63,36 @@ export default function EmployeeJobs({ org }) {
   const nowMin = now.getHours() * 60 + now.getMinutes();
   const all = rows || [];
   const listToday = all.filter((j) => j.work_date === today), listTomorrow = all.filter((j) => j.work_date === tomorrow);
-  const isDone = (j) => j.work_date === today && toMin(j.start_time) + (j.duration_min || 0) <= nowMin;
-  const isNow = (j) => j.work_date === today && toMin(j.start_time) <= nowMin && !isDone(j);
+  const tsMin = (ts) => { const d = new Date(ts); return d.getHours() * 60 + d.getMinutes(); };
+  const tsHm = (ts) => { const d = new Date(ts); return `${pad(d.getHours())}:${pad(d.getMinutes())}`; };
+  const hm = (m) => { m = Math.max(0, Math.round(m)); return `${Math.floor(m / 60)}:${pad(m % 60)}`; };
+  // erledigt = „Fertig“ gedrückt, oder (ohne „Ich bin da“) die Zeit ist vorbei
+  const isDone = (j) => !!j.finished_at || (j.work_date === today && !j.arrived_at && toMin(j.start_time) + (j.duration_min || 0) <= nowMin);
+  const isNow = (j) => j.work_date === today && !isDone(j) && (!!j.arrived_at || toMin(j.start_time) <= nowMin);
+  const endMin = (j) => toMin(j.start_time) + (j.duration_min || 0);
+  async function checkin(j) {
+    setAct(true); setErr(null);
+    const r = await org.supabase.rpc("job_checkin", { p_job: j.id });
+    setAct(false);
+    if (r.error) { setErr(r.error.message); return; }
+    await load();
+  }
+  async function finish(outcome) {
+    const j = sheet.job; setAct(true); setErr(null);
+    const r = await org.supabase.rpc("job_finish", { p_job: j.id, p_outcome: outcome, p_remaining_min: outcome === "partial" ? sheet.rest : null, p_reason: sheet.reason || null });
+    setAct(false);
+    if (r.error) { setErr(r.error.message); return; }
+    setSheet(null); setThanks(outcome === "partial" ? tx("Gespeichert – das Büro plant den Rest mit dem Kunden.") : tx("Danke! Einsatz erledigt ✓"));
+    setTimeout(() => setThanks(""), 4000);
+    await load();
+  }
   // Hero: laufender oder nächster Einsatz (heute, sonst morgen)
   const hero = listToday.find((j) => !isDone(j)) || listTomorrow[0] || null;
   const countdown = (j) => {
+    if (j.arrived_at && j.work_date === today) {
+      const left = endMin(j) - nowMin;
+      return left >= 0 ? tx("Vor Ort seit {0} · noch {1} Std.", tsHm(j.arrived_at), hm(left)) : tx("Vor Ort seit {0} · läuft länger (+{1})", tsHm(j.arrived_at), hm(-left));
+    }
     if (isNow(j)) return tx("Jetzt im Einsatz · bis {0}", endOf(j.start_time, j.duration_min));
     if (j.work_date !== today) return tx("Morgen");
     const m = toMin(j.start_time) - nowMin; const h = Math.floor(m / 60), mm = m % 60;
@@ -85,18 +116,28 @@ export default function EmployeeJobs({ org }) {
       {rows !== null && (hero ? (
         <div style={{ background: `linear-gradient(135deg, ${PRIMARY} 0%, #34539A 100%)`, color: "#fff", borderRadius: 22, padding: "16px 18px", marginBottom: 16, boxShadow: "0 6px 18px rgba(36,59,107,.25)" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, opacity: 0.9 }}>
-            {isNow(hero) && <span aria-hidden="true" style={{ width: 9, height: 9, borderRadius: 999, background: "#4ADE80", boxShadow: "0 0 0 4px rgba(74,222,128,.25)" }} />}
-            <span>{isNow(hero) ? "" : tx("Dein nächster Einsatz") + " · "}{countdown(hero)}</span>
+            {(isNow(hero) || hero.arrived_at) && <span aria-hidden="true" style={{ width: 9, height: 9, borderRadius: 999, background: hero.arrived_at && endMin(hero) < nowMin ? "#FB923C" : "#4ADE80", boxShadow: "0 0 0 4px rgba(74,222,128,.25)" }} />}
+            <span>{isNow(hero) || hero.arrived_at ? "" : tx("Dein nächster Einsatz") + " · "}{countdown(hero)}</span>
           </div>
           <div className="tn" style={{ fontSize: 32, fontWeight: 750, letterSpacing: -0.8, margin: "6px 0 2px" }}>{hero.start_time} – {endOf(hero.start_time, hero.duration_min)}</div>
           <div style={{ fontSize: 18, fontWeight: 650 }}>{hero.customer}</div>
           <div style={{ fontSize: 14, opacity: 0.85, marginTop: 2, display: "flex", gap: 5, alignItems: "flex-start" }}><MapPin size={15} style={{ flex: "0 0 auto", marginTop: 2 }} />{hero.address}</div>
           {hero.service && <span style={{ display: "inline-block", marginTop: 8, background: "rgba(255,255,255,.16)", borderRadius: 999, padding: "3px 10px", fontSize: 13 }}>{hero.service}</span>}
           {hero.team && hero.team.length > 0 && <div style={{ marginTop: 10 }}><Avatars names={hero.team} light /></div>}
-          {routeOf(hero) && (
-            <a href={routeOf(hero)} target="_blank" rel="noopener noreferrer" style={{ marginTop: 14, display: "flex", alignItems: "center", justifyContent: "center", gap: 8, minHeight: 48, borderRadius: 14, background: "#fff", color: PRIMARY, fontSize: 16, fontWeight: 700, textDecoration: "none" }}>
-              <Navigation size={18} />{tx("Route starten")}
-            </a>
+          {hero.work_date === today && hero.arrived_at ? (
+            <button type="button" onClick={() => setSheet({ job: hero, step: "choose", reason: "", rest: 60 })} disabled={act}
+              style={{ marginTop: 14, width: "100%", border: 0, minHeight: 50, borderRadius: 14, background: "#22C55E", color: "#fff", fontSize: 17, fontWeight: 750, cursor: "pointer" }}>✓ {tx("Fertig")}</button>
+          ) : (
+            <div style={{ display: "grid", gridTemplateColumns: hero.work_date === today && routeOf(hero) ? "1fr 1fr" : "1fr", gap: 8, marginTop: 14 }}>
+              {routeOf(hero) && (
+                <a href={routeOf(hero)} target="_blank" rel="noopener noreferrer" style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, minHeight: 48, borderRadius: 14, background: hero.work_date === today ? "rgba(255,255,255,.16)" : "#fff", color: hero.work_date === today ? "#fff" : PRIMARY, fontSize: 16, fontWeight: 700, textDecoration: "none" }}>
+                  <Navigation size={18} />{hero.work_date === today ? tx("Route") : tx("Route starten")}
+                </a>
+              )}
+              {hero.work_date === today && (
+                <button type="button" onClick={() => checkin(hero)} disabled={act} style={{ border: 0, minHeight: 48, borderRadius: 14, background: "#fff", color: PRIMARY, fontSize: 16, fontWeight: 750, cursor: "pointer" }}>▶ {tx("Ich bin da")}</button>
+              )}
+            </div>
           )}
         </div>
       ) : (
@@ -129,8 +170,11 @@ export default function EmployeeJobs({ org }) {
                 <span aria-hidden="true" style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 6, background: col }} />
                 <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                   <span className="tn" style={{ background: `${col}1A`, color: INK, borderRadius: 10, padding: "4px 10px", fontSize: 16, fontWeight: 750 }}>{j.start_time} – {endOf(j.start_time, j.duration_min)}</span>
-                  {isNow(j) && <span style={{ fontSize: 12, fontWeight: 700, color: "#15803D", background: "#DCFCE7", borderRadius: 999, padding: "3px 9px" }}>● {tx("jetzt")}</span>}
-                  {done && <span style={{ fontSize: 12, fontWeight: 700, color: MUTED }}>✓ {tx("vorbei")}</span>}
+                  {j.arrived_at && !j.finished_at && <span style={{ fontSize: 12, fontWeight: 700, color: "#1D4ED8", background: "#DBEAFE", borderRadius: 999, padding: "3px 9px" }}>● {tx("vor Ort")}</span>}
+                  {!j.arrived_at && isNow(j) && <span style={{ fontSize: 12, fontWeight: 700, color: "#15803D", background: "#DCFCE7", borderRadius: 999, padding: "3px 9px" }}>● {tx("jetzt")}</span>}
+                  {j.finished_at && j.outcome === "partial" && <span style={{ fontSize: 12, fontWeight: 700, color: "#6B21A8", background: "#F3E8FF", borderRadius: 999, padding: "3px 9px" }}>⏸ {tx("nicht fertig")}</span>}
+                  {j.finished_at && j.outcome !== "partial" && <span style={{ fontSize: 12, fontWeight: 700, color: "#15803D" }}>✓ {tx("fertig {0}", tsHm(j.finished_at))}</span>}
+                  {done && !j.finished_at && <span style={{ fontSize: 12, fontWeight: 700, color: MUTED }}>✓ {tx("vorbei")}</span>}
                   {hero && hero.id === j.id && !isNow(j) && <span style={{ fontSize: 12, fontWeight: 700, color: PRIMARY, background: "#E9EEF8", borderRadius: 999, padding: "3px 9px" }}>{tx("als Nächstes")}</span>}
                 </div>
                 <div style={{ fontSize: 17, fontWeight: 700, marginTop: 8 }}>{j.customer}</div>
@@ -158,6 +202,44 @@ export default function EmployeeJobs({ org }) {
           <div style={{ fontSize: 12, color: MUTED, margin: "6px 2px 0" }}>{tx("Hinweise zum Einsatz sind nur am Tag selbst sichtbar.")}</div>
         </>
       )}
+      {thanks && <div role="status" style={{ position: "fixed", left: 16, right: 16, bottom: 96, zIndex: 60, background: "#14532D", color: "#fff", borderRadius: 14, padding: "12px 14px", fontSize: 15, fontWeight: 650, textAlign: "center", boxShadow: "0 6px 20px rgba(0,0,0,.2)" }}>{thanks}</div>}
+      {sheet && (() => {
+        const j = sheet.job; const arr = j.arrived_at ? tsMin(j.arrived_at) : nowMin; const actual = nowMin - arr; const longer = actual - (j.duration_min || 0) > 15;
+        const REASONS = ["Mehr Arbeit", "Kunde wollte mehr", "Später angefangen", "Anderes"];
+        const RESTS = [[60, "1 Std."], [120, "2 Std."], [180, "3 Std."], [240, "4 Std."], [480, "ganzer Tag"]];
+        const big = { width: "100%", border: 0, minHeight: 56, borderRadius: 16, fontSize: 16, fontWeight: 750, cursor: "pointer", marginTop: 10, display: "flex", alignItems: "center", gap: 10, padding: "0 16px" };
+        const chip = (on) => ({ border: `1.5px solid ${on ? PRIMARY : "#CBD5E1"}`, background: on ? PRIMARY : "#fff", color: on ? "#fff" : INK, borderRadius: 999, padding: "8px 13px", fontSize: 14, margin: "6px 6px 0 0", cursor: "pointer" });
+        return (
+          <div role="dialog" aria-modal="true" aria-label={tx("Einsatz abschließen")} style={{ position: "fixed", inset: 0, zIndex: 70 }}>
+            <div onClick={() => !act && setSheet(null)} style={{ position: "absolute", inset: 0, background: "rgba(15,23,42,.4)" }} />
+            <div style={{ position: "absolute", left: 0, right: 0, bottom: 0, background: "#fff", borderRadius: "24px 24px 0 0", padding: "14px 18px 26px", maxWidth: 560, margin: "0 auto", color: INK }}>
+              <div style={{ width: 40, height: 5, borderRadius: 5, background: "#CBD5E1", margin: "0 auto 12px" }} />
+              <div style={{ fontSize: 18, fontWeight: 750 }}>{tx("Einsatz bei {0}", j.customer)}</div>
+              <div className="tn" style={{ fontSize: 13, color: MUTED, marginTop: 2 }}>{tx("{0} – {1} · {2} Std. (geplant {3})", j.arrived_at ? tsHm(j.arrived_at) : "–", `${pad(Math.floor(nowMin / 60))}:${pad(nowMin % 60)}`, hm(actual), hm(j.duration_min))}</div>
+              {sheet.step === "choose" ? (
+                <>
+                  <button type="button" disabled={act} onClick={() => finish("done")} style={{ ...big, background: "#22C55E", color: "#fff" }}>✅ {tx("Alles erledigt")}</button>
+                  <button type="button" disabled={act} onClick={() => setSheet({ ...sheet, step: "rest" })} style={{ ...big, background: "#F3E8FF", color: "#6B21A8" }}>⏸ {tx("Nicht fertig – muss weitergehen")}</button>
+                </>
+              ) : (
+                <>
+                  <div style={{ marginTop: 14, fontSize: 15, fontWeight: 700 }}>{tx("Wie lange dauert es noch?")}</div>
+                  <div>{RESTS.map(([m, l]) => <button key={m} type="button" onClick={() => setSheet({ ...sheet, rest: m })} style={chip(sheet.rest === m)}>{tx(l)}</button>)}</div>
+                  <button type="button" disabled={act} onClick={() => finish("partial")} style={{ ...big, background: "#7C3AED", color: "#fff", justifyContent: "center" }}>{tx("Speichern")}</button>
+                  <button type="button" onClick={() => setSheet({ ...sheet, step: "choose" })} style={{ border: 0, background: "none", color: MUTED, fontSize: 14, marginTop: 8, cursor: "pointer", width: "100%" }}>{tx("Zurück")}</button>
+                </>
+              )}
+              {longer && (
+                <div style={{ marginTop: 14 }}>
+                  <div style={{ fontSize: 14, fontWeight: 650 }}>{tx("Es hat länger gedauert – warum?")} <span style={{ color: MUTED, fontWeight: 400 }}>{tx("(optional)")}</span></div>
+                  <div>{REASONS.map((r) => <button key={r} type="button" onClick={() => setSheet({ ...sheet, reason: sheet.reason === r ? "" : r })} style={chip(sheet.reason === r)}>{tx(r)}</button>)}</div>
+                </div>
+              )}
+              {err && <div role="alert" style={{ marginTop: 10, color: "#8F1B1B", fontSize: 14 }}>{err}</div>}
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

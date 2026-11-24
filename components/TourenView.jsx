@@ -75,9 +75,32 @@ const isoOf = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDat
 const dateOf = (iso) => new Date(String(iso).slice(0, 10) + "T12:00:00");
 const addDays = (iso, n) => { const d = dateOf(iso); d.setDate(d.getDate() + n); return isoOf(d); };
 const mondayOf = (iso) => { const d = dateOf(iso); const w = (d.getDay() + 6) % 7; d.setDate(d.getDate() - w); return isoOf(d); };
+// Monatsansicht (24.11.2026): ganze Wochen Mo–So, die den Monat abdecken
+const monthFirst = (iso) => `${iso.slice(0, 7)}-01`;
+const monthLast = (iso) => { const d = dateOf(monthFirst(iso)); return isoOf(new Date(d.getFullYear(), d.getMonth() + 1, 0, 12)); };
+const addMonths = (iso, n) => { const d = dateOf(monthFirst(iso)); return isoOf(new Date(d.getFullYear(), d.getMonth() + n, 1, 12)); };
+const monthGrid = (iso) => { const a = mondayOf(monthFirst(iso)); const b = addDays(mondayOf(monthLast(iso)), 6); const out = []; for (let d = a; d <= b; d = addDays(d, 1)) out.push(d); return out; };
 const hhmm = (t) => String(t || "").slice(0, 5);
 const toMin = (t) => { const [h, m] = String(t || "0:0").split(":"); return (+h || 0) * 60 + (+m || 0); };
 const endOf = (start, dur) => { const e = (((toMin(start) + (dur || 0)) % 1440) + 1440) % 1440; return `${pad(Math.floor(e / 60))}:${pad(e % 60)}`; };
+// D3c-1: Ist-Zeiten und Live-Status eines Auftrags (angekommen / fertig / läuft länger / Termin offen)
+const tsHm = (ts) => { if (!ts) return ""; const d = new Date(ts); return `${pad(d.getHours())}:${pad(d.getMinutes())}`; };
+const hm = (min) => { const m = Math.abs(Math.round(min)); return `${Math.floor(m / 60)}:${pad(m % 60)}`; };
+function liveStatus(j) {
+  if (j.status === "cancelled") return { label: txRaw("Storniert"), cls: "bg-rose-50 text-rose-700 border-rose-200 line-through" };
+  if (j.needs_confirm) return { label: txRaw("Termin offen"), cls: "bg-amber-50 text-amber-800 border-amber-200" };
+  if (j.finished_at) {
+    if (j.outcome === "partial") return { label: txRaw("⏸ nicht fertig"), cls: "bg-violet-50 text-violet-800 border-violet-200" };
+    const act = j.arrived_at ? (new Date(j.finished_at) - new Date(j.arrived_at)) / 60000 : null; const diff = act === null ? 0 : act - j.duration_min;
+    return { label: txRaw("✓ fertig {0}", tsHm(j.finished_at)) + (diff >= 5 ? ` · +${hm(diff)}` : diff <= -5 ? ` · −${hm(diff)}` : ""), cls: "bg-emerald-50 text-emerald-800 border-emerald-200" };
+  }
+  if (j.arrived_at) {
+    const now = new Date(); const nowMin = now.getHours() * 60 + now.getMinutes(); const end = toMin(j.start_time) + j.duration_min;
+    if (j.work_date === isoOf(now) && nowMin > end) return { label: txRaw("⏱ läuft länger +{0}", hm(nowMin - end)), cls: "bg-orange-50 text-orange-800 border-orange-200" };
+    return { label: txRaw("● vor Ort {0}", tsHm(j.arrived_at)), cls: "bg-blue-50 text-blue-800 border-blue-200" };
+  }
+  return null;
+}
 const durTxt = (min) => { const h = Math.floor(min / 60), m = min % 60; return getLang() === "en" ? (h ? `${h} h` : "") + (m ? ` ${m} min` : "") : (h ? `${h} Std.` : "") + (m ? ` ${m} Min.` : ""); };
 const blank = (s) => !String(s || "").trim();
 const clean = (s) => (blank(s) ? null : String(s).trim());
@@ -336,6 +359,8 @@ function JobDialog({ org, data, job, preset, onClose, onSaved, onAssign }) {
     staff_needed: job.staff_needed, material: job.material || "", notes_staff: job.notes_staff || "", notes_internal: job.notes_internal || "", source: job.source, status: job.status, extra: job.extra || {},
   } : { work_date: (preset && preset.date) || isoOf(new Date()), start_time: "", dh: 2, dm: 0, service_type_id: "", staff_needed: 1, material: "", notes_staff: "", notes_internal: "", source: "phone", status: "new", extra: {} });
   const [cancelOpen, setCancelOpen] = useState(false);
+  const showIst = !!(job && (job.arrived_at || job.finished_at)); // Ist-Zeiten aus der Mitarbeiter-App (Büro kann korrigieren)
+  const [ist, setIst] = useState({ arr: job ? tsHm(job.arrived_at) : "", fin: job ? tsHm(job.finished_at) : "" });
   const [cancelReason, setCancelReason] = useState("");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState(null);
@@ -395,6 +420,11 @@ function JobDialog({ org, data, job, preset, onClose, onSaved, onAssign }) {
       if (editing) {
         if (!manual && addrChoice === job.address_id) { // Adresse nicht geändert: Text/Ort des Auftrags so lassen
           Object.assign(row, { address_text: job.address_text, maps_url: job.maps_url, lat: job.lat, lng: job.lng });
+        }
+        if (showIst) {
+          const at = (t) => (t ? new Date(`${f.work_date}T${t}:00`).toISOString() : null);
+          if (ist.arr && ist.fin && ist.fin <= ist.arr) throw new Error(tx("„Fertig“ muss nach „Angekommen“ liegen."));
+          Object.assign(row, { arrived_at: at(ist.arr), finished_at: at(ist.fin) });
         }
         const up = await sb.from("jobs").update({ ...row, status: f.status }).eq("id", job.id).select().single();
         if (up.error) throw up.error;
@@ -541,6 +571,17 @@ function JobDialog({ org, data, job, preset, onClose, onSaved, onAssign }) {
         <label className="block"><span className={lbl}>{tx("Interne Notiz (nur Büro und Leitung)")}</span><textarea rows={3} className={inp} value={f.notes_internal} onChange={(e) => set("notes_internal", e.target.value)} /></label>
       </section>
       {jobFields.length > 0 && <section className="mb-2"><ExtraInputs fields={jobFields} values={f.extra} onChange={(v) => set("extra", v)} /></section>}
+      {showIst && (
+        <section className="mb-2 rounded-lg border border-slate-200 bg-slate-50 p-3">
+          <div className="mb-2 text-sm font-semibold text-slate-700">{tx("Ist-Zeiten (aus der Mitarbeiter-App)")}</div>
+          <div className="flex flex-wrap items-end gap-3">
+            <label className="block"><span className={lbl}>{tx("Angekommen um")}</span><input type="time" className={`${inpBase} w-32`} value={ist.arr} onChange={(e) => setIst({ ...ist, arr: e.target.value })} /></label>
+            <label className="block"><span className={lbl}>{tx("Fertig um")}</span><input type="time" className={`${inpBase} w-32`} value={ist.fin} onChange={(e) => setIst({ ...ist, fin: e.target.value })} /></label>
+            {ist.arr && ist.fin && ist.fin > ist.arr && <span className="pb-2 text-sm text-slate-600">{tx("= {0} Std. (geplant {1})", hm(toMin(ist.fin) - toMin(ist.arr)), hm(job.duration_min))}</span>}
+          </div>
+          {(job.outcome === "partial" || job.overrun_reason) && <p className="mt-2 text-xs text-slate-600">{job.outcome === "partial" ? tx("Nicht fertig – Fortsetzung angelegt.") + " " : ""}{job.overrun_reason ? tx("Grund: {0}", tx(job.overrun_reason)) : ""}</p>}
+        </section>
+      )}
 
       <Msg msg={msg} />
       <div className="tv-actions mt-4 flex flex-wrap items-center justify-between gap-2">
@@ -657,20 +698,35 @@ function AssignPanel({ org, job, data, onClose, onChanged }) {
 }
 
 // ---------- Abwesend: betroffene Aufträge (Krankmeldung aus der App oder von der Leitung eingetragen) ----------
-function ConflictBox({ items, onReplace, busy }) {
-  if (!items.length) return null;
+function ConflictBox({ items, onReplace, busy, attention, onOpenJob, onPlan }) {
+  const over = (attention && attention.overrun) || [], conf = (attention && attention.confirm) || [];
+  if (!items.length && !over.length && !conf.length) return null;
+  const n = items.length + over.length + conf.length;
+  const row = "flex flex-wrap items-center justify-between gap-2 rounded-lg bg-white/70 px-2 py-1.5 text-sm text-rose-900";
   return (
     <div role="alert" className="mb-3 rounded-xl border border-rose-300 bg-rose-50 p-3">
-      <div className="mb-1.5 text-sm font-semibold text-rose-800">⚠ {tx("Abwesend – Ersatz nötig ({0})", items.length)}</div>
+      <div className="mb-1.5 text-sm font-semibold text-rose-800">⚠ {tx("Bitte prüfen ({0})", n)}</div>
       <ul className="space-y-1.5">
+        {over.map((o) => (
+          <li key={"o" + o.job_id} className={row}>
+            <span><b>{(o.staff || []).join(", ")}</b> · {o.customer} · {tx("läuft länger (+{0})", hm(o.over_min))}{o.next ? ` · ${tx("danach {0} {1} – wird knapp", o.next.start, o.next.customer)}` : ""}</span>
+            <button type="button" className={btnPrimary} onClick={() => onOpenJob(o.job_id)}>{tx("Ansehen")}</button>
+          </li>
+        ))}
+        {conf.map((c) => (
+          <li key={"c" + c.job_id} className={row}>
+            <span><b>{c.customer}</b> · {tx("nicht fertig – Fortsetzung ({0}) braucht einen Termin", durTxt(c.duration_min).trim())}</span>
+            <button type="button" className={btnPrimary} onClick={() => onPlan(c.job_id)}>{tx("Einplanen")}</button>
+          </li>
+        ))}
         {items.map((c) => (
           <li key={`${c.job_id}|${c.staff_id}`} className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-white/70 px-2 py-1.5 text-sm text-rose-900">
-            <span><b>{c.staff_name}</b> {tx("abwesend")} · {wdShort(dateOf(c.work_date).getDay())} {dm(dateOf(c.work_date))} {c.start_time} · {c.customer}</span>
+            <span><b>{c.staff_name}</b> {tx("abwesend – Ersatz nötig")} · {wdShort(dateOf(c.work_date).getDay())} {dm(dateOf(c.work_date))} {c.start_time} · {c.customer}</span>
             <button type="button" className={btnPrimary} onClick={() => onReplace(c)} disabled={busy}>{tx("Ersatz finden")}</button>
           </li>
         ))}
       </ul>
-      <p className="mt-1.5 text-[11px] text-rose-700">{tx("„Ersatz finden“ nimmt die Person aus dem Auftrag und zeigt gleich die besten Vorschläge.")}</p>
+      {items.length > 0 && <p className="mt-1.5 text-[11px] text-rose-700">{tx("„Ersatz finden“ nimmt die Person aus dem Auftrag und zeigt gleich die besten Vorschläge.")}</p>}
     </div>
   );
 }
@@ -725,20 +781,204 @@ function AbsenceDialog({ org, person, onClose, onSaved }) {
   );
 }
 
+// ---------- Fortsetzung einplanen (D3c-1): eigenes Fenster – erst mit dem Kunden klären, dann bestätigen ----------
+function ContinuationDialog({ org, data, job, onClose, onSaved, onAssign }) {
+  const sb = org.supabase;
+  const c = data.customers.find((x) => x.id === job.customer_id);
+  const [parent, setParent] = useState(null);
+  const [teamIds, setTeamIds] = useState([]);
+  const [dayJobs, setDayJobs] = useState(null); // Aufträge des Teams am gewählten Tag: [{ id, start, dur, customer_id, staff: [ids] }]
+  const [f, setF] = useState({ work_date: job.work_date, start_time: hhmm(job.start_time), duration_min: job.duration_min });
+  const [who, setWho] = useState(null); // "team" | "other" | "free" | "shift"
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState(null);
+  const [moved, setMoved] = useState(null); // nach „Folgendes verschieben“: Kunden zum Benachrichtigen
+  const nameOf = (id) => (data.staffList.find((s) => s.id === id) || {}).name || "?";
+  useEffect(() => {
+    let alive = true;
+    if (job.parent_job_id) {
+      sb.from("jobs").select("job_no, work_date, start_time, duration_min").eq("id", job.parent_job_id).maybeSingle().then((r) => { if (alive && !r.error) setParent(r.data); });
+      sb.from("job_staff").select("staff_id").eq("job_id", job.parent_job_id).then((r) => { if (alive && !r.error) setTeamIds((r.data || []).map((x) => x.staff_id)); });
+    }
+    return () => { alive = false; };
+  }, [sb, job]);
+  // Aufträge des Teams am gewählten Tag (ohne diese Fortsetzung)
+  useEffect(() => {
+    let alive = true;
+    if (!teamIds.length || !f.work_date) { setDayJobs([]); return undefined; }
+    (async () => {
+      const js = await sb.from("jobs").select("id, start_time, duration_min, customer_id, status").eq("org_id", org.orgId).eq("work_date", f.work_date);
+      const list = ((!js.error && js.data) || []).filter((j) => j.id !== job.id && j.status !== "cancelled");
+      const xs = list.length ? await sb.from("job_staff").select("job_id, staff_id").in("job_id", list.map((j) => j.id)) : { data: [] };
+      if (!alive) return;
+      const by = {}; ((xs && xs.data) || []).forEach((x) => { (by[x.job_id] = by[x.job_id] || []).push(x.staff_id); });
+      setDayJobs(list.map((j) => ({ id: j.id, start: toMin(j.start_time), dur: j.duration_min, customer_id: j.customer_id, staff: by[j.id] || [] }))
+        .filter((j) => j.staff.some((s) => teamIds.includes(s))).sort((a, b) => a.start - b.start));
+    })();
+    return () => { alive = false; };
+  }, [sb, org.orgId, job.id, teamIds, f.work_date]);
+
+  const S = toMin(f.start_time || "0:0"), D = Number(f.duration_min) || 0;
+  const overlaps = (a, b) => a.start < b.start + b.dur && b.start < a.start + a.dur;
+  const clash = (dayJobs || []).filter((j) => overlaps(j, { start: S, dur: D }));
+  const teamFree = teamIds.length > 0 && dayJobs !== null && clash.length === 0;
+  // erste freie Zeit für das ganze Team ab der gewünschten Uhrzeit (bis 22:00, 15-Min.-Schritte)
+  const firstFree = (() => { if (!dayJobs) return null; for (let t = S; t + D <= 22 * 60; t += 15) if (!dayJobs.some((j) => overlaps(j, { start: t, dur: D }))) return t; return null; })();
+  // „Folgendes verschieben“: Fortsetzung bleibt, spätere Aufträge des Teams rücken nach hinten
+  const shiftPlan = (() => {
+    if (!dayJobs) return [];
+    let cursor = S + D; const out = [];
+    dayJobs.filter((j) => j.start + j.dur > S).forEach((j) => { if (j.start < cursor) { out.push({ ...j, to: cursor }); cursor += j.dur; } else cursor = Math.max(cursor, j.start + j.dur); });
+    return out;
+  })();
+  const mm = (m) => `${pad(Math.floor(m / 60) % 24)}:${pad(m % 60)}`;
+  useEffect(() => { if (dayJobs !== null) setWho((w) => (w && (w === "other" || (w === "team" && teamFree) || (w !== "team" && !teamFree)) ? w : teamFree ? "team" : "other")); }, [dayJobs, teamFree]);
+
+  const d = dateOf(f.work_date || job.work_date);
+  const text = tx("Hallo {0}, die Arbeit konnte am {1} nicht ganz fertig werden. Passt es Ihnen, wenn wir am {2} um {3} Uhr weitermachen (ca. {4})?",
+    c ? c.name : "", parent ? dmy(dateOf(parent.work_date)) : "", `${wdLong(d.getDay())}, ${dmy(d)}`, who === "free" && firstFree !== null ? mm(firstFree) : f.start_time, durTxt(D).trim());
+  const durOpts = []; for (let m = 15; m <= 600; m += 15) durOpts.push(m); if (!durOpts.includes(D)) durOpts.push(D);
+
+  async function assignTeam(jobId) {
+    for (const sid of teamIds) {
+      const r = await sb.from("job_staff").insert({ org_id: org.orgId, job_id: jobId, staff_id: sid });
+      if (r.error) return r.error;
+    }
+    return null;
+  }
+  async function save(confirm) {
+    setMsg(null);
+    if (!f.work_date || !f.start_time) return setMsg({ kind: "err", text: tx("Bitte Datum und Uhrzeit angeben.") });
+    if (confirm && who === "free" && firstFree === null) return setMsg({ kind: "err", text: tx("An diesem Tag ist das Team nicht mehr frei – bitte einen anderen Tag oder „Jemand anderes“ wählen.") });
+    setBusy(true);
+    const start = confirm && who === "free" ? mm(firstFree) : f.start_time;
+    const row = { work_date: f.work_date, start_time: start, duration_min: D };
+    if (confirm) Object.assign(row, { needs_confirm: false, status: "accepted" });
+    let err = null; const movedList = [];
+    if (confirm && who === "shift") { // spätere zuerst verschieben, dann die Fortsetzung
+      for (const j of [...shiftPlan].reverse()) {
+        const r = await sb.from("jobs").update({ start_time: mm(j.to) }).eq("id", j.id);
+        if (r.error) { err = r.error; break; }
+        const cu = data.customers.find((x) => x.id === j.customer_id);
+        movedList.unshift({ id: j.id, cust: cu, from: mm(j.start), to: mm(j.to) });
+      }
+    }
+    let up = null;
+    if (!err) { up = await sb.from("jobs").update(row).eq("id", job.id).select().single(); err = up.error; }
+    if (!err && confirm && ["team", "free", "shift"].includes(who)) err = await assignTeam(job.id);
+    setBusy(false);
+    if (err) return setMsg({ kind: "err", text: errText(err) });
+    if (!confirm) return onSaved(tx("Gespeichert – Termin noch offen."), f.work_date);
+    if (who === "other") { onSaved(tx("Termin bestätigt ✓"), f.work_date); if (onAssign) onAssign(up.data); return; }
+    if (who === "shift" && movedList.length) { setMoved(movedList); return; } // erst Kunden benachrichtigen
+    onSaved(tx("Termin bestätigt ✓ – Team eingeteilt."), f.work_date);
+  }
+  async function remove() {
+    if (!ask(tx("Fortsetzung wirklich löschen?"))) return;
+    setBusy(true);
+    const r = await sb.from("jobs").delete().eq("id", job.id);
+    setBusy(false);
+    if (r.error) return setMsg({ kind: "err", text: errText(r.error) });
+    onSaved(tx("Fortsetzung gelöscht."), null);
+  }
+  const phone = c && c.phone;
+  const cbtn = "inline-flex min-h-[44px] flex-1 items-center justify-center gap-2 rounded-lg border px-3 text-sm font-semibold";
+  const step = "mb-1.5 text-sm font-semibold text-slate-700";
+
+  if (moved) return ( // nach dem Verschieben: Kunden kurz informieren
+    <Modal title={tx("Termine verschoben")} onClose={() => onSaved(tx("Termin bestätigt ✓ – Team eingeteilt."), f.work_date)}>
+      <div className="space-y-3">
+        <p className="text-sm text-slate-600">{tx("Diese Kunden haben jetzt eine andere Uhrzeit. Bitte kurz Bescheid geben:")}</p>
+        {moved.map((m) => { const ph = m.cust && m.cust.phone; const t2 = tx("Hallo {0}, wir müssen Ihren Termin am {1} von {2} auf {3} Uhr verschieben. Passt das für Sie?", m.cust ? m.cust.name : "", dmy(d), m.from, m.to); return (
+          <div key={m.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 p-2.5 text-sm">
+            <span><b>{custName(m.cust)}</b> · {m.from} → <b>{m.to}</b></span>
+            {ph ? <a href={`https://wa.me/${digits(ph)}?text=${encodeURIComponent(t2)}`} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-[40px] items-center rounded-lg bg-emerald-600 px-3 font-semibold text-white">WhatsApp</a> : <span className="text-xs text-slate-500">{tx("keine Telefonnummer")}</span>}
+          </div>); })}
+        <div className="tv-actions flex justify-end"><button type="button" className={btnPrimary} onClick={() => onSaved(tx("Termin bestätigt ✓ – Team eingeteilt."), f.work_date)}>{tx("Fertig")}</button></div>
+      </div>
+    </Modal>
+  );
+
+  const card = (val, color, title, sub, disabled) => (
+    <button type="button" role="radio" aria-checked={who === val} disabled={disabled} onClick={() => setWho(val)}
+      className={`w-full rounded-xl border-2 p-2.5 text-left text-sm ${who === val ? "border-teal-600 bg-teal-50" : "border-slate-200 bg-white hover:border-slate-300"} ${disabled ? "opacity-40" : ""}`}>
+      <div className="font-semibold text-slate-800">{color} {title}</div>
+      {sub && <div className="mt-0.5 text-xs text-slate-600">{sub}</div>}
+    </button>
+  );
+  return (
+    <Modal title={tx("Fortsetzung einplanen")} onClose={onClose}>
+      <div className="space-y-4">
+        <div className="rounded-xl bg-violet-50 p-3 text-sm text-violet-900">
+          <div className="font-semibold">{custName(c)} · {job.address_text}</div>
+          <div className="mt-0.5">{parent ? tx("Fortsetzung von Auftrag Nr. {0} ({1}) – noch ca. {2}", parent.job_no, dmy(dateOf(parent.work_date)), durTxt(job.duration_min).trim()) : tx("Fortsetzung")}</div>
+          {teamIds.length > 0 && <div className="mt-0.5 text-violet-800">{tx("Team beim ersten Termin: {0}", teamIds.map(nameOf).join(", "))}</div>}
+        </div>
+        <div>
+          <div className={step}>① {tx("Mit dem Kunden klären")}</div>
+          {phone ? (
+            <div className="flex gap-2">
+              <a href={`tel:${phone}`} className={`${cbtn} border-slate-300 bg-white text-slate-700`}><Phone size={16} />{tx("Anrufen")}</a>
+              <a href={`https://wa.me/${digits(phone)}?text=${encodeURIComponent(text)}`} target="_blank" rel="noopener noreferrer" className={`${cbtn} border-emerald-600 bg-emerald-600 text-white`}>WhatsApp</a>
+            </div>
+          ) : <p className="text-sm text-slate-500">{tx("Für diesen Kunden ist keine Telefonnummer gespeichert.")}</p>}
+          {phone && <p className="mt-1.5 rounded-lg bg-slate-50 p-2 text-xs text-slate-600">{text}</p>}
+        </div>
+        <div>
+          <div className={step}>② {tx("Termin")}</div>
+          <div className="grid grid-cols-3 gap-2">
+            <label className="block"><span className={lbl}>{tx("Datum")}</span><input type="date" className={inp} value={f.work_date} onChange={(e) => setF({ ...f, work_date: e.target.value })} /></label>
+            <label className="block"><span className={lbl}>{tx("Beginn")}</span><input type="time" className={inp} value={f.start_time} onChange={(e) => setF({ ...f, start_time: e.target.value })} /></label>
+            <label className="block"><span className={lbl}>{tx("Dauer")}</span><select className={inp} value={D} onChange={(e) => setF({ ...f, duration_min: e.target.value })}>{durOpts.sort((a, b) => a - b).map((m) => <option key={m} value={m}>{durTxt(m).trim()}</option>)}</select></label>
+          </div>
+          <p className="mt-1.5 text-[11px] text-slate-500">{tx("Solange der Termin offen ist, sehen die Mitarbeitenden ihn nicht.")}</p>
+        </div>
+        <div>
+          <div className={step}>③ {tx("Wer macht weiter?")}</div>
+          {dayJobs === null ? <p className="text-sm text-slate-500">{tx("Lädt …")}</p> : (
+            <div role="radiogroup" className="space-y-2">
+              {teamIds.length > 0 && dayJobs.length > 0 && (
+                <div className="rounded-lg bg-slate-50 p-2 text-xs text-slate-600">
+                  <b>{tx("Team an diesem Tag:")}</b> {dayJobs.map((j) => `${mm(j.start)}–${mm(j.start + j.dur)} ${custName(data.customers.find((x) => x.id === j.customer_id))} (${j.staff.filter((s) => teamIds.includes(s)).map(nameOf).join(", ")})`).join(" · ")}
+                </div>
+              )}
+              {teamFree
+                ? card("team", "🟢", tx("Gleiches Team"), tx(teamIds.length === 1 ? "{0} ist um {1} frei – nichts wird verschoben." : "{0} sind um {1} frei – nichts wird verschoben.", teamIds.map(nameOf).join(", "), f.start_time))
+                : teamIds.length > 0 && <div className="rounded-lg bg-amber-50 p-2 text-xs font-medium text-amber-800">⚠ {tx("Das Team hat um {0} schon andere Aufträge.", f.start_time)}</div>}
+              {card("other", "🟢", tx("Jemand anderes"), tx("Danach öffnet sich „Personal zuteilen“ mit den besten Vorschlägen. Kein anderer Auftrag wird verschoben."))}
+              {!teamFree && teamIds.length > 0 && card("free", "🔵", tx("Gleiches Team – erste freie Zeit"), firstFree !== null ? tx("um {0} Uhr – die anderen Aufträge bleiben.", mm(firstFree)) : tx("An diesem Tag ist keine Zeit mehr frei."), firstFree === null)}
+              {!teamFree && teamIds.length > 0 && card("shift", "🟠", tx("Gleiches Team – Folgendes verschieben"),
+                shiftPlan.length ? shiftPlan.map((j) => `${custName(data.customers.find((x) => x.id === j.customer_id))} ${mm(j.start)} → ${mm(j.to)}`).join(" · ") : tx("Nichts zu verschieben."))}
+            </div>
+          )}
+        </div>
+        <Msg msg={msg} />
+        <div className="tv-actions flex flex-wrap items-center justify-between gap-2">
+          <button type="button" className="text-sm text-slate-500 underline" onClick={remove} disabled={busy}>{tx("Fortsetzung löschen")}</button>
+          <div className="flex flex-wrap gap-2">
+            <button type="button" className={btnLight} onClick={() => save(false)} disabled={busy}>{tx("Speichern (noch offen)")}</button>
+            <button type="button" className={btnPrimary} onClick={() => save(true)} disabled={busy || !who}>✓ {tx("Kunde hat zugestimmt")}</button>
+          </div>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
 // ---------- Aufträge: Tag / Woche ----------
 function JobCard({ j, data, onOpen, compact, assign = [], onAssign, absent }) {
   const isAbs = (sid) => !!(absent && absent.has(`${j.id}|${sid}`));
   const c = data.customers.find((x) => x.id === j.customer_id);
   const s = data.services.find((x) => x.id === j.service_type_id);
-  const st = STATUS[j.status] || STATUS.new;
+  const live = liveStatus(j); const st = live || { label: tx((STATUS[j.status] || STATUS.new).label), cls: (STATUS[j.status] || STATUS.new).cls };
   return (
     <div className={`rounded-xl border border-slate-200 bg-white shadow-sm hover:border-teal-400 hover:shadow ${compact ? "px-2 py-1.5" : "px-3 py-2.5"} ${j.status === "cancelled" ? "opacity-60" : ""}`}>
     <button type="button" onClick={() => onOpen(j)} className="block w-full text-left">
       <div className="flex flex-wrap items-center justify-between gap-1">
         <span className={`font-semibold text-slate-800 ${compact ? "text-xs" : "text-sm"}`}>{hhmm(j.start_time)}–{endOf(j.start_time, j.duration_min)}{!compact && <span className="ml-2 font-normal text-slate-500">{durTxt(j.duration_min)}</span>}</span>
-        <span className={`rounded-full border px-2 py-0.5 text-[10px] font-medium ${st.cls}`}>{tx(st.label)}</span>
+        <span className={`rounded-full border px-2 py-0.5 text-[10px] font-medium ${st.cls}`}>{st.label}</span>
       </div>
-      <div className={`mt-0.5 truncate ${compact ? "text-xs" : "text-sm"} text-slate-800`}>{custName(c)}{!compact && c ? <span className="ml-1 text-slate-400">#{c.customer_no}</span> : null}</div>
+      <div className={`mt-0.5 truncate ${compact ? "text-xs" : "text-sm"} text-slate-800`}>{custName(c)}{!compact && c ? <span className="ml-1 text-slate-400">#{c.customer_no}</span> : null}{j.parent_job_id ? <span className="ml-1.5 rounded bg-violet-50 px-1.5 py-0.5 text-[10px] font-semibold text-violet-700">{tx("Fortsetzung")}</span> : null}</div>
       {!compact && <div className="mt-0.5 truncate text-xs text-slate-600">{j.address_text}</div>}
       <div className={`mt-0.5 flex flex-wrap gap-x-3 text-slate-500 ${compact ? "text-[10px]" : "text-xs"}`}>
         {s ? <span>{s.name}</span> : null}
@@ -748,8 +988,8 @@ function JobCard({ j, data, onOpen, compact, assign = [], onAssign, absent }) {
         {!compact && <span>{tx("Nr. {0}", j.job_no)}</span>}
       </div>
     </button>
-    {!compact && (() => { const mine = assign.filter((a) => a.job_id === j.id);
-      return mine.length ? <div className="mt-1 text-xs text-slate-700">👤 {mine.map((a, i) => { const nm = (data.staffList.find((x) => x.id === a.staff_id) || {}).name || "?";
+    {(() => { const mine = assign.filter((a) => a.job_id === j.id);
+      return mine.length ? <div className={compact ? "mt-0.5 text-[10px] leading-tight text-slate-700" : "mt-1 text-xs text-slate-700"}>👤 {mine.map((a, i) => { const nm = (data.staffList.find((x) => x.id === a.staff_id) || {}).name || "?";
         return <span key={a.staff_id}>{i ? ", " : ""}{isAbs(a.staff_id) ? <span className="font-medium text-rose-700">⚠ {nm} ({tx("abwesend")})</span> : nm}</span>; })}</div> : null; })()}
     {!compact && j.status !== "cancelled" && j.status !== "done" && onAssign && (
       <button type="button" onClick={() => onAssign(j)} className="mt-2 inline-flex min-h-[40px] w-full items-center justify-center gap-1.5 rounded-lg bg-teal-600 px-3 text-sm font-medium text-white hover:bg-teal-700 sm:w-auto">👥 {tx("Personal zuteilen")}</button>
@@ -763,20 +1003,22 @@ function JobsView({ org, data, jobs, assign, absent, day, setDay, mode, setMode,
   const visible = jobs.filter((j) => showCancelled || j.status !== "cancelled");
   const today = isoOf(new Date());
   const step = mode === "week" ? 7 : 1;
+  const move = (n) => setDay(mode === "month" ? addMonths(day, n) : addDays(day, n * step));
   const weekStart = mondayOf(day);
-  const days = mode === "week" ? Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)) : [day];
-  const head = mode === "week" ? `${dm(dateOf(days[0]))} – ${dmy(dateOf(days[6]))}` : `${wdLong(dateOf(day).getDay())}, ${dmy(dateOf(day))}`;
+  const days = mode === "month" ? monthGrid(day) : mode === "week" ? Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)) : [day];
+  const inMonth = (d) => mode !== "month" || d.slice(0, 7) === day.slice(0, 7);
+  const head = mode === "month" ? `${monthName(dateOf(day).getMonth())} ${dateOf(day).getFullYear()}` : mode === "week" ? `${dm(dateOf(days[0]))} – ${dmy(dateOf(days[6]))}` : `${wdLong(dateOf(day).getDay())}, ${dmy(dateOf(day))}`;
   return (
     <div>
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <div className="flex items-center gap-1">
-          <button type="button" className={btnLight} onClick={() => setDay(addDays(day, -step))} aria-label={tx("Zurück")}><ChevronLeft size={16} /></button>
+          <button type="button" className={btnLight} onClick={() => move(-1)} aria-label={tx("Zurück")}><ChevronLeft size={16} /></button>
           <button type="button" className={btnLight} onClick={() => setDay(today)}>{tx("Heute")}</button>
-          <button type="button" className={btnLight} onClick={() => setDay(addDays(day, step))} aria-label={tx("Weiter")}><ChevronRight size={16} /></button>
+          <button type="button" className={btnLight} onClick={() => move(1)} aria-label={tx("Weiter")}><ChevronRight size={16} /></button>
         </div>
         <input type="date" className={inpBase} value={day} onChange={(e) => e.target.value && setDay(e.target.value)} aria-label={tx("Datum")} />
         <div role="radiogroup" className="inline-flex overflow-hidden rounded-lg border border-slate-300 text-sm">
-          {[["day", "Tag"], ["week", "Woche"]].map(([k, l]) => <button key={k} type="button" role="radio" aria-checked={mode === k} onClick={() => setMode(k)} className={`px-3 py-1.5 ${mode === k ? "bg-teal-600 text-white" : "bg-white text-slate-600 hover:bg-slate-50"}`}>{tx(l)}</button>)}
+          {[["day", "Tag"], ["week", "Woche"], ["month", "Monat"]].map(([k, l]) => <button key={k} type="button" role="radio" aria-checked={mode === k} onClick={() => setMode(k)} className={`px-3 py-1.5 ${mode === k ? "bg-teal-600 text-white" : "bg-white text-slate-600 hover:bg-slate-50"}`}>{tx(l)}</button>)}
         </div>
         <label className="flex items-center gap-1.5 text-sm text-slate-600"><input type="checkbox" checked={showCancelled} onChange={(e) => setShowCancelled(e.target.checked)} />{tx("Stornierte zeigen")}</label>
         <div className="flex-1" />
@@ -791,10 +1033,12 @@ function JobsView({ org, data, jobs, assign, absent, day, setDay, mode, setMode,
         </div>
       ) : (
         <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-7">
+          {mode === "month" && !visible.some((j) => inMonth(j.work_date)) && <p className="rounded-xl border border-dashed border-slate-300 px-4 py-6 text-center text-sm text-slate-500 sm:hidden">{tx("Keine Aufträge in diesem Monat.")}</p>}
           {days.map((d) => {
             const list = visible.filter((j) => j.work_date === d);
+            if (mode === "month" && !inMonth(d) && !list.length) return <div key={d} className="hidden min-h-[60px] rounded-xl border border-dashed border-slate-200 lg:block" aria-hidden="true"><div className="px-2 py-1 text-xs text-slate-300">{dm(dateOf(d))}</div></div>;
             return (
-              <div key={d} className={`min-h-[120px] rounded-xl border p-1.5 ${d === today ? "border-teal-400 bg-teal-50/40" : "border-slate-200 bg-slate-50/60"}`}>
+              <div key={d} className={`min-h-[120px] rounded-xl border p-1.5 ${d === today ? "border-teal-400 bg-teal-50/40" : "border-slate-200 bg-slate-50/60"} ${inMonth(d) ? "" : "opacity-60"} ${mode === "month" && !list.length ? "hidden sm:block" : ""}`}>
                 <button type="button" onClick={() => { setDay(d); setMode("day"); }} className="mb-1 flex w-full items-baseline justify-between px-1 text-left text-xs font-semibold text-slate-700 hover:text-teal-700">
                   <span>{wdShort(dateOf(d).getDay())} {dm(dateOf(d))}</span><span className="font-normal text-slate-500">{list.length || ""}</span>
                 </button>
@@ -846,7 +1090,7 @@ function printRange(kind, day, o) {
 }
 
 function PrintDialog({ org, data, day, mode, onClose }) {
-  const [o, setO] = useState({ range: mode === "week" ? "week" : "day", date: day, from: mode === "week" ? mondayOf(day) : day, to: mode === "week" ? addDays(mondayOf(day), 6) : day, layout: "overview", pages: true, phone: false, notes: true, back: true });
+  const [o, setO] = useState({ range: mode === "month" ? "month" : mode === "week" ? "week" : "day", date: day, from: mode === "month" ? monthFirst(day) : mode === "week" ? mondayOf(day) : day, to: mode === "month" ? monthLast(day) : mode === "week" ? addDays(mondayOf(day), 6) : day, layout: "overview", pages: true, phone: false, notes: true, back: true });
   const [sheet, setSheet] = useState(null); // geladene Daten → Vorschau
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState(null);
@@ -1768,6 +2012,8 @@ export default function TourenView() {
   const [reqCount, setReqCount] = useState(0);
   const [repBusy, setRepBusy] = useState(false);
   const [printOpen, setPrintOpen] = useState(false);
+  const [attention, setAttention] = useState({ overrun: [], confirm: [] }); // D3c-1: läuft länger / offene Fortsetzungen
+  const [contDlg, setContDlg] = useState(null);
   const sb = org.supabase;
 
   const loadBase = useCallback(async () => {
@@ -1794,7 +2040,7 @@ export default function TourenView() {
     setLoaded(true);
   }, [sb, org.orgId, isLeader]);
 
-  const range = mode === "week" ? [mondayOf(day), addDays(mondayOf(day), 6)] : [day, day];
+  const range = mode === "month" ? (() => { const g = monthGrid(day); return [g[0], g[g.length - 1]]; })() : mode === "week" ? [mondayOf(day), addDays(mondayOf(day), 6)] : [day, day];
   const loadJobs = useCallback(async () => {
     const r = await sb.from("jobs").select("*").eq("org_id", org.orgId).gte("work_date", range[0]).lte("work_date", range[1]).order("work_date").order("start_time");
     if (r.error) { setLoadErr(errText(r.error)); return; }
@@ -1810,13 +2056,17 @@ export default function TourenView() {
     let from = range[0] < today ? range[0] : today;
     let to = addDays(today, 30) > range[1] ? addDays(today, 30) : range[1];
     if ((dateOf(to) - dateOf(from)) / 86400000 > 62) { from = range[0]; to = addDays(range[0], 62); }
-    const r = await sb.rpc("touren_absence_conflicts", { p_org: org.orgId, p_from: from, p_to: to });
+    const [r, a] = await Promise.all([sb.rpc("touren_absence_conflicts", { p_org: org.orgId, p_from: from, p_to: to }), sb.rpc("touren_attention", { p_org: org.orgId })]);
     setConflicts(r.error ? [] : r.data || []);
+    setAttention(!a.error && a.data ? { overrun: a.data.overrun || [], confirm: a.data.confirm || [] } : { overrun: [], confirm: [] });
   }, [sb, org.orgId, range[0], range[1]]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { loadBase(); }, [loadBase]);
   useEffect(() => { loadJobs(); }, [loadJobs]);
   useEffect(() => { loadConflicts(); }, [loadConflicts]);
+  // live: alle 60 s „läuft länger“ / Status neu laden, solange „Aufträge“ offen ist
+  useEffect(() => { if (tab !== "jobs") return undefined; const t = setInterval(() => { loadConflicts(); loadJobs(); }, 60000); return () => clearInterval(t); }, [tab, loadConflicts, loadJobs]);
+  const openJobById = async (id, cont) => { const r = await sb.from("jobs").select("*").eq("id", id).single(); if (r.error) { setFlash(errText(r.error)); return; } if (cont || r.data.needs_confirm) setContDlg(r.data); else setJobDlg({ job: r.data }); };
   useEffect(() => { if (!flash) return undefined; const t = setTimeout(() => setFlash(null), 5000); return () => clearTimeout(t); }, [flash]);
 
   const onJobSaved = async (text, date) => { setJobDlg(null); setFlash(text); await loadBase(); if (date && (date < range[0] || date > range[1])) setDay(date); else await loadJobs(); };
@@ -1894,10 +2144,10 @@ export default function TourenView() {
         <header className="dg-pagehead"><div><h1>{tx(h1)}</h1><p>{tx(sub)}</p></div></header>
         {loadErr && <div role="alert" className="rounded-xl bg-rose-50 px-4 py-3 text-sm text-rose-800">{loadErr}</div>}
         {!loadErr && !loaded && <p className="text-sm text-slate-500">{tx("Lädt …")}</p>}
-        {!loadErr && loaded && tab === "jobs" && <ConflictBox items={upcoming} onReplace={replace} busy={repBusy} />}
+        {!loadErr && loaded && tab === "jobs" && <ConflictBox items={upcoming} onReplace={replace} busy={repBusy} attention={attention} onOpenJob={(id) => openJobById(id)} onPlan={(id) => openJobById(id, true)} />}
         {!loadErr && loaded && tab === "jobs" && (
           <JobsView org={org} data={data} jobs={jobs} assign={assign} absent={absentSet} onPrint={() => setPrintOpen(true)} onAssign={(j) => setAssignDlg(j)} day={day} setDay={setDay} mode={mode} setMode={setMode} showCancelled={showCancelled} setShowCancelled={setShowCancelled}
-            onNew={(d) => setJobDlg({ preset: { date: d } })} onOpen={(j) => setJobDlg({ job: j })} />
+            onNew={(d) => setJobDlg({ preset: { date: d } })} onOpen={(j) => (j.needs_confirm ? setContDlg(j) : setJobDlg({ job: j }))} />
         )}
         {!loadErr && loaded && tab === "customers" && <CustomersView data={data} onNew={() => setCustDlg({})} onOpen={(c) => setCustDlg({ customer: c })} />}
         {!loadErr && loaded && tab === "settings" && isLeader && <SettingsView org={org} data={data} reload={loadBase} />}
@@ -1924,6 +2174,8 @@ export default function TourenView() {
       {flash && <div role="status" className="tv-only-phone tv-toast">{flash}</div>}
       {zugOpen && <ZugaengeDialog onClose={() => setZugOpen(false)} />}
       {reqOpen && <RequestsDialog onChanged={() => afterAbsence(null)} onClose={() => { setReqOpen(false); afterAbsence(null); }} />}
+      {contDlg && <ContinuationDialog org={org} data={data} job={contDlg} onClose={() => setContDlg(null)}
+        onSaved={async (text, date) => { setContDlg(null); await onJobSaved(text, date); await loadConflicts(); }} onAssign={(j) => setAssignDlg(j)} />}
       {printOpen && data && <PrintDialog org={org} data={data} day={day} mode={mode} onClose={() => setPrintOpen(false)} />}
       {absentFor && <AbsenceDialog org={org} person={absentFor} onClose={() => setAbsentFor(null)} onSaved={afterAbsence} />}
       {assignDlg && <AssignPanel org={org} job={assignDlg} data={data} onClose={() => setAssignDlg(null)} onChanged={afterAssign} />}
