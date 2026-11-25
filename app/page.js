@@ -169,7 +169,7 @@ export default function StartPage() {
               </p>
               <div className="dg-cta">
                 <DemoButton className="dg-btn dg-primary">Demo anfragen</DemoButton>
-                <LoginMenu align="left" />
+                <LoginMenu />
               </div>
               <p className="dg-note"><a href="/demo" style={{ color: "#243B6B", fontWeight: 700 }}>Rundgang ansehen</a>, Schritt für Schritt oder als Film.</p>
               <p className="dg-note" style={{ marginTop: 6 }}>Datenbank in Frankfurt am Main. Die Daten jeder Firma sind strikt getrennt.</p>
