@@ -29,7 +29,7 @@ const CHAPTERS = [
     steps: [
       { img: "touren-woche", lang: true, phone: false, box: [25, 16, 98, 49], title: "Alles im roten Kasten", text: "Oben sehen Sie alles, was eine Entscheidung braucht: wer krank ist, wo Personal fehlt, welcher Einsatz länger dauert. Darunter alle Aufträge der Woche mit Uhrzeit, Kunde und Personal.", en: ["Everything in the red box", "At the top you see everything that needs a decision: who is ill, where staff are missing, and which job is running over. Below are all of the week’s jobs with time, customer, and staff."] },
       { img: "touren-zuteilen", lang: true, phone: false, box: [2, 31, 98, 70], title: "Das passende Personal", text: "Touren schlägt vor, wer passt: vom Kunden bevorzugt, in der Nähe, fair nach Vertragsstunden und mit den nötigen Fähigkeiten. Ein Klick teilt zu.", en: ["The right people", "Dispatcher suggests who fits best: preferred by the customer, nearby, fair according to contract hours, and with the necessary skills. One click assigns them."] },
-      { img: "touren-app", lang: true, phone: true, box: [3, 16, 97, 53], title: "Der Einsatz auf dem Handy", text: "Das Team sieht Zeit, Adresse, Route und Hinweise. Vor Ort tippt es „Ich bin da“, am Ende „Fertig“ – das Büro sieht alles live.", en: ["The job on the phone", "The team sees the time, address, route, and instructions. On arrival they tap “I’m here”, and at the end “Finish” – the office follows everything live."] },
+      { img: "touren-app", lang: true, phone: true, box: [3, 7, 97, 48], title: "Der Einsatz auf dem Handy", text: "Das Team sieht Zeit, Adresse, Route und Hinweise. Vor Ort tippt es „Ich bin da“, am Ende „Fertig“ – das Büro sieht alles live.", en: ["The job on the phone", "The team sees the time, address, route, and instructions. On arrival they tap “I’m here”, and at the end “Finish” – the office follows everything live."] },
       { img: "touren-ersatz", lang: true, phone: false, box: [3, 39, 97, 71], title: "Krank? Ein Ersatz für alle Tage", text: "Ist jemand mehrere Tage krank, übernimmt mit einem Klick eine Kollegin alle Einsätze. Regelmäßige Kunden, Fahrten und Druck sind ebenfalls eingebaut.", en: ["Sick? One replacement for all days", "If someone is ill for several days, a colleague can take over all of their jobs with one click. Recurring customers, transport, and printing are built in as well."] },
     ],
   },
@@ -72,7 +72,7 @@ const SC = {
   days: [["Mo", 1], ["Di", 1], ["Mi", 1], ["Do", 1], ["Fr", 1], ["Sa", 1], ["So", 0]],
   staff: [["Lena", "V V N V - S"], ["Murat", "N N V - V -"], ["Sofia", "V - V N N -"], ["Jonas", "- V N V V S"]],
 };
-function SceneAllgemein({ lang }) {
+export function SceneAllgemein({ lang }) {
   const W = SCL[lang];
   const chip = (k) => (k === "V" ? SC.shifts[0] : k === "N" ? SC.shifts[1] : k === "S" ? SC.shifts[2] : null);
   return (
@@ -107,7 +107,7 @@ function SceneAllgemein({ lang }) {
 const ALL = CHAPTERS.flatMap((c, ci) => c.steps.map((s, si) => ({ ...s, ci, si })));
 const STEP_MS = 6500;
 
-const CSS = `
+export const DT_CSS = `
 .dt{--navy:#243B6B;--ink:#18233A;--muted:#56617A;--line:#DCE2EC;--now:#E3A72F}
 .dt-tabs{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 18px}
 .dt-tab{border:1.5px solid var(--line);background:#fff;color:var(--ink);border-radius:999px;padding:8px 14px;font:inherit;font-size:.95rem;cursor:pointer}
@@ -206,7 +206,7 @@ export default function DemoTour({ lang = "de" }) {
 
   return (
     <div className="dt">
-      <style dangerouslySetInnerHTML={{ __html: CSS }} />
+      <style dangerouslySetInnerHTML={{ __html: DT_CSS }} />
       <div className="dt-tabs" role="tablist" aria-label={U.chapters}>
         {CHAPTERS.map((c, ci) => (
           <button key={c.key} role="tab" aria-selected={ci === step.ci} className="dt-tab" onClick={() => { stop(); go(startOf[ci]); }}>

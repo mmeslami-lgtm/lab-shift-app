@@ -29,14 +29,14 @@ const lbl = { display: "block", fontWeight: 650, fontSize: 15, margin: "0 0 5px"
 const inp = { display: "block", width: "100%", boxSizing: "border-box", padding: "11px 13px", fontSize: 16, border: `1.5px solid ${LINE}`, borderRadius: 12, margin: "0 0 14px", fontFamily: "inherit", background: "#fff", color: INK };
 const opt = { color: MUTED, fontWeight: 400 };
 
-export function DemoForm({ onClose, intro }) {
+export function DemoForm({ onClose, intro, autoFocus = true }) {
   const D = DT[useLang() === "en" ? "en" : "de"];
   const [f, setF] = useState({ company: "", email: "", phone: "", message: "", consent: false, website: "" });
   const [state, setState] = useState("idle"); // idle | sending | done
   const [error, setError] = useState("");
   const opened = useRef(Date.now());
   const first = useRef(null);
-  useEffect(() => { if (first.current) first.current.focus(); }, []);
+  useEffect(() => { if (autoFocus && first.current) first.current.focus(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const set = (k) => (e) => { setF({ ...f, [k]: e.target.type === "checkbox" ? e.target.checked : e.target.value }); if (k === "consent" && e.target.checked) setError(""); };
 
   async function send(e) {
