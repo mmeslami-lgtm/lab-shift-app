@@ -106,6 +106,25 @@ const blank = (s) => !String(s || "").trim();
 const clean = (s) => (blank(s) ? null : String(s).trim());
 const digits = (s) => String(s || "").replace(/\D/g, "");
 const custName = (c) => (c ? (c.kind === "company" && c.company ? `${c.company} – ${c.name}` : c.name) : "?");
+// D3c-2 (24.11.2026): regelmäßige Aufträge – dieselbe Regel wie in der Datenbank (touren_series_hit)
+const isoDow = (iso) => ((dateOf(iso).getDay() + 6) % 7) + 1; // 1 = Mo … 7 = So
+const WD_ISO = [1, 2, 3, 4, 5, 6, 7];
+function seriesHit(s, d) {
+  if (d < s.start_date || (s.end_date && d > s.end_date)) return false;
+  if (s.pause_from && d >= s.pause_from && d <= (s.pause_until || d)) return false;
+  if (s.freq === "week") return (s.weekdays || []).includes(isoDow(d)) && Math.round((dateOf(mondayOf(d)) - dateOf(mondayOf(s.start_date))) / 604800000) % (s.every || 1) === 0;
+  const a = dateOf(s.start_date), b = dateOf(d);
+  return ((b.getFullYear() - a.getFullYear()) * 12 + b.getMonth() - a.getMonth()) % (s.every || 1) === 0 && b.getDate() === Math.min(a.getDate(), Number(monthLast(d).slice(8)));
+}
+const seriesNext = (s, from, n = 1) => { const out = []; let d = from < s.start_date ? s.start_date : from; for (let i = 0; i < 800 && out.length < n; i += 1, d = addDays(d, 1)) if (seriesHit(s, d)) out.push(d); return out; };
+const seriesLast = (s, upto) => { let d = upto; for (let i = 0; i < 120; i += 1, d = addDays(d, -1)) if (seriesHit({ ...s, end_date: null }, d)) return d; return upto; };
+const dayList = (s, long) => [...(s.weekdays || [])].sort((a, b) => a - b).map((n) => (long ? wdLong(n % 7) : wdShort(n % 7)));
+const andList = (l) => (l.length > 1 ? `${l.slice(0, -1).join(", ")} ${tx("und")} ${l[l.length - 1]}` : l.join(""));
+const ruleText = (s) => `${s.freq === "month" ? tx("Jeden Monat am {0}.", Number(s.start_date.slice(8))) : tx(s.every > 1 ? "Alle 2 Wochen: {0}" : "Jede Woche: {0}", dayList(s).join(", "))} · ${hhmm(s.start_time)}–${endOf(s.start_time, s.duration_min)}`;
+const ruleSentence = (s) => (s.freq === "month" ? tx("jeden Monat am {0}.", Number(s.start_date.slice(8))) : tx(s.every > 1 ? "alle 2 Wochen am {0}" : "jeden {0}", andList(dayList(s, true))));
+const repOf = (s) => ({ mode: !s ? "none" : s.freq === "month" ? "month" : s.every > 1 ? "week2" : "week", days: s ? [...(s.weekdays || [])] : [], untilOn: !!(s && s.end_date), until: (s && s.end_date) || "", same: s ? !!s.same_team : true });
+const repRule = (r) => ({ freq: r.mode === "month" ? "month" : "week", every: r.mode === "week2" ? 2 : 1, weekdays: r.mode === "month" ? [] : [...r.days].sort((a, b) => a - b) });
+const dayLbl = (iso) => `${wdShort(dateOf(iso).getDay())} ${dm(dateOf(iso))}`;
 
 function errText(e) {
   const m = e && e.message ? e.message : String(e || "");
@@ -359,6 +378,11 @@ function JobDialog({ org, data, job, preset, onClose, onSaved, onAssign }) {
     staff_needed: job.staff_needed, material: job.material || "", notes_staff: job.notes_staff || "", notes_internal: job.notes_internal || "", source: job.source, status: job.status, extra: job.extra || {},
   } : { work_date: (preset && preset.date) || isoOf(new Date()), start_time: "", dh: 2, dm: 0, service_type_id: "", staff_needed: 1, material: "", notes_staff: "", notes_internal: "", source: "phone", status: "new", extra: {} });
   const [cancelOpen, setCancelOpen] = useState(false);
+  const [rep, setRep] = useState(() => ({ ...repOf(null), mode: preset && preset.repeat ? "week" : "none", days: [isoDow((preset && preset.date) || isoOf(new Date()))] }));
+  useEffect(() => { if (!job && rep.days.length <= 1) setRep((p) => ({ ...p, days: [isoDow(f.work_date || isoOf(new Date()))] })); }, [f.work_date]); // eslint-disable-line react-hooks/exhaustive-deps
+  const [series, setSeries] = useState(null);
+  const [scopeFor, setScopeFor] = useState(null); // save | cancel | delete
+  useEffect(() => { if (!job || !job.series_id) return; org.supabase.from("job_series").select("*").eq("id", job.series_id).single().then(({ data: d }) => setSeries(d || null)); }, [job, org]);
   const showIst = !!(job && (job.arrived_at || job.finished_at)); // Ist-Zeiten aus der Mitarbeiter-App (Büro kann korrigieren)
   const [ist, setIst] = useState({ arr: job ? tsHm(job.arrived_at) : "", fin: job ? tsHm(job.finished_at) : "" });
   const [cancelReason, setCancelReason] = useState("");
@@ -383,7 +407,7 @@ function JobDialog({ org, data, job, preset, onClose, onSaved, onAssign }) {
   const duration = (+f.dh || 0) * 60 + (+f.dm || 0);
   const svcList = services.filter((s) => s.active || s.id === f.service_type_id);
 
-  async function save() {
+  async function save(scope) {
     setMsg(null);
     if (!cust && !newCust) return setMsg({ kind: "err", text: tx("Bitte einen Kunden wählen oder neu anlegen.") });
     if (newCust && blank(newCust.name)) return setMsg({ kind: "err", text: tx("Bitte den Namen des Kunden eintragen.") });
@@ -396,6 +420,11 @@ function JobDialog({ org, data, job, preset, onClose, onSaved, onAssign }) {
     const st = Math.max(1, Math.min(50, parseInt(f.staff_needed, 10) || 1));
     const miss = missingRequired(jobFields, f.extra);
     if (miss.length) return setMsg({ kind: "err", text: tx("Bitte ausfüllen: {0}", miss.join(", ")) });
+    const repeat = !editing && rep.mode !== "none";
+    if (repeat && rep.mode !== "month" && !rep.days.length) return setMsg({ kind: "err", text: tx("Bitte mindestens einen Tag wählen.") });
+    if (repeat && rep.untilOn && rep.until && rep.until < f.work_date) return setMsg({ kind: "err", text: tx("„Bis“ liegt vor „Von“.") });
+    if (repeat && !seriesNext({ ...repRule(rep), start_date: f.work_date, end_date: rep.untilOn && rep.until ? rep.until : null }, f.work_date).length) return setMsg({ kind: "err", text: tx("In diesem Zeitraum gibt es keinen Termin.") });
+    if (editing && job.series_id && !scope && f.work_date === job.work_date) { setScopeFor("save"); return; }
     setBusy(true);
     const sb = org.supabase;
     try {
@@ -428,6 +457,23 @@ function JobDialog({ org, data, job, preset, onClose, onSaved, onAssign }) {
         }
         const up = await sb.from("jobs").update({ ...row, status: f.status }).eq("id", job.id).select().single();
         if (up.error) throw up.error;
+        if (scope === "all") { // auch alle folgenden Termine der Reihe
+          const p = { address_id: row.address_id || "", address_text: row.address_text, maps_url: row.maps_url || "", lat: row.lat, lng: row.lng, start_time: row.start_time, duration_min: row.duration_min,
+            service_type_id: row.service_type_id || "", staff_needed: row.staff_needed, material: row.material || "", notes_staff: row.notes_staff || "", notes_internal: row.notes_internal || "", extra: row.extra };
+          const ch = await sb.rpc("touren_series_change", { p_series: job.series_id, p_from: job.work_date, p });
+          if (ch.error) throw ch.error;
+          onSaved(tx("Gespeichert ✓ – auch alle folgenden Termine."), f.work_date); return;
+        }
+      } else if (repeat) { // D3c-2: Reihe anlegen, Termine erzeugen
+        const { work_date: _wd, ...tmpl } = row; // eslint-disable-line no-unused-vars
+        const is = await sb.from("job_series").insert({ org_id: org.orgId, ...tmpl, ...repRule(rep), start_date: f.work_date, end_date: rep.untilOn && rep.until ? rep.until : null, same_team: !!rep.same }).select().single();
+        if (is.error) throw is.error;
+        const fl = await sb.rpc("touren_series_fill", { p_org: org.orgId });
+        if (fl.error) throw fl.error;
+        const first = await sb.from("jobs").select("*").eq("series_id", is.data.id).order("work_date").limit(1);
+        const fj = first.data && first.data[0];
+        const n = await sb.from("jobs").select("id", { count: "exact", head: true }).eq("series_id", is.data.id);
+        onSaved(tx("Regelmäßiger Auftrag angelegt ✓ ({0} Termine in den nächsten 12 Wochen)", n.count || 0), fj ? fj.work_date : f.work_date, rep.same && fj ? { teamJob: fj } : null); return;
       } else {
         const ins = await sb.from("jobs").insert({ org_id: org.orgId, ...row }).select().single();
         if (ins.error) throw ins.error;
@@ -439,18 +485,30 @@ function JobDialog({ org, data, job, preset, onClose, onSaved, onAssign }) {
     }
   }
 
-  async function deleteJob() {
+  async function endFollowing(text) { // „Diesen und alle folgenden“: Reihe endet am Tag davor
+    const r = await org.supabase.rpc("touren_series_end", { p_series: job.series_id, p_last: addDays(job.work_date, -1) });
+    if (r.error) { setMsg({ kind: "err", text: errText(r.error) }); setBusy(false); return; }
+    onSaved(text, job.work_date);
+  }
+  async function deleteJob(scope) {
+    if (job.series_id && !scope) { setScopeFor("delete"); return; }
+    if (scope === "all") {
+      if (!ask(tx("Diesen und alle folgenden Termine löschen?\n\nDas geht nicht rückgängig."))) return;
+      setBusy(true); await endFollowing(tx("Termine gelöscht – die Reihe endet am {0}.", isoDmy(addDays(job.work_date, -1)))); return;
+    }
     if (!ask(tx("Auftrag Nr. {0} wirklich löschen?\n\nDas geht nicht rückgängig. Wenn der Kunde nur abgesagt hat, besser „Stornieren“.", job.job_no))) return;
     setBusy(true);
     const r = await removeRow(org.supabase.from("jobs").delete().eq("id", job.id));
     if (r.error || r.blocked) { setMsg({ kind: "err", text: r.error ? errText(r.error) : tx("Erledigte oder stornierte Aufträge können nicht gelöscht werden.") }); setBusy(false); return; }
     onSaved(tx("Auftrag gelöscht"), job.work_date);
   }
-  async function cancelJob() {
+  async function cancelJob(scope) {
     if (blank(cancelReason)) return setMsg({ kind: "err", text: tx("Bitte einen Grund für die Stornierung eintragen.") });
+    if (job.series_id && !scope) { setScopeFor("cancel"); return; }
     setBusy(true);
     const up = await org.supabase.from("jobs").update({ status: "cancelled", cancel_reason: cancelReason.trim() }).eq("id", job.id);
     if (up.error) { setMsg({ kind: "err", text: errText(up.error) }); setBusy(false); return; }
+    if (scope === "all") { await endFollowing(tx("Storniert – die Reihe endet hier.")); return; }
     onSaved(tx("Auftrag storniert"), job.work_date);
   }
   async function reopen() {
@@ -463,6 +521,7 @@ function JobDialog({ org, data, job, preset, onClose, onSaved, onAssign }) {
   const title = editing ? tx("Auftrag Nr. {0}", job.job_no) : tx("Neuer Auftrag");
   return (
     <Modal title={title} onClose={onClose} wide>
+      {editing && job.series_id && <div className="mb-3 rounded-lg bg-sky-50 px-3 py-2 text-sm text-sky-900">🔁 <b>{tx("Regelmäßiger Termin")}</b>{series ? ` – ${ruleText(series)}` : ""}<div className="text-xs text-sky-800">{tx("Regel ändern, pausieren oder beenden: beim Kunden unter „Regelmäßige Termine“.")}</div></div>}
       {editing && job.status === "cancelled" && <div className="mb-3 rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-800">{tx("Storniert: {0}", job.cancel_reason || "–")} <button type="button" className="ml-2 underline" onClick={reopen} disabled={busy}>{tx("Wieder öffnen")}</button></div>}
       {/* Kunde */}
       <section className="mb-4">
@@ -566,6 +625,8 @@ function JobDialog({ org, data, job, preset, onClose, onSaved, onAssign }) {
         </div>
       </section>
 
+      {!editing && <section className="mb-4"><RepeatFields value={rep} onChange={setRep} date={f.work_date} /></section>}
+
       <section className="mb-2 grid gap-3 sm:grid-cols-2">
         <label className="block"><span className={lbl}>{tx("Hinweise für Mitarbeitende")}</span><textarea rows={3} className={inp} value={f.notes_staff} onChange={(e) => set("notes_staff", e.target.value)} placeholder={tx("z. B. Schlüssel beim Pförtner, Parken in der Tiefgarage")} /></label>
         <label className="block"><span className={lbl}>{tx("Interne Notiz (nur Büro und Leitung)")}</span><textarea rows={3} className={inp} value={f.notes_internal} onChange={(e) => set("notes_internal", e.target.value)} /></label>
@@ -588,26 +649,267 @@ function JobDialog({ org, data, job, preset, onClose, onSaved, onAssign }) {
         <div>
           {editing && job.status !== "cancelled" && !cancelOpen && <button type="button" className="text-sm text-rose-700 underline" onClick={() => setCancelOpen(true)}>{tx("Auftrag stornieren …")}</button>}
           {editing && job.status !== "cancelled" && job.status !== "done" && !cancelOpen && onAssign && <button type="button" className="ml-3 text-sm text-teal-700 underline" onClick={() => onAssign(job)}>{tx("Personal zuteilen")}</button>}
-          {editing && ["new", "accepted"].includes(job.status) && !cancelOpen && <button type="button" className="ml-3 text-sm text-slate-500 underline" onClick={deleteJob} disabled={busy}>{tx("Löschen")}</button>}
+          {editing && ["new", "accepted"].includes(job.status) && !cancelOpen && <button type="button" className="ml-3 text-sm text-slate-500 underline" onClick={() => deleteJob()} disabled={busy}>{tx("Löschen")}</button>}
           {cancelOpen && (
             <div className="flex flex-wrap items-center gap-2">
               <input className={`${inpBase} w-64`} value={cancelReason} onChange={(e) => setCancelReason(e.target.value)} placeholder={tx("Grund, z. B. Kunde hat abgesagt")} autoFocus />
-              <button type="button" className={`${btn} bg-rose-600 text-white hover:bg-rose-700`} onClick={cancelJob} disabled={busy}>{tx("Stornieren")}</button>
+              <button type="button" className={`${btn} bg-rose-600 text-white hover:bg-rose-700`} onClick={() => cancelJob()} disabled={busy}>{tx("Stornieren")}</button>
               <button type="button" className="text-sm text-slate-600 underline" onClick={() => setCancelOpen(false)}>{tx("Zurück")}</button>
             </div>
           )}
         </div>
         <div className="flex gap-2">
           <button type="button" className={btnLight} onClick={onClose}>{tx("Abbrechen")}</button>
-          <button type="button" className={btnPrimary} onClick={save} disabled={busy}>{busy ? tx("Speichert …") : tx("Speichern")}</button>
+          <button type="button" className={btnPrimary} onClick={() => save()} disabled={busy}>{busy ? tx("Speichert …") : tx("Speichern")}</button>
         </div>
+      </div>
+      {scopeFor && <ScopeModal kind={scopeFor} date={job.work_date} onClose={() => setScopeFor(null)} onPick={(v) => { const k = scopeFor; setScopeFor(null); if (k === "save") save(v); else if (k === "cancel") cancelJob(v); else deleteJob(v); }} />}
+    </Modal>
+  );
+}
+
+// ---------- D3c-2: regelmäßige Aufträge ----------
+function RepeatFields({ value: r, onChange, date, anchor, noNone, noEnd, noTeam }) {
+  const set = (k, v) => onChange({ ...r, [k]: v });
+  const modes = [["none", "Nein"], ["week", "Jede Woche"], ["week2", "Alle 2 Wochen"], ["month", "Jeden Monat"]].filter(([k]) => !(noNone && k === "none"));
+  const s = r.mode === "none" || !date ? null : { ...repRule(r), start_date: anchor || date, end_date: r.untilOn && r.until ? r.until : null };
+  const next = s && (s.freq === "month" || s.weekdays.length) ? seriesNext(s, date, 4) : [];
+  return (
+    <div className="rounded-xl border border-teal-200 bg-teal-50/40 p-3">
+      <div className="mb-2 text-sm font-semibold text-slate-700">🔁 {tx("Wiederholen")}</div>
+      <div role="radiogroup" aria-label={tx("Wiederholen")} className="inline-flex flex-wrap overflow-hidden rounded-lg border border-slate-300 text-sm">
+        {modes.map(([k, l]) => <button key={k} type="button" role="radio" aria-checked={r.mode === k} onClick={() => onChange({ ...r, mode: k, days: r.days.length ? r.days : [isoDow(date || isoOf(new Date()))] })} className={`px-3 py-1.5 ${r.mode === k ? "bg-teal-600 text-white" : "bg-white text-slate-600 hover:bg-slate-50"}`}>{tx(l)}</button>)}
+      </div>
+      {r.mode !== "none" && (
+        <div>
+          {r.mode !== "month" && (
+            <div className="mt-3"><div className={lbl}>{tx("An welchen Tagen?")}</div>
+              <div className="flex flex-wrap gap-1.5">{WD_ISO.map((n) => { const on = r.days.includes(n); return <button key={n} type="button" aria-pressed={on} onClick={() => set("days", on ? r.days.filter((x) => x !== n) : [...r.days, n])} className={`h-9 min-w-[42px] rounded-full px-2 text-sm ${on ? "bg-teal-600 text-white" : "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"}`}>{wdShort(n % 7)}</button>; })}</div>
+            </div>
+          )}
+          {r.mode === "month" && <p className="mt-2 text-xs text-slate-600">{tx("Jeden Monat am selben Tag wie der erste Termin.")}</p>}
+          {!noEnd && (
+            <div className="mt-3"><div className={lbl}>{tx("Bis wann?")}</div>
+              <div className="flex flex-wrap items-center gap-3 text-sm text-slate-700">
+                <label className="flex items-center gap-1.5"><input type="radio" checked={!r.untilOn} onChange={() => onChange({ ...r, untilOn: false, until: "" })} />{tx("Ohne Ende")}</label>
+                <label className="flex items-center gap-1.5"><input type="radio" checked={!!r.untilOn} onChange={() => set("untilOn", true)} />{tx("bis")}</label>
+                {r.untilOn && <input type="date" className={inpBase} value={r.until} min={date} onChange={(e) => set("until", e.target.value)} aria-label={tx("bis")} />}
+              </div>
+            </div>
+          )}
+          {!noTeam && <label className="mt-3 flex items-center gap-2 text-sm text-slate-700"><input type="checkbox" checked={!!r.same} onChange={(e) => set("same", e.target.checked)} />{tx("Immer dasselbe Personal (wie beim ersten Termin)")}</label>}
+          {next.length > 0 && <div className="mt-3 rounded-lg bg-white px-3 py-2 text-xs text-slate-600">{tx("Nächste Termine: {0}", next.map(dayLbl).join(", "))}{next.length === 4 ? " …" : ""}</div>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ScopeModal({ kind, date, onPick, onClose }) {
+  const [v, setV] = useState("one");
+  const title = kind === "delete" ? tx("Regelmäßiger Termin – was löschen?") : kind === "cancel" ? tx("Regelmäßiger Termin – was absagen?") : tx("Regelmäßiger Termin – was ändern?");
+  const card = (k, t, sub) => (
+    <button type="button" role="radio" aria-checked={v === k} onClick={() => setV(k)} className={`block w-full rounded-xl p-3 text-left text-sm ${v === k ? "border-2 border-teal-500 bg-teal-50" : "border border-slate-200 bg-white hover:bg-slate-50"}`}>
+      <div className="font-semibold text-slate-800">{t}</div><div className="mt-0.5 text-xs text-slate-600">{sub}</div>
+    </button>
+  );
+  return (
+    <Modal title={title} onClose={onClose}>
+      <div role="radiogroup" className="space-y-2">
+        {card("one", tx("Nur diesen Termin"), tx("{0} – die anderen bleiben.", dayLbl(date)))}
+        {card("all", tx("Diesen und alle folgenden"), tx("ab {0}", dayLbl(date)))}
+      </div>
+      <div className="tv-actions mt-4 flex justify-end gap-2">
+        <button type="button" className={btnLight} onClick={onClose}>{tx("Abbrechen")}</button>
+        <button type="button" className={btnPrimary} onClick={() => onPick(v)}>{tx("OK")}</button>
       </div>
     </Modal>
   );
 }
 
+function InformDialog({ title, phone, text: text0, onClose }) {
+  const [text, setText] = useState(text0);
+  return (
+    <Modal title={title} onClose={onClose}>
+      <p className="mb-2 text-sm text-slate-600">{tx("Kunden kurz informieren (Text kann geändert werden):")}</p>
+      <textarea rows={5} className={inp} value={text} onChange={(e) => setText(e.target.value)} aria-label={tx("Nachricht")} />
+      {!phone && <p className="mt-2 text-sm text-slate-500">{tx("Für diesen Kunden ist keine Telefonnummer gespeichert.")}</p>}
+      <div className="tv-actions mt-4 flex flex-wrap justify-end gap-2">
+        <button type="button" className={btnLight} onClick={onClose}>{tx("Schließen")}</button>
+        {phone && <a href={`https://wa.me/${digits(phone)}?text=${encodeURIComponent(text)}`} target="_blank" rel="noopener noreferrer" className={`${btn} min-h-[44px] bg-emerald-600 text-white hover:bg-emerald-700`}>WhatsApp</a>}
+      </div>
+    </Modal>
+  );
+}
+
+function SeriesDialog({ org, data, series: s, customer, onClose, onSaved }) {
+  const today = isoOf(new Date());
+  const [rep, setRep] = useState(() => repOf(s));
+  const [f, setF] = useState({ start_time: hhmm(s.start_time), dh: Math.floor(s.duration_min / 60), dm: s.duration_min % 60, service_type_id: s.service_type_id || "", staff_needed: s.staff_needed, notes_staff: s.notes_staff || "" });
+  const [team, setTeam] = useState(() => [...(s.staff_ids || [])]);
+  const [from, setFrom] = useState(() => seriesNext(s, today)[0] || today);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState(null);
+  const set = (k, v) => setF((p) => ({ ...p, [k]: v }));
+  const old = repRule(repOf(s)); const nu = repRule(rep);
+  const ruleChanged = old.freq !== nu.freq || old.every !== nu.every || old.weekdays.join() !== nu.weekdays.join();
+  const duration = (+f.dh || 0) * 60 + (+f.dm || 0);
+  const staff = data.staffList || [];
+  async function save() {
+    setMsg(null);
+    if (!from) return setMsg({ kind: "err", text: tx("Bitte ein Datum wählen.") });
+    if (nu.freq === "week" && !nu.weekdays.length) return setMsg({ kind: "err", text: tx("Bitte mindestens einen Tag wählen.") });
+    if (!/^\d{2}:\d{2}$/.test(f.start_time)) return setMsg({ kind: "err", text: tx("Bitte die Uhrzeit für den Beginn eintragen.") });
+    if (duration < 5) return setMsg({ kind: "err", text: tx("Bitte die Dauer eintragen.") });
+    const p = {};
+    if (ruleChanged) Object.assign(p, nu);
+    if (f.start_time !== hhmm(s.start_time)) p.start_time = f.start_time;
+    if (duration !== s.duration_min) p.duration_min = duration;
+    if ((f.service_type_id || "") !== (s.service_type_id || "")) p.service_type_id = f.service_type_id || "";
+    const st = Math.max(1, Math.min(50, parseInt(f.staff_needed, 10) || 1)); if (st !== s.staff_needed) p.staff_needed = st;
+    if ((clean(f.notes_staff) || "") !== (s.notes_staff || "")) p.notes_staff = clean(f.notes_staff) || "";
+    if ([...team].sort().join() !== [...(s.staff_ids || [])].sort().join()) p.staff_ids = team;
+    if (!Object.keys(p).length) { onClose(); return; }
+    setBusy(true);
+    const res = await org.supabase.rpc("touren_series_change", { p_series: s.id, p_from: from, p });
+    if (res.error) { setBusy(false); setMsg({ kind: "err", text: errText(res.error) }); return; }
+    const ns = { ...s, ...nu, start_time: f.start_time, duration_min: duration, start_date: ruleChanged ? from : s.start_date };
+    const first = seriesNext(ns, from)[0];
+    const inform = (ruleChanged || p.start_time) && first ? tx("Hallo {0}, ab {1} finden Ihre Termine {2} um {3} Uhr statt (bisher {4} um {5} Uhr). Passt das für Sie?", customer.name, dmy(dateOf(first)), ruleSentence(ns), f.start_time, ruleSentence(s), hhmm(s.start_time)) : null;
+    onSaved(tx("Regelmäßiger Termin geändert ✓"), inform);
+  }
+  return (
+    <Modal title={tx("Regelmäßigen Termin bearbeiten")} onClose={onClose} wide>
+      <RepeatFields value={rep} onChange={setRep} date={from} anchor={ruleChanged ? from : s.start_date} noNone noEnd noTeam />
+      <div className="mt-4 grid gap-3 sm:grid-cols-4">
+        <label className="block"><span className={lbl}>{tx("Beginn")}</span><input type="time" className={inp} value={f.start_time} onChange={(e) => set("start_time", e.target.value)} step="300" /></label>
+        <div><span className={lbl}>{tx("Dauer")}</span>
+          <div className="flex gap-1">
+            <select className={inp} value={f.dh} onChange={(e) => set("dh", +e.target.value)} aria-label={tx("Stunden")}>{Array.from({ length: 13 }, (_, i) => <option key={i} value={i}>{getLang() === "en" ? `${i} h` : `${i} Std.`}</option>)}</select>
+            <select className={inp} value={f.dm} onChange={(e) => set("dm", +e.target.value)} aria-label={tx("Minuten")}>{[0, 15, 30, 45].map((m) => <option key={m} value={m}>{getLang() === "en" ? `${m} min` : `${m} Min.`}</option>)}</select>
+          </div>
+        </div>
+        <label className="block"><span className={lbl}>{tx("Leistung")}</span>
+          <select className={inp} value={f.service_type_id} onChange={(e) => set("service_type_id", e.target.value)}><option value="">{tx("– keine Angabe –")}</option>{data.services.filter((x) => x.active || x.id === f.service_type_id).map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}</select></label>
+        <label className="block"><span className={lbl}>{tx("Anzahl Personal")}</span><input type="number" min="1" max="50" className={inp} value={f.staff_needed} onChange={(e) => set("staff_needed", e.target.value)} /></label>
+      </div>
+      <div className="mt-4"><div className={lbl}>{tx("Festes Personal")}</div>
+        <div className="flex flex-wrap gap-1.5">{staff.map((x) => { const on = team.includes(x.id); return <button key={x.id} type="button" aria-pressed={on} onClick={() => setTeam(on ? team.filter((y) => y !== x.id) : [...team, x.id])} className={`rounded-full px-3 py-1.5 text-sm ${on ? "bg-teal-600 text-white" : "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"}`}>{x.name}</button>; })}</div>
+        <p className="mt-1 text-[11px] text-slate-500">{tx("Ohne Auswahl wird das Personal bei jedem Termin einzeln zugeteilt.")}</p>
+      </div>
+      <label className="mt-4 block"><span className={lbl}>{tx("Hinweise für Mitarbeitende")}</span><textarea rows={2} className={inp} value={f.notes_staff} onChange={(e) => set("notes_staff", e.target.value)} /></label>
+      <div className="mt-4 rounded-lg bg-slate-50 p-3">
+        <label className="block"><span className={lbl}>{tx("Gilt ab")}</span><input type="date" className={inpBase} value={from} min={today} onChange={(e) => setFrom(e.target.value)} /></label>
+        <p className="mt-1 text-[11px] text-slate-500">{tx("Frühere und schon begonnene Termine bleiben, wie sie sind.")}</p>
+      </div>
+      <Msg msg={msg} />
+      <div className="tv-actions mt-4 flex justify-end gap-2">
+        <button type="button" className={btnLight} onClick={onClose}>{tx("Abbrechen")}</button>
+        <button type="button" className={btnPrimary} onClick={save} disabled={busy}>{busy ? tx("Speichert …") : tx("Speichern")}</button>
+      </div>
+    </Modal>
+  );
+}
+
+function SeriesSection({ org, data, customer, onChanged, onNew }) {
+  const today = isoOf(new Date());
+  const [list, setList] = useState(null);
+  const [nextOf, setNextOf] = useState({});
+  const [form, setForm] = useState(null); // { id, kind: pause|end, from, until, reason, last }
+  const [edit, setEdit] = useState(null);
+  const [inform, setInform] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState(null);
+  const sb = org.supabase;
+  const load = useCallback(async () => {
+    const r = await sb.from("job_series").select("*").eq("org_id", org.orgId).eq("customer_id", customer.id).order("created_at");
+    const rows = r.error ? [] : r.data || [];
+    setList(rows);
+    if (rows.length) {
+      const j = await sb.from("jobs").select("series_id, work_date, start_time").in("series_id", rows.map((x) => x.id)).gte("work_date", today).neq("status", "cancelled").order("work_date").order("start_time");
+      const m = {}; (j.data || []).forEach((x) => { if (!m[x.series_id]) m[x.series_id] = x.work_date; }); setNextOf(m);
+    }
+  }, [sb, org.orgId, customer.id, today]);
+  useEffect(() => { load(); }, [load]);
+  const nameOf = (id) => ((data.staffList || []).find((x) => x.id === id) || {}).name || "?";
+  const done = async (text, inf) => { setForm(null); setEdit(null); setBusy(false); await load(); onChanged(text); if (inf) setInform(inf); };
+  async function run(rpc, args, text, inf) {
+    setBusy(true); setMsg(null);
+    const r = await sb.rpc(rpc, args);
+    if (r.error) { setBusy(false); setMsg({ kind: "err", text: errText(r.error) }); return; }
+    await done(text, inf);
+  }
+  function savePause(s) {
+    if (!form.from || !form.until || form.until < form.from) return setMsg({ kind: "err", text: tx("Bitte den Zeitraum prüfen.") });
+    const nx = seriesNext({ ...s, pause_from: null, pause_until: null }, addDays(form.until, 1))[0];
+    const t = nx ? tx("Hallo {0}, wie besprochen pausieren wir Ihre regelmäßigen Termine bis {1}. Der nächste Termin ist dann am {2} um {3} Uhr. Bei Fragen melden Sie sich gern.", customer.name, dmy(dateOf(form.until)), `${wdLong(dateOf(nx).getDay())}, ${dmy(dateOf(nx))}`, hhmm(s.start_time)) : null;
+    return run("touren_series_pause", { p_series: s.id, p_from: form.from, p_until: form.until, p_reason: clean(form.reason) }, tx("Pausiert bis {0} ✓", dmy(dateOf(form.until))), t && { title: tx("Pausiert"), text: t });
+  }
+  function saveEnd(s) {
+    if (!form.last) return setMsg({ kind: "err", text: tx("Bitte ein Datum wählen.") });
+    const last = seriesLast(s, form.last);
+    return run("touren_series_end", { p_series: s.id, p_last: form.last }, tx("Regelmäßiger Termin beendet ✓"),
+      { title: tx("Beendet"), text: tx("Hallo {0}, wie besprochen ist Ihr letzter regelmäßiger Termin am {1}. Vielen Dank für Ihr Vertrauen – wir sind jederzeit gern wieder für Sie da.", customer.name, dmy(dateOf(last))) });
+  }
+  const small = "rounded-lg border px-2.5 py-1 text-xs font-medium disabled:opacity-50";
+  return (
+    <section className="mt-5">
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2"><h3 className="text-sm font-semibold text-slate-700">🔁 {tx("Regelmäßige Termine")}</h3><button type="button" className={btnLight} onClick={onNew}><Plus size={15} />{tx("Regelmäßiger Termin")}</button></div>
+      {list === null ? <p className="text-sm text-slate-500">{tx("Lädt …")}</p> : list.length === 0 ? <p className="text-sm text-slate-500">{tx("Noch keine regelmäßigen Termine.")}</p> : (
+        <div className="space-y-2">
+          {list.map((s) => {
+            const ended = s.end_date && s.end_date < today; const paused = !ended && s.pause_from && s.pause_until && s.pause_until >= today;
+            const svc = data.services.find((x) => x.id === s.service_type_id);
+            const info = [svc && svc.name, (s.staff_ids || []).length ? (s.staff_ids || []).map(nameOf).join(", ") : null].filter(Boolean).join(" · ");
+            return (
+              <div key={s.id} className={`rounded-xl p-3 ${ended ? "border border-slate-200 bg-slate-50 opacity-60" : paused ? "border border-dashed border-slate-300 bg-slate-50" : "border border-slate-200 bg-white"}`}>
+                <div className={`text-sm font-medium ${paused ? "text-slate-500" : "text-slate-800"}`}>{ruleText(s)}</div>
+                {info && <div className="text-xs text-slate-500">{info}</div>}
+                <div className="mt-0.5 text-xs">
+                  {ended ? <span className="text-slate-500">{tx("beendet am {0}", isoDmy(s.end_date))}</span>
+                    : paused ? <span className="font-medium text-amber-700">{tx("pausiert bis {0}", isoDmy(s.pause_until))}{s.pause_reason ? ` (${s.pause_reason})` : ""}{s.end_date ? ` · ${tx("endet am {0}", isoDmy(s.end_date))}` : ""}</span>
+                    : <span className="text-slate-600">{nextOf[s.id] ? tx("nächster Termin: {0}", dayLbl(nextOf[s.id])) : ""}{s.end_date ? `${nextOf[s.id] ? " · " : ""}${tx("endet am {0}", isoDmy(s.end_date))}` : ""}</span>}
+                </div>
+                {!ended && (!form || form.id !== s.id) && (
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {paused ? <button type="button" className={`${small} border-teal-300 text-teal-700`} disabled={busy} onClick={() => run("touren_series_pause", { p_series: s.id, p_from: null, p_until: null, p_reason: null }, tx("Pause aufgehoben ✓"))}>▶ {tx("Fortsetzen")}</button>
+                      : <button type="button" className={`${small} border-slate-300 text-slate-700`} onClick={() => { setMsg(null); setForm({ id: s.id, kind: "pause", from: addDays(today, 1), until: "", reason: "" }); }}>⏸ {tx("Pausieren")}</button>}
+                    <button type="button" className={`${small} border-slate-300 text-slate-700`} onClick={() => setEdit(s)}>{tx("Bearbeiten")}</button>
+                    <button type="button" className={`${small} border-rose-200 text-rose-700`} onClick={() => { setMsg(null); setForm({ id: s.id, kind: "end", last: today }); }}>{tx("Beenden")}</button>
+                  </div>
+                )}
+                {form && form.id === s.id && form.kind === "pause" && (
+                  <div className="mt-2 rounded-lg bg-slate-50 p-2.5">
+                    <div className="flex flex-wrap items-end gap-2">
+                      <label className="block"><span className={lbl}>{tx("Von")}</span><input type="date" className={inpBase} value={form.from} onChange={(e) => setForm({ ...form, from: e.target.value })} /></label>
+                      <label className="block"><span className={lbl}>{tx("Bis")}</span><input type="date" className={inpBase} value={form.until} min={form.from} onChange={(e) => setForm({ ...form, until: e.target.value })} /></label>
+                      <label className="block flex-1"><span className={lbl}>{tx("Grund (optional)")}</span><input className={inp} value={form.reason} onChange={(e) => setForm({ ...form, reason: e.target.value })} placeholder={tx("z. B. Urlaub")} maxLength={200} /></label>
+                    </div>
+                    <p className="mt-1.5 text-[11px] text-slate-500">{tx("Die Termine in dieser Zeit werden entfernt. Danach geht es automatisch weiter.")}</p>
+                    <div className="mt-2 flex gap-2"><button type="button" className={btnPrimary} disabled={busy} onClick={() => savePause(s)}>{tx("Pausieren")}</button><button type="button" className={btnLight} onClick={() => setForm(null)}>{tx("Abbrechen")}</button></div>
+                  </div>
+                )}
+                {form && form.id === s.id && form.kind === "end" && (
+                  <div className="mt-2 rounded-lg bg-rose-50/60 p-2.5">
+                    <label className="block"><span className={lbl}>{tx("Letzter Tag")}</span><input type="date" className={inpBase} value={form.last} onChange={(e) => setForm({ ...form, last: e.target.value })} /></label>
+                    <p className="mt-1.5 text-[11px] text-slate-500">{tx("Spätere Termine werden entfernt. Frühere bleiben in der Liste des Kunden.")}</p>
+                    <div className="mt-2 flex gap-2"><button type="button" className={`${btn} bg-rose-600 text-white hover:bg-rose-700`} disabled={busy} onClick={() => saveEnd(s)}>{tx("Beenden")}</button><button type="button" className={btnLight} onClick={() => setForm(null)}>{tx("Abbrechen")}</button></div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+      <Msg msg={msg} />
+      {edit && <SeriesDialog org={org} data={data} series={edit} customer={customer} onClose={() => setEdit(null)} onSaved={(t, inf) => done(t, inf && { title: tx("Geändert"), text: inf })} />}
+      {inform && <InformDialog title={inform.title} phone={customer.phone} text={inform.text} onClose={() => setInform(null)} />}
+    </section>
+  );
+}
+
 // ---------- Personal zuteilen (D3b) ----------
-function AssignPanel({ org, job, data, onClose, onChanged }) {
+function AssignPanel({ org, job, data, onClose, onChanged, onTeamAll }) {
   const sb = org.supabase;
   const [ctx, setCtx] = useState(null);
   const [dayJobs, setDayJobs] = useState([]);
@@ -692,13 +994,17 @@ function AssignPanel({ org, job, data, onClose, onChanged }) {
       )}
       <Msg msg={msg} />
       <p className="mt-3 text-[11px] text-slate-500">{tx("Reihenfolge: vom Kunden bevorzugt → in der Nähe (erster Einsatz ab Startpunkt, sonst ab dem Einsatz davor), solange die Person nicht schon deutlich mehr gearbeitet hat → wer im Verhältnis zu den Vertragsstunden weniger gearbeitet hat. Sie entscheiden.")}</p>
-      <div className="tv-actions mt-4 flex justify-end"><button type="button" className={btnPrimary} onClick={onClose}>{tx("Fertig")}</button></div>
+      {job.__team && <p className="mt-3 rounded-lg bg-sky-50 px-3 py-2 text-xs text-sky-900">🔁 {tx("Dieses Personal gilt dann für alle Termine dieser Reihe.")}</p>}
+      <div className="tv-actions mt-4 flex flex-wrap items-center justify-end gap-2">
+        {job.series_id && !job.__team && onTeamAll && <button type="button" className="mr-auto text-sm text-teal-700 underline" onClick={onTeamAll}>🔁 {tx("Für alle folgenden Termine übernehmen")}</button>}
+        <button type="button" className={btnPrimary} onClick={onClose}>{tx("Fertig")}</button>
+      </div>
     </Modal>
   );
 }
 
 // ---------- Abwesend: betroffene Aufträge (Krankmeldung aus der App oder von der Leitung eingetragen) ----------
-function ConflictBox({ items, onReplace, busy, attention, onOpenJob, onPlan }) {
+function ConflictBox({ items, onReplace, onReplaceAll, busy, attention, onOpenJob, onPlan }) {
   const over = (attention && attention.overrun) || [], conf = (attention && attention.confirm) || [];
   if (!items.length && !over.length && !conf.length) return null;
   const n = items.length + over.length + conf.length;
@@ -719,15 +1025,117 @@ function ConflictBox({ items, onReplace, busy, attention, onOpenJob, onPlan }) {
             <button type="button" className={btnPrimary} onClick={() => onPlan(c.job_id)}>{tx("Einplanen")}</button>
           </li>
         ))}
-        {items.map((c) => (
-          <li key={`${c.job_id}|${c.staff_id}`} className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-white/70 px-2 py-1.5 text-sm text-rose-900">
-            <span><b>{c.staff_name}</b> {tx("abwesend – Ersatz nötig")} · {wdShort(dateOf(c.work_date).getDay())} {dm(dateOf(c.work_date))} {c.start_time} · {c.customer}</span>
-            <button type="button" className={btnPrimary} onClick={() => onReplace(c)} disabled={busy}>{tx("Ersatz finden")}</button>
-          </li>
-        ))}
+        {[...new Set(items.map((c) => c.staff_id))].map((sid) => { const g = items.filter((c) => c.staff_id === sid); return (
+          <React.Fragment key={sid}>
+            {g.length > 1 && onReplaceAll && (
+              <li className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-rose-200 bg-white px-2 py-1.5 text-sm text-rose-900">
+                <span><b>{g[0].staff_name}</b> {tx("abwesend – {0} Aufträge ({1} – {2})", g.length, dayLbl(g[0].work_date), dayLbl(g[g.length - 1].work_date))}</span>
+                <button type="button" className={btnPrimary} onClick={() => onReplaceAll(g)} disabled={busy}>{tx("Ersatz für alle Tage")}</button>
+              </li>
+            )}
+            {g.map((c) => (
+              <li key={`${c.job_id}|${c.staff_id}`} className={`flex flex-wrap items-center justify-between gap-2 rounded-lg bg-white/70 px-2 py-1.5 text-sm text-rose-900 ${g.length > 1 && onReplaceAll ? "ml-4" : ""}`}>
+                <span>{g.length > 1 && onReplaceAll ? null : <b>{c.staff_name} </b>}{g.length > 1 && onReplaceAll ? null : `${tx("abwesend – Ersatz nötig")} · `}{wdShort(dateOf(c.work_date).getDay())} {dm(dateOf(c.work_date))} {c.start_time} · {c.customer}</span>
+                <button type="button" className={g.length > 1 && onReplaceAll ? btnLight : btnPrimary} onClick={() => onReplace(c)} disabled={busy}>{tx("Ersatz finden")}</button>
+              </li>
+            ))}
+          </React.Fragment>
+        ); })}
       </ul>
       {items.length > 0 && <p className="mt-1.5 text-[11px] text-rose-700">{tx("„Ersatz finden“ nimmt die Person aus dem Auftrag und zeigt gleich die besten Vorschläge.")}</p>}
     </div>
+  );
+}
+
+// ---------- Abwesend mehrere Tage: einen Ersatz für alle betroffenen Aufträge (24.11.2026) ----------
+function BulkReplaceDialog({ org, data, person, items, onClose, onDone, onReplaceOne }) {
+  const sb = org.supabase;
+  const [cands, setCands] = useState(null); // [{ staff, free: [job_id], warn }]
+  const [pick, setPick] = useState(null);
+  const [result, setResult] = useState(null); // { ok: [item], fail: [item] }
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState(null);
+  const days = [...new Set(items.map((c) => c.work_date))].sort();
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      const ctxs = await Promise.all(days.map((d) => Promise.all([
+        sb.rpc("touren_day_context", { p_org: org.orgId, p_day: d }),
+        sb.from("jobs").select("*").eq("org_id", org.orgId).eq("work_date", d).order("start_time"),
+      ])));
+      const agg = {};
+      ctxs.forEach(([c, j], i) => {
+        if (c.error || j.error) return;
+        const dayJobs = j.data || [];
+        items.filter((it) => it.work_date === days[i]).forEach((it) => {
+          const job = dayJobs.find((x) => x.id === it.job_id); if (!job) return;
+          const required = data.serviceSkills.filter((x) => x.service_type_id === job.service_type_id).map((x) => x.skill_id);
+          suggestStaff({ job, dayJobs, assign: c.data.assign || [], staff: c.data.staff || [], settings: c.data.settings, history: c.data.history || [], prefs: data.prefs, requiredSkills: required })
+            .forEach((r, rank) => {
+              if (r.staff.id === person.staff_id) return;
+              const a = agg[r.staff.id] || (agg[r.staff.id] = { staff: r.staff, free: [], rank: 0, warn: {} });
+              a.rank += rank;
+              if (!r.blocked && !r.here) { a.free.push(it.job_id); r.warns.forEach((w) => { a.warn[w.kind === "skill" ? "skill" : "tight"] = 1; }); }
+            });
+        });
+      });
+      const list = Object.values(agg).filter((a) => a.free.length).sort((a, b) => b.free.length - a.free.length || a.rank - b.rank);
+      if (alive) { setCands(list); setPick(list.length ? list[0].staff.id : null); }
+    })();
+    return () => { alive = false; };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function apply() {
+    const c = cands.find((x) => x.staff.id === pick); if (!c) return;
+    setBusy(true); setMsg(null);
+    const ok = [], fail = [];
+    for (const it of items) {
+      if (!c.free.includes(it.job_id)) { fail.push(it); continue; }
+      const ins = await sb.from("job_staff").insert({ job_id: it.job_id, staff_id: c.staff.id, org_id: org.orgId });
+      if (ins.error) { fail.push(it); continue; }
+      await sb.from("job_staff").delete().eq("job_id", it.job_id).eq("staff_id", person.staff_id);
+      ok.push(it);
+    }
+    setBusy(false);
+    setResult({ name: c.staff.name, ok, fail });
+    onDone();
+  }
+  const when = (it) => `${dayLbl(it.work_date)} ${it.start_time} · ${it.customer}`;
+  return (
+    <Modal title={tx("Ersatz für {0}", person.staff_name)} onClose={onClose}>
+      {result ? (
+        <div className="space-y-3">
+          {result.ok.length > 0 && <div className="rounded-lg bg-emerald-50 p-3 text-sm text-emerald-900"><b>✓ {tx("{0} übernimmt {1} Aufträge:", result.name, result.ok.length)}</b><ul className="mt-1 list-disc pl-5 text-xs">{result.ok.map((it) => <li key={it.job_id}>{when(it)}</li>)}</ul></div>}
+          {result.fail.length > 0 && (
+            <div className="rounded-lg bg-amber-50 p-3 text-sm text-amber-900"><b>⚠ {tx("Hier hat {0} keine Zeit – bitte einzeln wählen:", result.name)}</b>
+              <ul className="mt-2 space-y-1.5">{result.fail.map((it) => <li key={it.job_id} className="flex flex-wrap items-center justify-between gap-2 text-xs"><span>{when(it)}</span><button type="button" className={btnLight} onClick={() => onReplaceOne(it)}>{tx("Ersatz finden")}</button></li>)}</ul>
+            </div>
+          )}
+          <p className="text-xs text-slate-500">{tx("Nach der Abwesenheit ist {0} automatisch wieder eingeteilt (bei regelmäßigen Terminen).", person.staff_name)}</p>
+          <div className="tv-actions flex justify-end"><button type="button" className={btnPrimary} onClick={onClose}>{tx("Fertig")}</button></div>
+        </div>
+      ) : (
+        <div>
+          <p className="mb-3 text-sm text-slate-600">{tx("{0} ist abwesend und hat {1} Aufträge ({2} – {3}). Wer übernimmt alle?", person.staff_name, items.length, dayLbl(days[0]), dayLbl(days[days.length - 1]))}</p>
+          {cands === null ? <p className="text-sm text-slate-500">{tx("Lädt …")}</p> : cands.length === 0 ? <p className="text-sm text-slate-500">{tx("Niemand ist an diesen Tagen frei – bitte einzeln wählen.")}</p> : (
+            <div role="radiogroup" className="space-y-1.5">
+              {cands.slice(0, 8).map((c) => { const all = c.free.length === items.length; return (
+                <button key={c.staff.id} type="button" role="radio" aria-checked={pick === c.staff.id} onClick={() => setPick(c.staff.id)} className={`flex w-full items-center justify-between gap-2 rounded-xl px-3 py-2 text-left text-sm ${pick === c.staff.id ? "border-2 border-teal-500 bg-teal-50" : "border border-slate-200 bg-white hover:bg-slate-50"}`}>
+                  <span className="font-medium text-slate-800">{c.staff.name}</span>
+                  <span className={`text-xs ${all ? "text-emerald-700" : "text-amber-700"}`}>{all ? tx("frei für alle {0}", items.length) : tx("frei für {0} von {1}", c.free.length, items.length)}{Object.keys(c.warn).map((k) => ` · ⚠ ${k === "skill" ? tx("Fähigkeit fehlt") : tx("knappe Zeit")}`).join("")}</span>
+                </button>
+              ); })}
+            </div>
+          )}
+          <p className="mt-2 text-[11px] text-slate-500">{tx("Reihenfolge wie bei „Personal zuteilen“. Wo die Person keine Zeit hat, bleibt der Auftrag in „Bitte prüfen“.")}</p>
+          <Msg msg={msg} />
+          <div className="tv-actions mt-4 flex justify-end gap-2">
+            <button type="button" className={btnLight} onClick={onClose}>{tx("Abbrechen")}</button>
+            <button type="button" className={btnPrimary} onClick={apply} disabled={busy || !pick}>{busy ? tx("Speichert …") : tx("Für alle übernehmen")}</button>
+          </div>
+        </div>
+      )}
+    </Modal>
   );
 }
 
@@ -978,7 +1386,7 @@ function JobCard({ j, data, onOpen, compact, assign = [], onAssign, absent }) {
         <span className={`font-semibold text-slate-800 ${compact ? "text-xs" : "text-sm"}`}>{hhmm(j.start_time)}–{endOf(j.start_time, j.duration_min)}{!compact && <span className="ml-2 font-normal text-slate-500">{durTxt(j.duration_min)}</span>}</span>
         <span className={`rounded-full border px-2 py-0.5 text-[10px] font-medium ${st.cls}`}>{st.label}</span>
       </div>
-      <div className={`mt-0.5 truncate ${compact ? "text-xs" : "text-sm"} text-slate-800`}>{custName(c)}{!compact && c ? <span className="ml-1 text-slate-400">#{c.customer_no}</span> : null}{j.parent_job_id ? <span className="ml-1.5 rounded bg-violet-50 px-1.5 py-0.5 text-[10px] font-semibold text-violet-700">{tx("Fortsetzung")}</span> : null}</div>
+      <div className={`mt-0.5 truncate ${compact ? "text-xs" : "text-sm"} text-slate-800`}>{custName(c)}{!compact && c ? <span className="ml-1 text-slate-400">#{c.customer_no}</span> : null}{j.series_id ? <span className="ml-1 text-[11px]" title={tx("Regelmäßiger Termin")}>🔁</span> : null}{j.parent_job_id ? <span className="ml-1.5 rounded bg-violet-50 px-1.5 py-0.5 text-[10px] font-semibold text-violet-700">{tx("Fortsetzung")}</span> : null}</div>
       {!compact && <div className="mt-0.5 truncate text-xs text-slate-600">{j.address_text}</div>}
       <div className={`mt-0.5 flex flex-wrap gap-x-3 text-slate-500 ${compact ? "text-[10px]" : "text-xs"}`}>
         {s ? <span>{s.name}</span> : null}
@@ -1327,8 +1735,8 @@ function CustomerDialog({ org, data, customer, onClose, onSaved, onNewJob }) {
   useEffect(() => {
     if (!editing) return undefined;
     let alive = true;
-    org.supabase.from("jobs").select("id, job_no, work_date, start_time, duration_min, service_type_id, status, address_text").eq("org_id", org.orgId).eq("customer_id", customer.id).order("work_date", { ascending: false }).limit(20)
-      .then(({ data: rows }) => { if (alive) setHistory(rows || []); });
+    org.supabase.from("jobs").select("id, job_no, work_date, start_time, duration_min, service_type_id, status, address_text, series_id").eq("org_id", org.orgId).eq("customer_id", customer.id).order("work_date", { ascending: false }).limit(120)
+      .then(({ data: rows }) => { const t = isoOf(new Date()); if (alive) setHistory((rows || []).filter((h) => !(h.series_id && h.work_date > t)).slice(0, 20)); }); // künftige Termine einer Reihe stehen unter „Regelmäßige Termine“
     return () => { alive = false; };
   }, [editing, customer, org]);
 
@@ -1433,6 +1841,7 @@ function CustomerDialog({ org, data, customer, onClose, onSaved, onNewJob }) {
       </section>
 
       {editing && <PrefsSection org={org} data={data} customer={customer} onChanged={(t) => onSaved(t, customer, true, true)} />}
+      {editing && <SeriesSection org={org} data={data} customer={customer} onChanged={(t) => onSaved(t, customer, true, true)} onNew={() => onNewJob(customer, { repeat: true })} />}
 
       {editing && (
         <section className="mt-5">
@@ -1440,7 +1849,7 @@ function CustomerDialog({ org, data, customer, onClose, onSaved, onNewJob }) {
           {history === null ? <p className="text-sm text-slate-500">{tx("Lädt …")}</p> : history.length === 0 ? <p className="text-sm text-slate-500">{tx("Noch keine Aufträge.")}</p> : (
             <ul className="divide-y divide-slate-100 rounded-lg border border-slate-200 text-sm">
               {history.map((h) => { const s = data.services.find((x) => x.id === h.service_type_id); return (
-                <li key={h.id} className="flex flex-wrap items-center gap-x-3 px-3 py-1.5"><span className="w-24 text-slate-700">{isoDmy(h.work_date)}</span><span className="w-24 text-slate-600">{hhmm(h.start_time)}–{endOf(h.start_time, h.duration_min)}</span><span className="flex-1 truncate text-slate-600">{s ? s.name : ""}</span><span className={`rounded-full border px-2 py-0.5 text-[10px] ${(STATUS[h.status] || STATUS.new).cls}`}>{tx((STATUS[h.status] || STATUS.new).label)}</span></li>
+                <li key={h.id} className="flex flex-wrap items-center gap-x-3 px-3 py-1.5"><span className="w-24 text-slate-700">{isoDmy(h.work_date)}</span><span className="w-24 text-slate-600">{hhmm(h.start_time)}–{endOf(h.start_time, h.duration_min)}{h.series_id ? " 🔁" : ""}</span><span className="flex-1 truncate text-slate-600">{s ? s.name : ""}</span><span className={`rounded-full border px-2 py-0.5 text-[10px] ${(STATUS[h.status] || STATUS.new).cls}`}>{tx((STATUS[h.status] || STATUS.new).label)}</span></li>
               ); })}
             </ul>
           )}
@@ -2062,6 +2471,8 @@ export default function TourenView() {
   }, [sb, org.orgId, range[0], range[1]]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { loadBase(); }, [loadBase]);
+  // D3c-2: regelmäßige Aufträge bis 12 Wochen im Voraus auffüllen (einmal beim Öffnen)
+  useEffect(() => { sb.rpc("touren_series_fill", { p_org: org.orgId }).then((r) => { if (r && !r.error && r.data) loadJobs(); }); }, [sb, org.orgId]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { loadJobs(); }, [loadJobs]);
   useEffect(() => { loadConflicts(); }, [loadConflicts]);
   // live: alle 60 s „läuft länger“ / Status neu laden, solange „Aufträge“ offen ist
@@ -2069,7 +2480,7 @@ export default function TourenView() {
   const openJobById = async (id, cont) => { const r = await sb.from("jobs").select("*").eq("id", id).single(); if (r.error) { setFlash(errText(r.error)); return; } if (cont || r.data.needs_confirm) setContDlg(r.data); else setJobDlg({ job: r.data }); };
   useEffect(() => { if (!flash) return undefined; const t = setTimeout(() => setFlash(null), 5000); return () => clearTimeout(t); }, [flash]);
 
-  const onJobSaved = async (text, date) => { setJobDlg(null); setFlash(text); await loadBase(); if (date && (date < range[0] || date > range[1])) setDay(date); else await loadJobs(); };
+  const onJobSaved = async (text, date, extra) => { setJobDlg(null); setFlash(text); if (extra && extra.teamJob) setAssignDlg({ ...extra.teamJob, __team: true }); await loadBase(); if (date && (date < range[0] || date > range[1])) setDay(date); else await loadJobs(); };
   const onCustSaved = async (text, customer, keepOpen, addrOnly) => {
     setFlash(text); await loadBase();
     if (keepOpen && !addrOnly) setCustDlg(null);
@@ -2080,7 +2491,7 @@ export default function TourenView() {
   const afterAssign = async () => { await loadJobs(); await loadConflicts(); const oc = await sb.rpc("touren_open_count", { p_org: org.orgId }); if (!oc.error) setOpenCount(oc.data || 0); };
   const absentSet = useMemo(() => new Set(conflicts.map((c) => `${c.job_id}|${c.staff_id}`)), [conflicts]);
   const todayIso = isoOf(new Date());
-  const upcoming = conflicts.filter((c) => c.work_date >= todayIso && c.work_date <= addDays(todayIso, 30));
+  const upcoming = conflicts.filter((c) => c.work_date >= todayIso && c.work_date <= addDays(todayIso, 30)).sort((a, b) => (a.work_date + a.start_time).localeCompare(b.work_date + b.start_time));
   // „Ersatz finden“: Person aus dem Auftrag nehmen, dann gleich die Vorschläge zeigen
   const replace = async (c) => {
     setRepBusy(true);
@@ -2091,6 +2502,7 @@ export default function TourenView() {
     await afterAssign();
     setAssignDlg(j.data);
   };
+  const [bulkRep, setBulkRep] = useState(null); // mehrere Tage abwesend: ein Ersatz für alle
   const afterAbsence = async (text) => { setAbsentFor(null); setFlash(text); await afterAssign(); if (isLeader) { const rq = await sb.from("requests").select("id", { count: "exact", head: true }).eq("org_id", org.orgId).eq("status", "open"); setReqCount(rq.error ? 0 : rq.count || 0); } };
   const hasPlanner = PLANNER_ROLES.includes(org.role) && (org.products || []).some((p) => p === "generic_planner" || p === "lab_planner");
   const plannerHref = (org.products || []).includes("generic_planner") ? "/allgemein" : "/labor";
@@ -2144,7 +2556,7 @@ export default function TourenView() {
         <header className="dg-pagehead"><div><h1>{tx(h1)}</h1><p>{tx(sub)}</p></div></header>
         {loadErr && <div role="alert" className="rounded-xl bg-rose-50 px-4 py-3 text-sm text-rose-800">{loadErr}</div>}
         {!loadErr && !loaded && <p className="text-sm text-slate-500">{tx("Lädt …")}</p>}
-        {!loadErr && loaded && tab === "jobs" && <ConflictBox items={upcoming} onReplace={replace} busy={repBusy} attention={attention} onOpenJob={(id) => openJobById(id)} onPlan={(id) => openJobById(id, true)} />}
+        {!loadErr && loaded && tab === "jobs" && <ConflictBox items={upcoming} onReplace={replace} onReplaceAll={(g) => setBulkRep(g)} busy={repBusy} attention={attention} onOpenJob={(id) => openJobById(id)} onPlan={(id) => openJobById(id, true)} />}
         {!loadErr && loaded && tab === "jobs" && (
           <JobsView org={org} data={data} jobs={jobs} assign={assign} absent={absentSet} onPrint={() => setPrintOpen(true)} onAssign={(j) => setAssignDlg(j)} day={day} setDay={setDay} mode={mode} setMode={setMode} showCancelled={showCancelled} setShowCancelled={setShowCancelled}
             onNew={(d) => setJobDlg({ preset: { date: d } })} onOpen={(j) => (j.needs_confirm ? setContDlg(j) : setJobDlg({ job: j }))} />
@@ -2178,10 +2590,13 @@ export default function TourenView() {
         onSaved={async (text, date) => { setContDlg(null); await onJobSaved(text, date); await loadConflicts(); }} onAssign={(j) => setAssignDlg(j)} />}
       {printOpen && data && <PrintDialog org={org} data={data} day={day} mode={mode} onClose={() => setPrintOpen(false)} />}
       {absentFor && <AbsenceDialog org={org} person={absentFor} onClose={() => setAbsentFor(null)} onSaved={afterAbsence} />}
-      {assignDlg && <AssignPanel org={org} job={assignDlg} data={data} onClose={() => setAssignDlg(null)} onChanged={afterAssign} />}
+      {bulkRep && <BulkReplaceDialog org={org} data={data} person={{ staff_id: bulkRep[0].staff_id, staff_name: bulkRep[0].staff_name }} items={bulkRep} onClose={() => setBulkRep(null)} onDone={afterAssign} onReplaceOne={(it) => { setBulkRep(null); replace(it); }} />}
+      {assignDlg && <AssignPanel org={org} job={assignDlg} data={data} onChanged={afterAssign}
+        onClose={async () => { const a = assignDlg; setAssignDlg(null); if (a && a.__team) { const r = await sb.rpc("touren_series_team_from", { p_job: a.id }); if (!r.error) setFlash(tx("Personal für alle Termine der Reihe übernommen ✓")); await afterAssign(); } }}
+        onTeamAll={async () => { const a = assignDlg; setAssignDlg(null); const r = await sb.rpc("touren_series_team_from", { p_job: a.id }); setFlash(r.error ? errText(r.error) : tx("Personal für alle folgenden Termine übernommen ✓")); await afterAssign(); }} />}
       {jobDlg && <JobDialog org={org} data={data} job={jobDlg.job} preset={jobDlg.preset} onClose={() => setJobDlg(null)} onSaved={onJobSaved} onAssign={(j) => { setJobDlg(null); setAssignDlg(j); }} />}
       {custDlg && <CustomerDialog key={custDlg.customer ? custDlg.customer.id : "new"} org={org} data={data} customer={custDlg.customer ? data.customers.find((x) => x.id === custDlg.customer.id) || custDlg.customer : null} onClose={() => setCustDlg(null)} onSaved={onCustSaved}
-        onNewJob={(c) => { setCustDlg(null); setTab("jobs"); setJobDlg({ preset: { customerId: c.id, date: day } }); }} />}
+        onNewJob={(c, o) => { setCustDlg(null); setTab("jobs"); setJobDlg({ preset: { customerId: c.id, date: day, repeat: !!(o && o.repeat) } }); }} />}
     </div>
   );
 }

@@ -2,30 +2,21 @@
 
 import React, { useEffect, useState } from "react";
 import { supabase, supabaseConfigured } from "../../lib/supabaseClient";
-import { homeRoute } from "../../lib/homeRoute";
+import { myAreas, rememberArea, AREAS } from "../../lib/homeRoute";
 import LoginForm from "../../components/LoginForm";
 import DemoButton from "../../components/DemoRequest";
 import { tx, setLang } from "../../lib/i18n";
 import { useLang } from "../../lib/useLang";
 
-// /login – eine Anmeldung für alle. Oben wählt man, als wer man sich anmeldet (Mitarbeiter, Leitung, Inhaber);
-// danach geht es direkt in den passenden Bereich. Wer schon angemeldet ist, wird sofort weitergeleitet.
-const ROLES = [["mitarbeiter", "Mitarbeiter"], ["leitung", "Leitung"], ["inhaber", "Inhaber"]];
+// /login – eine Anmeldung für alle (25.11.2026): E-Mail bzw. Handynummer + Passwort, danach geht es automatisch
+// in den richtigen Bereich (lib/homeRoute). Hat ein Konto mehrere Bereiche (z. B. Dienstplan, Touren, Mitarbeiter-App)
+// und wurde auf diesem Gerät noch keiner benutzt, erscheint einmal eine Auswahl; danach gilt der zuletzt benutzte Bereich.
+// Alte Links mit ?als=mitarbeiter führen weiterhin in die Mitarbeiter-App.
 
 export default function LoginPage() {
-  const [state, setState] = useState("checking"); // checking | form | forwarding
-  const [role, setRole] = useState("mitarbeiter");
-  const [note, setNote] = useState("");
+  const [state, setState] = useState("checking"); // checking | form | choose | forwarding
+  const [areas, setAreas] = useState([]);
   const lang = useLang(); // neu zeichnen, wenn DE/EN gewechselt wird
-
-  useEffect(() => {
-    try {
-      // ?als=mitarbeiter|leitung|inhaber from the start page menu wins over the remembered choice
-      const q = new URLSearchParams(window.location.search).get("als");
-      const r = q && ROLES.some(([k]) => k === q) ? q : window.localStorage.getItem("dg-login-role");
-      if (r && ROLES.some(([k]) => k === r)) { setRole(r); window.localStorage.setItem("dg-login-role", r); }
-    } catch (e) { /* ignore */ }
-  }, []);
 
   useEffect(() => {
     if (!supabaseConfigured) { setState("form"); return; }
@@ -33,21 +24,23 @@ export default function LoginPage() {
     const go = async (session) => {
       if (!session || done) return;
       done = true; setState("forwarding");
-      let pref = role;
-      try { pref = window.localStorage.getItem("dg-login-role") || role; } catch (e) { /* ignore */ }
-      const to = await homeRoute(supabase, session.user.id, pref);
-      let n = "";
-      if (pref !== "mitarbeiter" && to === "/mitarbeiter") n = tx("Für dieses Konto gibt es keinen Leitungszugang – Sie kommen in die Mitarbeiter-App.");
-      if (pref === "mitarbeiter" && to !== "/mitarbeiter" && to !== "/profil") n = tx("Dieses Konto ist kein Mitarbeiter-Konto – Sie kommen in Ihren Bereich.");
-      setNote(n);
-      setTimeout(() => window.location.replace(to), n ? 1800 : 0);
+      let prefer = null;
+      try { prefer = new URLSearchParams(window.location.search).get("als"); } catch (e) { /* ignore */ }
+      const list = await myAreas(supabase, session.user.id);
+      // 25.11.2026 (Wunsch): wer mehrere Bereiche hat, wird JEDES Mal gefragt; wer nur einen hat
+      // (z. B. Mitarbeitende → Mitarbeiter-App), kommt immer direkt hinein.
+      let to = null;
+      if (prefer === "mitarbeiter" && list.includes("/mitarbeiter")) to = "/mitarbeiter";
+      else if (list.length <= 1) to = list[0] || "/profil";
+      if (to) { window.location.replace(to); return; }
+      setAreas(list); setState("choose");
     };
     supabase.auth.getSession().then(({ data }) => { if (data.session) go(data.session); else setState("form"); });
     const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => go(s));
     return () => sub.subscription.unsubscribe();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
 
-  const pick = (k) => { setRole(k); try { window.localStorage.setItem("dg-login-role", k); } catch (e) { /* ignore */ } };
+  const open = (href) => { rememberArea(href); setState("forwarding"); window.location.replace(href); };
 
   return (
     <div style={{ background: "#F3F5F9", color: "#18233A", minHeight: "100vh", fontFamily: "system-ui, -apple-system, 'Segoe UI', sans-serif", padding: "28px 16px 40px" }}>
@@ -62,17 +55,28 @@ export default function LoginPage() {
           </div>
         </div>
         {state === "form" ? (
-          <>
-            <div role="radiogroup" aria-label={tx("Ich melde mich an als")} style={{ display: "flex", background: "#E3E8F1", borderRadius: 14, padding: 4, gap: 4, marginBottom: 16 }}>
-              {ROLES.map(([k, l]) => (
-                <button key={k} role="radio" aria-checked={role === k} onClick={() => pick(k)}
-                  style={{ flex: 1, border: 0, borderRadius: 11, padding: "11px 6px", fontSize: 15, fontWeight: 700, cursor: "pointer", background: role === k ? "#fff" : "transparent", color: role === k ? "#243B6B" : "#56617A", boxShadow: role === k ? "0 2px 8px -3px rgba(24,35,58,.35)" : "none", transition: "background .15s" }}>{tx(l)}</button>
+          <LoginForm title={tx("Anmelden")} phone />
+        ) : state === "choose" ? (
+          <div>
+            <h1 style={{ fontSize: 22, fontWeight: 750, margin: "0 0 6px" }}>{tx("Wohin möchten Sie?")}</h1>
+            <p style={{ margin: "0 0 16px", fontSize: 14, color: "#56617A" }}>{tx("Ihr Konto hat mehrere Bereiche. Beim nächsten Mal geht es automatisch in den zuletzt benutzten Bereich.")}</p>
+            <div style={{ display: "grid", gap: 10 }}>
+              {AREAS.filter((a) => areas.includes(a.href)).map((a) => (
+                <button key={a.href} type="button" onClick={() => open(a.href)}
+                  style={{ display: "flex", alignItems: "center", gap: 14, width: "100%", textAlign: "left", border: "1px solid #D5DCE8", borderRadius: 16, background: "#fff", padding: "16px 18px", cursor: "pointer", boxShadow: "0 2px 10px -6px rgba(24,35,58,.35)" }}>
+                  <span aria-hidden="true" style={{ fontSize: 28, width: 46, height: 46, display: "flex", alignItems: "center", justifyContent: "center", background: "#EEF2F8", borderRadius: 12 }}>{a.icon}</span>
+                  <span style={{ flex: 1 }}>
+                    <span style={{ display: "block", fontSize: 17, fontWeight: 750, color: "#18233A" }}>{tx(a.label)}</span>
+                    <span style={{ display: "block", fontSize: 13, color: "#56617A" }}>{tx(a.sub)}</span>
+                  </span>
+                  <span aria-hidden="true" style={{ fontSize: 20, color: "#243B6B" }}>›</span>
+                </button>
               ))}
             </div>
-            <LoginForm title={role === "mitarbeiter" ? tx("Anmelden – Mitarbeiter-App") : role === "leitung" ? tx("Anmelden – Leitung") : tx("Anmelden – Inhaber")} />
-          </>
+            <p style={{ margin: "14px 0 0", fontSize: 13, color: "#56617A" }}>{tx("Wechseln können Sie jederzeit über das Menü.")}</p>
+          </div>
         ) : (
-          <div style={{ color: "#56617A", fontSize: 15 }}>{note || (state === "forwarding" ? tx("Angemeldet, einen Moment …") : tx("Lädt …"))}</div>
+          <div style={{ color: "#56617A", fontSize: 15 }}>{state === "forwarding" ? tx("Angemeldet, einen Moment …") : tx("Lädt …")}</div>
         )}
         <p style={{ marginTop: 22, fontSize: 14, color: "#5B6578" }}>
           {tx("Noch kein Zugang? Die Leitung Ihrer Firma richtet ihn ein. Neu bei Dienstigo?")} <DemoButton style={{ color: "#243B6B", fontWeight: 600 }}>{tx("Demo anfragen")}</DemoButton>

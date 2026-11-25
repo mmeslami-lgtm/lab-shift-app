@@ -2,6 +2,21 @@
 
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { useLang } from "../lib/useLang";
+
+// Texte Deutsch / Englisch (25.11.2026, Startseite zweisprachig)
+const DT = {
+  de: { consentErr: "Bitte der Datenschutzerklärung zustimmen.", fail: "Das hat leider nicht geklappt. Bitte erneut versuchen oder an info@dienstigo.de schreiben.", offline: "Keine Verbindung. Bitte erneut versuchen oder an info@dienstigo.de schreiben.",
+    thanks: "Vielen Dank!", thanksP: "Ihre Anfrage ist bei uns angekommen. Wir melden uns so bald wie möglich bei Ihnen.", close: "Schließen", home: "Zur Startseite",
+    company: "Firmenname", email: "E-Mail", phone: "Telefon", message: "Nachricht", optional: "(optional)", ph: "z. B. Branche, Anzahl Mitarbeitende, Schichten, Wunschtermin",
+    consent1: "Ich bin einverstanden, dass meine Angaben zur Bearbeitung der Demo-Anfrage gespeichert werden. Details in der ", consent2: "Datenschutzerklärung", sending: "Wird gesendet …", send: "Senden",
+    title: "Demo anfragen", intro: "Hinterlassen Sie Ihre Kontaktdaten. Wir melden uns und zeigen Ihnen Dienstigo." },
+  en: { consentErr: "Please accept the privacy policy.", fail: "Sorry, that did not work. Please try again or write to info@dienstigo.de.", offline: "No connection. Please try again or write to info@dienstigo.de.",
+    thanks: "Thank you!", thanksP: "We have received your request and will get back to you as soon as possible.", close: "Close", home: "Back to the home page",
+    company: "Company name", email: "Email", phone: "Phone", message: "Message", optional: "(optional)", ph: "e.g. industry, number of employees, shifts, preferred date",
+    consent1: "I agree that my details may be stored in order to process this demo request. Details can be found in the ", consent2: "privacy policy", sending: "Sending …", send: "Send",
+    title: "Request a demo", intro: "Leave your contact details. We will get in touch and show you Dienstigo." },
+};
 
 // „Demo anfragen“: a window with Firmenname, E-Mail, Telefon, Nachricht and the Datenschutz tick.
 // Sent to /api/demo-anfrage (the server checks, saves and e-mails info@dienstigo.de).
@@ -14,27 +29,28 @@ const lbl = { display: "block", fontWeight: 650, fontSize: 15, margin: "0 0 5px"
 const inp = { display: "block", width: "100%", boxSizing: "border-box", padding: "11px 13px", fontSize: 16, border: `1.5px solid ${LINE}`, borderRadius: 12, margin: "0 0 14px", fontFamily: "inherit", background: "#fff", color: INK };
 const opt = { color: MUTED, fontWeight: 400 };
 
-export function DemoForm({ onClose, intro }) {
+export function DemoForm({ onClose, intro, autoFocus = true }) {
+  const D = DT[useLang() === "en" ? "en" : "de"];
   const [f, setF] = useState({ company: "", email: "", phone: "", message: "", consent: false, website: "" });
   const [state, setState] = useState("idle"); // idle | sending | done
   const [error, setError] = useState("");
   const opened = useRef(Date.now());
   const first = useRef(null);
-  useEffect(() => { if (first.current) first.current.focus(); }, []);
+  useEffect(() => { if (autoFocus && first.current) first.current.focus(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const set = (k) => (e) => { setF({ ...f, [k]: e.target.type === "checkbox" ? e.target.checked : e.target.value }); if (k === "consent" && e.target.checked) setError(""); };
 
   async function send(e) {
     e.preventDefault();
     setError("");
-    if (!f.consent) { setError("Bitte der Datenschutzerklärung zustimmen."); return; }
+    if (!f.consent) { setError(D.consentErr); return; }
     setState("sending");
     try {
       const res = await fetch("/api/demo-anfrage", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...f, t: Date.now() - opened.current }) });
       let out = {}; try { out = await res.json(); } catch (x) { /* ignore */ }
       if (res.ok && out.ok) { setState("done"); return; }
-      setError(out.error || "Das hat leider nicht geklappt. Bitte erneut versuchen oder an info@dienstigo.de schreiben.");
+      setError(out.error || D.fail);
     } catch (x) {
-      setError("Keine Verbindung. Bitte erneut versuchen oder an info@dienstigo.de schreiben.");
+      setError(D.offline);
     }
     setState("idle");
   }
@@ -42,11 +58,11 @@ export function DemoForm({ onClose, intro }) {
   if (state === "done") {
     return (
       <div data-demo="done">
-        <h2 id="dr-title" style={{ fontSize: 24, margin: "0 40px 8px 0", color: NAVY }}>Vielen Dank!</h2>
-        <p style={{ margin: "0 0 20px", lineHeight: 1.6, color: INK }}>Ihre Anfrage ist bei uns angekommen. Wir melden uns so bald wie möglich bei Ihnen.</p>
+        <h2 id="dr-title" style={{ fontSize: 24, margin: "0 40px 8px 0", color: NAVY }}>{D.thanks}</h2>
+        <p style={{ margin: "0 0 20px", lineHeight: 1.6, color: INK }}>{D.thanksP}</p>
         {onClose
-          ? <button type="button" onClick={onClose} style={{ border: 0, borderRadius: 12, background: NAVY, color: "#fff", fontWeight: 700, fontSize: 16, padding: "12px 20px", cursor: "pointer" }}>Schließen</button>
-          : <a href="/" style={{ display: "inline-block", borderRadius: 12, background: NAVY, color: "#fff", fontWeight: 700, padding: "12px 20px", textDecoration: "none" }}>Zur Startseite</a>}
+          ? <button type="button" onClick={onClose} style={{ border: 0, borderRadius: 12, background: NAVY, color: "#fff", fontWeight: 700, fontSize: 16, padding: "12px 20px", cursor: "pointer" }}>{D.close}</button>
+          : <a href="/" style={{ display: "inline-block", borderRadius: 12, background: NAVY, color: "#fff", fontWeight: 700, padding: "12px 20px", textDecoration: "none" }}>{D.home}</a>}
       </div>
     );
   }
@@ -54,14 +70,14 @@ export function DemoForm({ onClose, intro }) {
   return (
     <form onSubmit={send} noValidate>
       {intro}
-      <label style={lbl} htmlFor="dr-company">Firmenname *</label>
+      <label style={lbl} htmlFor="dr-company">{D.company} *</label>
       <input id="dr-company" ref={first} required maxLength={200} autoComplete="organization" value={f.company} onChange={set("company")} style={inp} />
-      <label style={lbl} htmlFor="dr-email">E-Mail *</label>
+      <label style={lbl} htmlFor="dr-email">{D.email} *</label>
       <input id="dr-email" type="email" required maxLength={254} autoComplete="email" value={f.email} onChange={set("email")} style={inp} />
-      <label style={lbl} htmlFor="dr-phone">Telefon <span style={opt}>(optional)</span></label>
+      <label style={lbl} htmlFor="dr-phone">{D.phone} <span style={opt}>{D.optional}</span></label>
       <input id="dr-phone" type="tel" maxLength={40} autoComplete="tel" value={f.phone} onChange={set("phone")} style={inp} />
-      <label style={lbl} htmlFor="dr-message">Nachricht <span style={opt}>(optional)</span></label>
-      <textarea id="dr-message" rows={4} maxLength={2000} value={f.message} onChange={set("message")} placeholder="z. B. Branche, Anzahl Mitarbeitende, Schichten, Wunschtermin"
+      <label style={lbl} htmlFor="dr-message">{D.message} <span style={opt}>{D.optional}</span></label>
+      <textarea id="dr-message" rows={4} maxLength={2000} value={f.message} onChange={set("message")} placeholder={D.ph}
         style={{ ...inp, resize: "vertical", minHeight: 96 }} />
       {/* Spam-Schutz: Menschen sehen dieses Feld nicht */}
       <div aria-hidden="true" style={{ position: "absolute", left: -9999, top: "auto", width: 1, height: 1, overflow: "hidden" }}>
@@ -70,18 +86,19 @@ export function DemoForm({ onClose, intro }) {
       </div>
       <label style={{ display: "flex", gap: 10, alignItems: "flex-start", margin: "2px 0 16px", lineHeight: 1.5, fontSize: 14, color: INK }}>
         <input type="checkbox" checked={f.consent} onChange={set("consent")} style={{ marginTop: 3, width: 18, height: 18, flex: "0 0 auto" }} />
-        <span>Ich bin einverstanden, dass meine Angaben zur Bearbeitung der Demo-Anfrage gespeichert werden. Details in der <a href="/datenschutz" target="_blank" rel="noopener" style={{ color: NAVY, fontWeight: 650 }}>Datenschutzerklärung</a>. *</span>
+        <span>{D.consent1}<a href="/datenschutz" target="_blank" rel="noopener" style={{ color: NAVY, fontWeight: 650 }}>{D.consent2}</a>. *</span>
       </label>
       {error && <p role="alert" style={{ background: "#FDECEC", color: "#8A1C1C", padding: "10px 13px", borderRadius: 10, margin: "0 0 14px", fontSize: 14 }}>{error}</p>}
       <button type="submit" disabled={state === "sending"}
         style={{ width: "100%", padding: 14, fontSize: 16, fontWeight: 700, color: "#fff", background: NAVY, border: 0, borderRadius: 12, cursor: "pointer", opacity: state === "sending" ? 0.6 : 1 }}>
-        {state === "sending" ? "Wird gesendet …" : "Senden"}
+        {state === "sending" ? D.sending : D.send}
       </button>
     </form>
   );
 }
 
 export function DemoDialog({ onClose }) {
+  const D = DT[useLang() === "en" ? "en" : "de"];
   useEffect(() => {
     const key = (e) => { if (e.key === "Escape") onClose(); };
     const prev = document.body.style.overflow;
@@ -94,12 +111,12 @@ export function DemoDialog({ onClose }) {
       style={{ position: "fixed", inset: 0, zIndex: 1000, background: "rgba(16,24,40,.55)", display: "flex", alignItems: "flex-start", justifyContent: "center", overflowY: "auto", padding: "max(16px, env(safe-area-inset-top)) 12px 24px" }}>
       <div role="dialog" aria-modal="true" aria-labelledby="dr-title"
         style={{ position: "relative", width: "100%", maxWidth: 520, margin: "4vh 0", background: "#fff", borderRadius: 20, padding: "26px 22px 22px", boxShadow: "0 24px 60px -12px rgba(16,24,40,.45)", fontFamily: "system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif", textAlign: "left" }}>
-        <button type="button" aria-label="Schließen" onClick={onClose}
+        <button type="button" aria-label={D.close} onClick={onClose}
           style={{ position: "absolute", top: 10, right: 10, width: 40, height: 40, border: 0, borderRadius: 12, background: "#EEF1F6", color: INK, fontSize: 22, lineHeight: 1, cursor: "pointer" }}>×</button>
         {/* Title + intro live inside the form, so after sending only „Vielen Dank!“ is shown. */}
         <DemoForm onClose={onClose} intro={<>
-          <h2 id="dr-title" style={{ fontSize: 24, margin: "0 40px 6px 0", color: NAVY }}>Demo anfragen</h2>
-          <p style={{ margin: "0 0 18px", color: MUTED, lineHeight: 1.5, fontSize: 15 }}>Hinterlassen Sie Ihre Kontaktdaten. Wir melden uns und zeigen Ihnen Dienstigo.</p>
+          <h2 id="dr-title" style={{ fontSize: 24, margin: "0 40px 6px 0", color: NAVY }}>{D.title}</h2>
+          <p style={{ margin: "0 0 18px", color: MUTED, lineHeight: 1.5, fontSize: 15 }}>{D.intro}</p>
         </>} />
       </div>
     </div>

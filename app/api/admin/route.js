@@ -146,7 +146,8 @@ export async function GET(request) {
       acceptances: la.error ? [] : (la.data || []).filter((a) => a.org_id === o.id).map((a) => ({ doc: a.doc, version: a.version, at: a.accepted_at, email: a.user_email })),
     }));
     // Demo-Anfragen (script 33). Missing columns or table = empty list, never breaks the page.
-    let dr = await supabaseAdmin.from("demo_requests").select("id, created_at, company, email, phone, message, status, mail_sent, mail_error, done_at, org_id").order("created_at", { ascending: false }).limit(300);
+    let dr = await supabaseAdmin.from("demo_requests").select("id, created_at, company, email, phone, message, status, mail_sent, mail_error, done_at, org_id, kind, details, lang").order("created_at", { ascending: false }).limit(300);
+    if (dr.error) dr = await supabaseAdmin.from("demo_requests").select("id, created_at, company, email, phone, message, status, mail_sent, mail_error, done_at, org_id").order("created_at", { ascending: false }).limit(300); // script 59 missing
     if (dr.error) dr = await supabaseAdmin.from("demo_requests").select("id, created_at, company, email, phone, message, status, mail_sent, mail_error, done_at").order("created_at", { ascending: false }).limit(300); // script 44 missing
     return json({ me: auth.user.email, firms, demoRequests: dr.error ? [] : dr.data, holidays: ch.error ? null : (ch.data || []) });
   } catch (e) {
@@ -340,6 +341,82 @@ export async function POST(request) {
         await log(me, "testzugang", orgId, email, { name, planner, until, demo: id, mailSent });
         // only if the mail did not go out: show the password ONCE so the admin can pass it on
         return json({ ok: true, orgId, name, email, mailSent, mailError, password: mailSent ? null : password });
+      }
+      case "registration_accept": {
+        // Registrierung (script 59) -> Testfirma (14 Tage) mit den Bereichen, dem Land und der Branche aus dem Formular
+        // (der Admin kann sie vorher ändern) + Inhaber-Konto; Einladung per E-Mail (DE/EN) mit vorläufigem Passwort.
+        const id = String(body.id || "");
+        const products = Array.isArray(body.products) ? [...new Set(body.products.filter((x) => PRODUCTS.includes(x)))] : [];
+        if (products.includes("lab_planner") && products.includes("generic_planner")) return json({ error: "Bitte nur einen Dienstplan wählen (Labor oder allgemein)." }, 400);
+        if (!products.length) return json({ error: "Bitte mindestens einen Bereich wählen." }, 400);
+        const country = COUNTRIES[body.country] ? body.country : "DE";
+        const language = LANGUAGES[body.language] ? body.language : "de";
+        const industry = ["cleaning", "care", "facility", "general"].includes(body.industry) ? body.industry : "general";
+        const dq = await supabaseAdmin.from("demo_requests").select("id, company, email, org_id, kind, details, status").eq("id", id);
+        if (dq.error) return json({ error: /kind|details/.test(dq.error.message) ? "Bitte zuerst Datenbank-Skript 59 ausführen." : "Anfrage konnte nicht geladen werden." }, 500);
+        const d = dq.data && dq.data[0];
+        if (!d || d.kind !== "registration") return json({ error: "Registrierung nicht gefunden." }, 404);
+        if (d.org_id) return json({ error: "Für diese Registrierung gibt es schon einen Zugang." }, 409);
+        const email = String(d.email || "").trim().toLowerCase();
+        if (!EMAIL.test(email)) return json({ error: "Die E-Mail in der Registrierung ist ungültig." }, 400);
+        const det = d.details || {};
+        const person = `${String(det.firstName || "").trim()} ${String(det.lastName || "").trim()}`.trim().slice(0, 120);
+        const base = String(d.company || "").trim().slice(0, 110) || "Firma";
+        const all = await supabaseAdmin.from("organizations").select("name");
+        const taken = new Set((all.data || []).map((o) => String(o.name).trim().toLowerCase()));
+        let name = base, k = 1;
+        while (taken.has(name.toLowerCase())) { k += 1; name = `${base} (${k})`; }
+        const password = newPassword();
+        const user = await createLogin(email, password);
+        if (person) { try { await supabaseAdmin.auth.admin.updateUserById(user.id, { user_metadata: { full_name: person } }); } catch (e) { /* only cosmetic */ } }
+        const rpc = await supabaseAdmin.rpc("create_organization", { p_name: name, p_owner: user.id, p_products: products });
+        if (rpc.error) { await supabaseAdmin.auth.admin.deleteUser(user.id); throw new Error("Firma konnte nicht angelegt werden: " + rpc.error.message); }
+        const orgId = rpc.data;
+        const until = new Date(Date.now() + 14 * 86400000).toISOString();
+        const c = COUNTRIES[country];
+        await supabaseAdmin.from("organizations").update({ trial_until: until, country, language, timezone: c.timezone, currency: c.currency }).eq("id", orgId);
+        if (products.includes("touren")) {
+          const t = await supabaseAdmin.rpc("touren_apply_template", { p_org: orgId, p_industry: industry, p_lang: language });
+          if (t.error) console.error("touren_apply_template:", t.error.message);
+        }
+        await supabaseAdmin.from("demo_requests").update({ org_id: orgId, status: "erledigt", done_at: new Date().toISOString(), done_by: me.id }).eq("id", id);
+        await markFirstLogin(user.id);
+        let mailSent = false, mailError = null;
+        if (smtpConfigured()) {
+          const site = siteOf(request);
+          const en = language === "en";
+          const end = new Date(until).toLocaleDateString(en ? "en-GB" : "de-DE", { timeZone: c.timezone, day: "numeric", month: "long", year: "numeric" });
+          const hello = en ? (det.firstName ? `Dear ${String(det.firstName).trim()},` : "Hello,") : (person ? `Guten Tag ${person},` : "Guten Tag,");
+          const text = en ? [
+            hello, "",
+            `Thank you for registering with Dienstigo. Your account for “${name}” is ready, and the free trial runs until ${end}.`, "",
+            `Sign in: ${site}/login`, `Email: ${email}`, `Temporary password: ${password}`, "",
+            "After you sign in for the first time, you will choose your own password and accept the terms of use for the trial.",
+            "Please enter only made-up (fictitious) data during the trial. With “Create sample staff”, you can fill your trial company with fictitious people.", "",
+            "Any questions? Simply reply to this email.", "", "Kind regards,", "The Dienstigo team",
+          ] : [
+            hello, "",
+            `vielen Dank für Ihre Registrierung bei Dienstigo. Ihr Zugang für „${name}“ ist eingerichtet. Die kostenlose Testphase läuft bis zum ${end}.`, "",
+            `Anmelden: ${site}/login`, `E-Mail: ${email}`, `Vorläufiges Passwort: ${password}`, "",
+            "Nach der ersten Anmeldung legen Sie ein eigenes Passwort fest und bestätigen die Nutzungsbedingungen der Testphase.",
+            "Bitte geben Sie in der Testphase nur erfundene (fiktive) Daten ein. Mit „Beispiel-Mitarbeiter anlegen“ füllen Sie Ihre Testfirma mit erfundenen Personen.", "",
+            "Fragen? Antworten Sie einfach auf diese E-Mail.", "", "Viele Grüße", "Ihr Dienstigo-Team",
+          ];
+          try {
+            await sendMail({ to: email, fromName: "Dienstigo", replyTo: process.env.SMTP_USER, subject: en ? "Your Dienstigo account (14-day free trial)" : "Ihr Zugang zu Dienstigo (14 Tage kostenlos)", text: text.join("\n") });
+            mailSent = true;
+          } catch (e) { mailError = e && e.message ? String(e.message).slice(0, 200) : "Fehler"; }
+        } else mailError = "SMTP nicht eingerichtet";
+        await log(me, "registration_accept", orgId, email, { name, products, country, language, industry, until, request: id, mailSent });
+        return json({ ok: true, orgId, name, email, mailSent, mailError, password: mailSent ? null : password });
+      }
+      case "registration_reject": {
+        const id = String(body.id || "");
+        const r = await supabaseAdmin.from("demo_requests").update({ status: "abgelehnt", done_at: new Date().toISOString(), done_by: me.id }).eq("id", id).eq("kind", "registration").is("org_id", null).select("id, email");
+        if (r.error) throw r.error;
+        if (!r.data || !r.data.length) return json({ error: "Registrierung nicht gefunden." }, 404);
+        await log(me, "registration_reject", null, r.data[0].email, { request: id });
+        return json({ ok: true });
       }
       case "trial_delete": {
         // Testfirma komplett löschen (nur Firmen mit Testphase). Logins, die zu keiner anderen Firma gehören, werden auch gelöscht.

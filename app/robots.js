@@ -2,7 +2,7 @@
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://www.dienstigo.de";
 export default function robots() {
   return {
-    rules: [{ userAgent: "*", allow: ["/$", "/impressum", "/datenschutz", "/demo"], disallow: ["/login", "/labor", "/admin", "/konto", "/profil", "/profile", "/freigaben", "/mitarbeiter", "/allgemein", "/terminal", "/stempeln", "/api/"] }],
+    rules: [{ userAgent: "*", allow: ["/$", "/impressum", "/datenschutz", "/demo", "/registrieren", "/produkte", "/ueber-uns", "/fragen", "/kontakt"], disallow: ["/login", "/labor", "/admin", "/konto", "/profil", "/profile", "/freigaben", "/mitarbeiter", "/allgemein", "/terminal", "/stempeln", "/api/"] }],
     sitemap: `${SITE_URL}/sitemap.xml`,
   };
 }

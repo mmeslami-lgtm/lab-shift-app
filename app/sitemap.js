@@ -2,5 +2,5 @@
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://www.dienstigo.de";
 export default function sitemap() {
   const now = new Date();
-  return ["", "/demo", "/impressum", "/datenschutz"].map((p) => ({ url: `${SITE_URL}${p}`, lastModified: now, changeFrequency: "monthly", priority: p === "" ? 1 : 0.4 }));
+  return ["", "/produkte", "/produkte/dienstplan-labor", "/produkte/dienstplan", "/produkte/zeiterfassung", "/produkte/touren", "/produkte/mitarbeiter-app", "/demo", "/ueber-uns", "/fragen", "/kontakt", "/registrieren", "/impressum", "/datenschutz"].map((p) => ({ url: `${SITE_URL}${p}`, lastModified: now, changeFrequency: "monthly", priority: p === "" ? 1 : 0.4 }));
 }
