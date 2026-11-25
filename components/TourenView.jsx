@@ -89,8 +89,10 @@ const hm = (min) => { const m = Math.abs(Math.round(min)); return `${Math.floor(
 function liveStatus(j) {
   if (j.status === "cancelled") return { label: txRaw("Storniert"), cls: "bg-rose-50 text-rose-700 border-rose-200 line-through" };
   if (j.needs_confirm) return { label: txRaw("Termin offen"), cls: "bg-amber-50 text-amber-800 border-amber-200" };
+  // 26.11.2026: „nicht fertig“ auch ohne Ist-Zeit (Büro); 'completed' = mit der Fortsetzung fertig geworden (Script 61)
+  if (j.outcome === "partial") return { label: txRaw("⏸ nicht fertig"), cls: "bg-violet-50 text-violet-800 border-violet-200" };
+  if (j.outcome === "completed") return { label: txRaw("✓ fertig (mit Fortsetzung)"), cls: "bg-emerald-50 text-emerald-800 border-emerald-200" };
   if (j.finished_at) {
-    if (j.outcome === "partial") return { label: txRaw("⏸ nicht fertig"), cls: "bg-violet-50 text-violet-800 border-violet-200" };
     const act = j.arrived_at ? (new Date(j.finished_at) - new Date(j.arrived_at)) / 60000 : null; const diff = act === null ? 0 : act - j.duration_min;
     return { label: txRaw("✓ fertig {0}", tsHm(j.finished_at)) + (diff >= 5 ? ` · +${hm(diff)}` : diff <= -5 ? ` · −${hm(diff)}` : ""), cls: "bg-emerald-50 text-emerald-800 border-emerald-200" };
   }
@@ -386,7 +388,7 @@ function JobDialog({ org, data, job, preset, onClose, onSaved, onAssign }) {
   const [series, setSeries] = useState(null);
   const [scopeFor, setScopeFor] = useState(null); // save | cancel | delete
   useEffect(() => { if (!job || !job.series_id) return; org.supabase.from("job_series").select("*").eq("id", job.series_id).single().then(({ data: d }) => setSeries(d || null)); }, [job, org]);
-  const showIst = !!(job && (job.arrived_at || job.finished_at)); // Ist-Zeiten aus der Mitarbeiter-App (Büro kann korrigieren)
+  const showIst = !!(job && (job.arrived_at || job.finished_at || job.outcome)); // Ist-Zeiten aus der Mitarbeiter-App (Büro kann korrigieren)
   const [ist, setIst] = useState({ arr: job ? tsHm(job.arrived_at) : "", fin: job ? tsHm(job.finished_at) : "" });
   const [cancelReason, setCancelReason] = useState("");
   const [busy, setBusy] = useState(false);
@@ -652,7 +654,7 @@ function JobDialog({ org, data, job, preset, onClose, onSaved, onAssign }) {
             <label className="block"><span className={lbl}>{tx("Fertig um")}</span><input type="time" className={`${inpBase} w-32`} value={ist.fin} onChange={(e) => setIst({ ...ist, fin: e.target.value })} /></label>
             {ist.arr && ist.fin && ist.fin > ist.arr && <span className="pb-2 text-sm text-slate-600">{tx("= {0} Std. (geplant {1})", hm(toMin(ist.fin) - toMin(ist.arr)), hm(job.duration_min))}</span>}
           </div>
-          {(job.outcome === "partial" || job.overrun_reason) && <p className="mt-2 text-xs text-slate-600">{job.outcome === "partial" ? tx("Nicht fertig – Fortsetzung angelegt.") + " " : ""}{job.overrun_reason ? tx("Grund: {0}", tx(job.overrun_reason)) : ""}</p>}
+          {(job.outcome === "partial" || job.outcome === "completed" || job.overrun_reason) && <p className="mt-2 text-xs text-slate-600">{job.outcome === "partial" ? tx("Nicht fertig – Fortsetzung angelegt.") + " " : job.outcome === "completed" ? tx("Am ersten Tag nicht fertig – mit der Fortsetzung abgeschlossen.") + " " : ""}{job.overrun_reason ? tx("Grund: {0}", tx(job.overrun_reason)) : ""}</p>}
         </section>
       )}
 
