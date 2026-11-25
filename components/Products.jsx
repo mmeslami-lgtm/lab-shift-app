@@ -25,14 +25,16 @@ export const PRODUCTS = [
   {
     slug: "dienstplan", img: { de: "scene", en: "scene" },
     de: {
-      name: "Dienstplan", short: "Eigene Schichten und Öffnungstage – für Praxen, Hotels, Restaurants und jeden Betrieb.",
-      lead: "Sie legen Ihre Schichten mit Namen und Uhrzeit selbst an und bestimmen, an welchen Tagen wie viele Personen arbeiten. Dienstigo erstellt daraus den Monatsplan.",
-      points: [["Eigene Schichten", "So viele Schichten, wie Sie brauchen – mit Namen, Uhrzeit und Farbe."], ["Öffnungstage", "Geschlossene Tage, halbe Tage und Betriebsferien mit einem Klick."], ["Besetzung je Schicht", "Wie viele Personen gleichzeitig arbeiten, auch am Wochenende."], ["Teilzeit und Minijobs", "Wochenstunden und Verdienstgrenzen werden berücksichtigt."], ["Urlaub und Wünsche", "Genehmigter Urlaub steht schon im Plan, Wünsche fließen ein."], ["Von Hand anpassen", "Jede Zelle lässt sich nach dem Erstellen ändern."]],
+      name: "Dienstplan allgemein", short: "Eigene Schichten und Öffnungstage – für Praxen, Hotels, Restaurants und Firmen mit mehreren Filialen.",
+      lead: "Sie legen Ihre Schichten mit Namen und Uhrzeit selbst an und bestimmen, an welchen Tagen wie viele Personen arbeiten. Dienstigo erstellt daraus den Monatsplan – für einen Standort oder für mehrere Filialen in einem Programm.",
+      points: [["Eigene Schichten", "So viele Schichten, wie Sie brauchen – mit Namen, Uhrzeit und Farbe."], ["Öffnungstage", "Geschlossene Tage, halbe Tage und Betriebsferien mit einem Klick."], ["Besetzung je Schicht", "Wie viele Personen gleichzeitig arbeiten, auch am Wochenende."], ["Teilzeit und Minijobs", "Wochenstunden und Verdienstgrenzen werden berücksichtigt."], ["Urlaub und Wünsche", "Genehmigter Urlaub steht schon im Plan, Wünsche fließen ein."], ["Von Hand anpassen", "Jede Zelle lässt sich nach dem Erstellen ändern."], ["Mehrere Filialen", "Jede Filiale bekommt ein Kürzel, eigene Schichten und ein eigenes Team. Alle Filialen stehen in einem Plan, und niemand wird am selben Tag doppelt eingeteilt."], ["Ort in der App", "Mitarbeitende sehen, in welcher Filiale sie arbeiten, mit Adresse und Route."], ["Ort auf dem Stundenzettel", "Der Stundenzettel zeigt bei jedem Tag, in welcher Filiale gearbeitet wurde."]],
+      steps: [["Schichten anlegen", "Namen, Uhrzeiten und Öffnungstage – bei Bedarf je Filiale."], ["Team eintragen", "Mitarbeitende mit Wochenstunden, Urlaub und Wünschen."], ["Plan erstellen", "Ein Klick verteilt den Monat fair; danach von Hand anpassen."], ["Veröffentlichen", "Alle sehen ihren Plan sofort in der Mitarbeiter-App."]],
     },
     en: {
-      name: "Shift planning", short: "Your own shifts and opening days – for practices, hotels, restaurants, and any business.",
-      lead: "You create your own shifts with names and times and decide how many people work on which days. From this, Dienstigo creates the monthly schedule.",
-      points: [["Your own shifts", "As many shifts as you need – with name, time, and color."], ["Opening days", "Closed days, half days, and company holidays with one click."], ["Staffing per shift", "How many people work at the same time, including on weekends."], ["Part-time and mini-jobs", "Weekly hours and earnings limits are taken into account."], ["Leave and wishes", "Approved leave is already in the schedule, and wishes are included."], ["Adjust by hand", "Every cell can be changed after the schedule is created."]],
+      name: "General planner", short: "Your own shifts and opening days – for practices, hotels, restaurants, and companies with several branches.",
+      lead: "You create your own shifts with names and times and decide how many people work on which days. From this, Dienstigo creates the monthly schedule – for one location or for several branches in a single program.",
+      points: [["Your own shifts", "As many shifts as you need – with name, time, and color."], ["Opening days", "Closed days, half days, and company holidays with one click."], ["Staffing per shift", "How many people work at the same time, including on weekends."], ["Part-time and mini-jobs", "Weekly hours and earnings limits are taken into account."], ["Leave and wishes", "Approved leave is already in the schedule, and wishes are included."], ["Adjust by hand", "Every cell can be changed after the schedule is created."], ["Several branches", "Each branch gets a short code, its own shifts, and its own team. All branches are in one schedule, and nobody is scheduled twice on the same day."], ["Location in the app", "Employees see which branch they work at, with the address and route."], ["Location on the timesheet", "The timesheet shows for each day which branch the person worked at."]],
+      steps: [["Create shifts", "Names, times, and opening days – per branch if needed."], ["Add your team", "Employees with weekly hours, leave, and wishes."], ["Create the schedule", "One click distributes the month fairly; then adjust by hand."], ["Publish", "Everyone sees their schedule right away in the staff app."]],
     },
   },
   {
@@ -50,15 +52,40 @@ export const PRODUCTS = [
   },
   {
     slug: "touren", img: { de: "/demo/touren-woche-de.webp", en: "/demo/touren-woche-en.webp" },
+    gallery: [{ de: "/demo/touren-zuteilen-de.webp", en: "/demo/touren-zuteilen-en.webp" }, { de: "/demo/touren-ersatz-de.webp", en: "/demo/touren-ersatz-en.webp" }],
     de: {
-      name: "Touren", short: "Einsätze beim Kunden planen: Auftrag, Personal, Route und Ersatz bei Krankheit.",
-      lead: "Für Reinigung, Pflege, Hausmeister und alle mobilen Dienste. Aufträge eintragen, das passende Personal zuteilen, und das Team sieht alles auf dem Handy.",
-      points: [["Aufträge in Minuten", "Kunde, Adresse, Uhrzeit, Dauer und Anzahl Personal."], ["Passende Vorschläge", "Vom Kunden bevorzugt, in der Nähe, fair verteilt und mit den nötigen Fähigkeiten."], ["Regelmäßige Kunden", "Jede Woche, alle zwei Wochen oder monatlich – mit Pause und Ende."], ["„Bitte prüfen“", "Krankheit, fehlendes Personal und Verspätungen auf einen Blick."], ["Ersatz für alle Tage", "Ist jemand mehrere Tage krank, übernimmt eine Kollegin alles mit einem Klick."], ["Fahrten und Druck", "Fahrer, Wochenplan zum Ausdrucken und Kundenverlauf."]],
+      name: "Touren", short: "Einsätze beim Kunden planen: Auftrag, Personal, Route, regelmäßige Kunden und Ersatz bei Krankheit.",
+      lead: "Für Reinigung, Pflege, Hausmeister und alle mobilen Dienste – vom kleinen Team bis zur Firma mit mehreren Filialen. Sie tragen Aufträge ein, Dienstigo schlägt das passende Personal vor, und das Team erledigt den Einsatz mit dem Handy. Das Büro sieht alles live.",
+      forWho: ["Reinigungsfirmen", "Pflege- und Betreuungsdienste", "Hausmeister- und Facility-Dienste", "Mobile Teams und Handwerk", "Firmen mit mehreren Filialen"],
+      points: [
+        ["Aufträge in Minuten", "Kunde, Adresse, Uhrzeit, Dauer, Leistung, Anzahl Personal und Hinweise wie „Schlüssel beim Pförtner“ – einmalig oder regelmäßig."],
+        ["Kunden und Leistungen", "Kundenkartei mit Adresse, bevorzugtem Personal und Verlauf. Leistungen und Fähigkeiten kommen aus einer Branchenvorlage und lassen sich anpassen."],
+        ["Passende Vorschläge", "Dienstigo schlägt vor, wer passt: vom Kunden bevorzugt, in der Nähe des Startpunkts oder des vorherigen Einsatzes, fair nach Vertragsstunden und mit den nötigen Fähigkeiten. Sie entscheiden."],
+        ["Regelmäßige Kunden", "Jede Woche, alle zwei Wochen oder monatlich, an festen Wochentagen und mit festem Team. Pause, Ende und Änderungen ab einem Datum sind mit einem Klick erledigt."],
+        ["Tag, Woche, Monat", "Jede Ansicht zeigt Uhrzeit, Kunde, Status und das eingeteilte Personal auf einen Blick."],
+        ["„Bitte prüfen“", "Ein roter Kasten sammelt alles, was eine Entscheidung braucht: Krankmeldungen, fehlendes Personal und Einsätze, die länger dauern."],
+        ["Ersatz für alle Tage", "Ist jemand mehrere Tage krank, übernimmt eine Kollegin mit einem Klick alle Einsätze. Dienstigo zeigt, wer an allen Tagen frei ist."],
+        ["Live vom Einsatzort", "Das Team tippt „Ich bin da“ und „Fertig“. Ist eine Arbeit nicht fertig, kommen der Grund und die Restdauer gleich mit."],
+        ["Fahrten, Druck und WhatsApp", "Fahrer und Fahrten planen, den Wochenplan ausdrucken und Kunden per WhatsApp über Änderungen informieren."],
+      ],
+      steps: [["Kunden anlegen", "Adresse, Leistung und bevorzugtes Personal – einmal eintragen."], ["Auftrag eintragen", "Einmalig oder regelmäßig, mit Uhrzeit, Dauer und Anzahl Personal."], ["Personal zuteilen", "Vorschlag ansehen und mit einem Klick zuteilen."], ["Einsatz erledigen", "Das Team arbeitet mit der App, das Büro sieht alles live."]],
     },
     en: {
-      name: "Dispatcher", short: "Plan jobs at customers’ premises: order, staff, route, and replacements in case of illness.",
-      lead: "For cleaning, care, facility, and all mobile services. Enter the jobs, assign the right staff, and the team sees everything on their phones.",
-      points: [["Jobs in minutes", "Customer, address, time, duration, and number of staff."], ["The right suggestions", "Preferred by the customer, nearby, fairly distributed, and with the necessary skills."], ["Recurring customers", "Weekly, every two weeks, or monthly – with pauses and an end date."], ["“Please check”", "Sickness, missing staff, and delays at a glance."], ["One replacement for all days", "If someone is ill for several days, a colleague takes over everything with one click."], ["Transport and printing", "Drivers, a printable weekly schedule, and the customer history."]],
+      name: "Dispatcher", short: "Plan jobs at customers’ premises: order, staff, route, recurring customers, and replacements in case of illness.",
+      lead: "For cleaning, care, facility, and all mobile services – from small teams to companies with several branches. You enter the jobs, Dienstigo suggests the right staff, and the team completes the job using their phones. The office follows everything live.",
+      forWho: ["Cleaning companies", "Care and support services", "Facility and caretaker services", "Mobile teams and trades", "Companies with several branches"],
+      points: [
+        ["Jobs in minutes", "Customer, address, time, duration, service, number of staff, and notes such as “Key with the concierge” – one-off or recurring."],
+        ["Customers and services", "A customer file with address, preferred staff, and history. Services and skills come from an industry template and can be adjusted."],
+        ["The right suggestions", "Dienstigo suggests who fits best: preferred by the customer, close to the starting point or the previous job, fair according to contract hours, and with the necessary skills. You decide."],
+        ["Recurring customers", "Weekly, every two weeks, or monthly, on fixed weekdays and with a fixed team. Pausing, ending, and changes from a certain date take just one click."],
+        ["Day, week, month", "Every view shows the time, customer, status, and assigned staff at a glance."],
+        ["“Please check”", "A red box collects everything that needs a decision: sick calls, missing staff, and jobs that are running over."],
+        ["One replacement for all days", "If someone is ill for several days, a colleague can take over all of their jobs with one click. Dienstigo shows who is free on all of those days."],
+        ["Live from the job", "The team taps “I’m here” and “Finish”. If a job is not finished, they add the reason and the remaining time right away."],
+        ["Transport, printing, and WhatsApp", "Plan drivers and transport, print the weekly schedule, and inform customers about changes via WhatsApp."],
+      ],
+      steps: [["Add customers", "Address, service, and preferred staff – entered once."], ["Enter the job", "One-off or recurring, with time, duration, and number of staff."], ["Assign staff", "Check the suggestion and assign with one click."], ["Complete the job", "The team works with the app, and the office follows everything live."]],
     },
   },
   {
@@ -77,8 +104,8 @@ export const PRODUCTS = [
 ];
 
 const UI = {
-  de: { title: "Produkte", lead: "Fünf Bausteine, die einzeln funktionieren und zusammenpassen. Sie buchen nur, was Sie brauchen – alle 14 Tage kostenlos testen.", more: "Mehr erfahren →", all: "Alle Produkte", register: "Jetzt registrieren", tour: "Im Rundgang ansehen", demo: "Demo anfragen", other: "Weitere Produkte", sample: "Beispielansicht", ctaH: "Bereit zum Ausprobieren?", ctaP: "14 Tage kostenlos, ohne Zahlungsdaten." },
-  en: { title: "Products", lead: "Five building blocks that work on their own and fit together. You only book what you need – try everything free for 14 days.", more: "Learn more →", all: "All products", register: "Register now", tour: "See it in the tour", demo: "Request a demo", other: "More products", sample: "Sample view", ctaH: "Ready to try it?", ctaP: "Free for 14 days, no payment details required." },
+  de: { title: "Produkte", lead: "Fünf Bausteine, die einzeln funktionieren und zusammenpassen. Sie buchen nur, was Sie brauchen – alle 14 Tage kostenlos testen.", more: "Mehr erfahren →", all: "Alle Produkte", register: "Jetzt registrieren", tour: "Im Rundgang ansehen", demo: "Demo anfragen", other: "Weitere Produkte", how: "So funktioniert’s", who: "Für wen?", feats: "Alle Funktionen", sample: "Beispielansicht", ctaH: "Bereit zum Ausprobieren?", ctaP: "14 Tage kostenlos, ohne Zahlungsdaten." },
+  en: { title: "Products", lead: "Five building blocks that work on their own and fit together. You only book what you need – try everything free for 14 days.", more: "Learn more →", all: "All products", register: "Register now", tour: "See it in the tour", demo: "Request a demo", other: "More products", how: "How it works", who: "Who is it for?", feats: "All features", sample: "Sample view", ctaH: "Ready to try it?", ctaP: "Free for 14 days, no payment details required." },
 };
 
 const PCSS = `
@@ -98,6 +125,12 @@ const PCSS = `
 .dg-point h3{font-family:var(--dg-display),system-ui,sans-serif;font-size:1.08rem;font-weight:700;margin:0 0 6px}
 .dg-point p{margin:0;color:#3A465E;font-size:.97rem}
 .dg-point::before{content:"";display:block;width:30px;height:30px;border-radius:10px;margin-bottom:12px;background:linear-gradient(135deg,#243B6B,#2BB3A3);box-shadow:0 8px 16px -8px rgba(36,59,107,.7)}
+.dg-chips{display:flex;flex-wrap:wrap;gap:8px}
+.dg-chips span{background:#fff;border:1px solid var(--line);border-radius:999px;padding:6px 13px;font-size:.9rem;font-weight:600;color:var(--ink);box-shadow:0 6px 14px -12px rgba(24,35,58,.5)}
+.dg-gallery{display:grid;grid-template-columns:1fr 1fr;gap:40px;align-items:center;margin-top:56px}
+.dg-gallery .dg-prod-shot:nth-child(2)>div{transform:rotateY(12deg) rotateX(6deg)}
+.dg-gallery .dg-prod-shot:nth-child(2):hover>div{transform:rotateY(5deg) rotateX(3deg)}
+@media (max-width:900px){.dg-gallery{grid-template-columns:1fr}}
 @media (max-width:900px){.dg-prod-hero{grid-template-columns:1fr;gap:30px}.dg-points{grid-template-columns:1fr 1fr}}
 @media (max-width:560px){.dg-points{grid-template-columns:1fr}}
 `;
@@ -176,12 +209,32 @@ export function ProductPage({ slug }) {
                   <a className="dg-btn dg-primary" href="/registrieren">{U.register}</a>
                   <a className="dg-btn dg-ghost" href={`/demo${tourKey}`}>{U.tour}</a>
                 </div>
+                {C.forWho && (
+                  <div style={{ marginTop: 22 }}>
+                    <div style={{ fontSize: ".85rem", fontWeight: 800, letterSpacing: ".1em", textTransform: "uppercase", color: "#1F8A80", marginBottom: 8 }}>{U.who}</div>
+                    <div className="dg-chips">{C.forWho.map((w) => <span key={w}>{w}</span>)}</div>
+                  </div>
+                )}
               </div>
               <div className={`dg-prod-shot${p.phone ? " dg-phone" : ""}`}><div><Shot p={p} lang={lang} alt={C.name} /></div></div>
             </section>
-            <section className="dg-points">
-              {C.points.map(([t, x]) => <div key={t} className="dg-point"><h3>{t}</h3><p>{x}</p></div>)}
+            {C.steps && (
+              <section className="dg-sec">
+                <h2 className="dg-h2">{U.how}</h2>
+                <ol className="dg-steps">{C.steps.map(([t, x]) => <li key={t} className="dg-step"><h3>{t}</h3><p>{x}</p></li>)}</ol>
+              </section>
+            )}
+            <section className={C.steps ? "dg-sec" : undefined}>
+              {C.steps && <h2 className="dg-h2">{U.feats}</h2>}
+              <div className="dg-points">
+                {C.points.map(([t, x]) => <div key={t} className="dg-point"><h3>{t}</h3><p>{x}</p></div>)}
+              </div>
             </section>
+            {p.gallery && (
+              <section className="dg-gallery">
+                {p.gallery.map((g) => <div key={g[lang]} className="dg-prod-shot"><div><img src={g[lang]} alt={C.name} loading="lazy" /></div></div>)}
+              </section>
+            )}
             <section className="dg-sec" style={{ marginTop: 64 }}>
               <h2 className="dg-h2" style={{ marginBottom: 24 }}>{U.other}</h2>
               <ProductCards lang={lang} skip={p.slug} />

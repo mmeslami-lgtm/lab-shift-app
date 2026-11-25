@@ -4,9 +4,9 @@ import { ProductPage } from "../../../components/Products";
 // /produkte/<slug> – eine Seite je Produkt (25.11.2026), Deutsch / Englisch.
 const META = {
   "dienstplan-labor": ["Dienstplan Labor", "Früh-, Spät- und Nachtdienste rund um die Uhr, fair verteilt nach Vertragsstunden – für Labore, Kliniken und Stationen."],
-  dienstplan: ["Dienstplan", "Eigene Schichten und Öffnungstage – für Praxen, Hotels, Restaurants und jeden Betrieb."],
+  dienstplan: ["Dienstplan allgemein", "Eigene Schichten und Öffnungstage – für Praxen, Hotels, Restaurants und Firmen mit mehreren Filialen."],
   zeiterfassung: ["Zeiterfassung", "Stempeln am Tablet, per Handy oder Chip – und am Monatsende die Stundenzettel für die Lohnbuchhaltung."],
-  touren: ["Touren", "Einsätze beim Kunden planen: Auftrag, Personal, Route und Ersatz bei Krankheit – für Reinigung, Pflege und mobile Dienste."],
+  touren: ["Touren", "Einsätze beim Kunden planen: Aufträge, passende Vorschläge, regelmäßige Kunden, Live-Status und Ersatz bei Krankheit – für Reinigung, Pflege und mobile Dienste."],
   "mitarbeiter-app": ["Mitarbeiter-App", "Plan, Einsätze, Anträge und Zeitkonto auf dem Handy – ohne App-Store."],
 };
 
