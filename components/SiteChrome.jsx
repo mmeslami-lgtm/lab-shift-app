@@ -134,7 +134,7 @@ export const SITE_CSS = `
 .dg-3d img{display:block;width:100%;height:auto}
 .dg-stage{--rx:0deg;--ry:0deg}
 .dg-3d-desk{left:0;top:10px;width:88%;transform:rotateY(calc(-14deg + var(--ry))) rotateX(calc(7deg + var(--rx))) rotateZ(1deg);animation:dg-sway 7s ease-in-out infinite}
-.dg-3d-phone{right:0;bottom:0;width:31%;border-radius:26px;border:7px solid #1B2433;transform:rotateY(calc(-10deg + var(--ry) * 1.6)) rotateX(calc(6deg + var(--rx) * 1.6)) translateZ(80px);animation:dg-sway 6s ease-in-out -2s infinite;transition:transform .25s ease-out}
+.dg-3d-phone{right:0;bottom:-10px;width:36%;border-radius:26px;border:7px solid #1B2433;transform:rotateY(calc(-10deg + var(--ry) * 1.6)) rotateX(calc(6deg + var(--rx) * 1.6)) translateZ(80px);animation:dg-sway 6s ease-in-out -2s infinite;transition:transform .25s ease-out}
 .dg-3d-desk{transition:transform .25s ease-out}
 @keyframes dg-sway{0%,100%{translate:0 0}50%{translate:0 -12px}}
 .dg-in-hero{animation:dg-rise .9s cubic-bezier(.2,.7,.2,1) both}
@@ -148,7 +148,7 @@ export const SITE_CSS = `
 .dg-card:hover{transform:translateY(-6px) rotateX(2deg);box-shadow:0 30px 50px -28px rgba(24,35,58,.55)}
 .dg-card-img{height:170px;background:linear-gradient(135deg,#E9EEF6,#F6F8FC);display:flex;align-items:flex-end;justify-content:center;overflow:hidden;perspective:900px;padding:16px 16px 0}
 .dg-card-img img{width:86%;border-radius:10px 10px 0 0;box-shadow:0 16px 30px -18px rgba(24,35,58,.6);transform:rotateX(14deg);transform-origin:bottom;object-fit:cover;object-position:top;height:150px}
-.dg-card-img.dg-phone img{width:42%;height:160px;border-radius:14px 14px 0 0;border:5px solid #1B2433;border-bottom:0}
+.dg-card-img.dg-phone img{width:62%;height:160px;border-radius:16px 16px 0 0;border:5px solid #1B2433;border-bottom:0}
 .dg-card-b{padding:18px 20px 22px}
 .dg-card-b h3{font-family:var(--dg-display),system-ui,sans-serif;font-size:1.2rem;font-weight:700;margin:0 0 6px;letter-spacing:-.01em}
 .dg-card-b p{margin:0 0 12px;color:#3A465E;font-size:.98rem}
@@ -178,7 +178,9 @@ export const SITE_CSS = `
 .dg-btn.dg-primary{position:relative;overflow:hidden}
 .dg-btn.dg-primary::after{content:"";position:absolute;top:0;left:-60%;width:40%;height:100%;background:linear-gradient(100deg,transparent,rgba(255,255,255,.35),transparent);transform:skewX(-20deg);animation:dg-glint 6s ease-in-out 2s infinite}
 @keyframes dg-glint{0%,80%{left:-60%}100%{left:130%}}
-@media (prefers-reduced-motion:reduce){.dg-float,.dg-3d,.dg-bg::before,.dg-bg::after,.dg-h1 em,.dg-btn.dg-primary::after{animation:none!important}.dg-3d,.dg-card,.dg-rv{transition:none}.dg-rv{opacity:1;translate:none}}
+.dg-logo{background:linear-gradient(110deg,#243B6B 42%,#9FE3DA 50%,#243B6B 58%);background-size:260% 100%;background-position:120% 0;-webkit-background-clip:text;background-clip:text;color:transparent;animation:dg-logo 6s ease-in-out 1.2s infinite}
+@keyframes dg-logo{0%,70%{background-position:120% 0}100%{background-position:-20% 0}}
+@media (prefers-reduced-motion:reduce){.dg-float,.dg-3d,.dg-bg::before,.dg-bg::after,.dg-h1 em,.dg-btn.dg-primary::after,.dg-logo{animation:none!important}.dg-3d,.dg-card,.dg-rv{transition:none}.dg-rv{opacity:1;translate:none}}
 `;
 
 export const NAV = {
@@ -216,7 +218,7 @@ export function SiteShell({ active, children, before = null }) {
       <div className="dg-bg" aria-hidden="true" />
       <div className="dg-wrap">
         <header className="dg-top">
-          <a href="/" className="dg-mark" aria-label={N.home}>Dienstigo</a>
+          <a href="/" className="dg-mark" aria-label={N.home}><span className="dg-logo">Dienstigo</span></a>
           <nav className="dg-nav" aria-label={N.nav}>
             {links.slice(0, 4).map(([k, h]) => <a key={k} className="dg-l" href={h} aria-current={cur(k)}>{N[k]}</a>)}
             <a className="dg-btn dg-ghost" href="/login">{N.login}</a>
@@ -235,7 +237,7 @@ export function SiteShell({ active, children, before = null }) {
         </header>
         {typeof children === "function" ? children(lang) : children}
         <footer className="dg-foot">
-          <a href="/" className="dg-mark" style={{ fontSize: "1.25rem" }}>Dienstigo</a>
+          <a href="/" className="dg-mark" style={{ fontSize: "1.25rem" }}><span className="dg-logo">Dienstigo</span></a>
           <nav aria-label={N.footNav}>
             <a href="/">{N.back}</a>
             {links.map(([k, h]) => <a key={k} href={h}>{N[k]}</a>)}

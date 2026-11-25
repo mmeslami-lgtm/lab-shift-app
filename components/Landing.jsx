@@ -21,7 +21,7 @@ const PLAN = [
 const T = {
   de: {
     phoneAlt: "Mitarbeiter-App: der nächste Einsatz auf dem Handy", prodH: "Unsere Produkte", prodP: "Jedes Produkt funktioniert allein und alle passen zusammen. Sie buchen nur, was Sie brauchen.", home: "Dienstigo Startseite", nav: "Hauptnavigation", features: "Funktionen", tour: "Rundgang", login: "Anmelden", demo: "Demo anfragen", register: "Jetzt registrieren",
-    h1: "Der Dienstplan steht. In fünf Minuten.",
+    h1: ["Der Dienstplan steht", "in fünf Minuten."],
     lead: "Dienstigo plant Schichten fair nach Verträgen, Wünschen und Urlaub, erfasst die Arbeitszeit per Handy oder Chip und liefert am Monatsende die Stundenzettel für die Lohnabrechnung. Geeignet für jede Organisation: vom Gesundheitswesen über Hotels und Restaurants bis zu mobilen Diensten.",
     watch: "Rundgang ansehen", watch2: ", Schritt für Schritt oder als Film.", db: "Datenbank in Frankfurt am Main. Die Daten jeder Firma sind strikt getrennt.",
     planAria: "Beispiel: Wochenplan mit fünf Mitarbeitenden", planTitle: "Dienstplan", planSub: "Beispielwoche", today: "Heute", free: "frei",
@@ -48,7 +48,7 @@ const T = {
   },
   en: {
     phoneAlt: "Staff app: the next job on the phone", prodH: "Our products", prodP: "Each product works on its own, and they all fit together. You only book what you need.", home: "Dienstigo home page", nav: "Main navigation", features: "Features", tour: "Tour", login: "Sign in", demo: "Request a demo", register: "Register now",
-    h1: "Your schedule is ready. In five minutes.",
+    h1: ["Your schedule is ready", "in five minutes."],
     lead: "Dienstigo plans shifts fairly according to contracts, wishes, and leave, records working time by phone or chip card, and delivers the timesheets for payroll at the end of the month. Suitable for any organization, from healthcare, hotels, and restaurants to mobile services.",
     watch: "Take the tour", watch2: ", step by step or as a film.", db: "Database in Frankfurt am Main, Germany. Each company’s data is kept strictly separate.",
     planAria: "Example: weekly schedule with five employees", planTitle: "Shift plan", planSub: "Sample week", today: "Today", free: "off",
@@ -81,7 +81,7 @@ export default function Landing() {
 
 function Body({ lang }) {
   const L = T[lang];
-  const [h1a, h1b] = L.h1.split(/(?<=\.) /);
+  const [h1a, h1b] = L.h1;
   let i = 0;
   // Maus bewegt die 3D-Bilder leicht mit (nur mit Maus, nicht beim Wischen auf dem Handy)
   const tilt = (e) => {

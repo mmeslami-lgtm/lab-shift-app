@@ -36,7 +36,7 @@ export const PRODUCTS = [
     },
   },
   {
-    slug: "zeiterfassung", img: { de: "/site/terminal-de.webp", en: "/site/terminal-en.webp" },
+    slug: "zeiterfassung", img: { de: "/site/terminal-de.webp", en: "/site/terminal-en.webp" }, wide: true,
     de: {
       name: "Zeiterfassung", short: "Stempeln am Tablet, per Handy oder Chip – und am Monatsende die Stundenzettel.",
       lead: "Ein Tablet am Eingang genügt: Kommen oder Gehen wählen, dann QR-Code mit dem Handy scannen, Chip an den Leser halten oder PIN eingeben. Am Monatsende sind die Stundenzettel fertig.",
@@ -83,6 +83,8 @@ const UI = {
 
 const PCSS = `
 .dg-scene-wrap{width:100%}
+.dg-card-img.dg-wide{align-items:center;padding:16px}
+.dg-card-img.dg-wide img{width:100%;height:auto;object-fit:contain;border-radius:10px;transform:rotateX(10deg);transform-origin:center}
 .dg-scene-wrap .dt-frame{border-radius:0}
 .dg-card-img .dg-scene-wrap{width:92%;transform:rotateX(14deg);transform-origin:bottom;border-radius:10px 10px 0 0;overflow:hidden;box-shadow:0 16px 30px -18px rgba(24,35,58,.6)}
 .dg-prod-hero{display:grid;grid-template-columns:1fr 1.1fr;gap:48px;align-items:center;padding:20px 0 56px}
@@ -90,7 +92,7 @@ const PCSS = `
 .dg-prod-shot>div{border-radius:16px;overflow:hidden;border:1px solid var(--line);background:#fff;box-shadow:0 40px 70px -30px rgba(24,35,58,.55);transform:rotateY(-12deg) rotateX(6deg);transition:transform .6s cubic-bezier(.2,.7,.2,1)}
 .dg-prod-shot:hover>div{transform:rotateY(-5deg) rotateX(3deg)}
 .dg-prod-shot img{display:block;width:100%}
-.dg-prod-shot.dg-phone>div{max-width:300px;margin:0 auto;border-radius:30px;border:8px solid #1B2433}
+.dg-prod-shot.dg-phone>div{max-width:340px;margin:0 auto;border-radius:34px;border:9px solid #1B2433}
 .dg-points{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}
 .dg-point{background:#fff;border:1px solid var(--line);border-radius:18px;padding:20px;box-shadow:0 14px 30px -26px rgba(24,35,58,.5)}
 .dg-point h3{font-family:var(--dg-display),system-ui,sans-serif;font-size:1.08rem;font-weight:700;margin:0 0 6px}
@@ -120,7 +122,7 @@ export function ProductCards({ lang, skip }) {
       <Styles />
       {PRODUCTS.filter((p) => p.slug !== skip).map((p) => (
         <a key={p.slug} className="dg-card" href={`/produkte/${p.slug}`} data-product={p.slug}>
-          <div className={`dg-card-img${p.phone ? " dg-phone" : ""}`}><Shot p={p} lang={lang} alt={p[lang].name} /></div>
+          <div className={`dg-card-img${p.phone ? " dg-phone" : ""}${p.wide ? " dg-wide" : ""}`}><Shot p={p} lang={lang} alt={p[lang].name} /></div>
           <div className="dg-card-b"><h3>{p[lang].name}</h3><p>{p[lang].short}</p><span className="dg-more">{U.more}</span></div>
         </a>
       ))}

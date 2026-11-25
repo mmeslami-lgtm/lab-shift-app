@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from "react";
 import { supabase, supabaseConfigured } from "../../lib/supabaseClient";
-import { myAreas, lastArea, rememberArea, AREAS } from "../../lib/homeRoute";
+import { myAreas, rememberArea, AREAS } from "../../lib/homeRoute";
 import LoginForm from "../../components/LoginForm";
 import DemoButton from "../../components/DemoRequest";
 import { tx, setLang } from "../../lib/i18n";
@@ -27,10 +27,10 @@ export default function LoginPage() {
       let prefer = null;
       try { prefer = new URLSearchParams(window.location.search).get("als"); } catch (e) { /* ignore */ }
       const list = await myAreas(supabase, session.user.id);
-      const last = lastArea();
+      // 25.11.2026 (Wunsch): wer mehrere Bereiche hat, wird JEDES Mal gefragt; wer nur einen hat
+      // (z. B. Mitarbeitende → Mitarbeiter-App), kommt immer direkt hinein.
       let to = null;
       if (prefer === "mitarbeiter" && list.includes("/mitarbeiter")) to = "/mitarbeiter";
-      else if (last && list.includes(last)) to = last;
       else if (list.length <= 1) to = list[0] || "/profil";
       if (to) { window.location.replace(to); return; }
       setAreas(list); setState("choose");
