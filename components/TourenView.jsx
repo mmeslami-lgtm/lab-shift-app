@@ -378,6 +378,9 @@ function JobDialog({ org, data, job, preset, onClose, onSaved, onAssign }) {
     staff_needed: job.staff_needed, material: job.material || "", notes_staff: job.notes_staff || "", notes_internal: job.notes_internal || "", source: job.source, status: job.status, extra: job.extra || {},
   } : { work_date: (preset && preset.date) || isoOf(new Date()), start_time: "", dh: 2, dm: 0, service_type_id: "", staff_needed: 1, material: "", notes_staff: "", notes_internal: "", source: "phone", status: "new", extra: {} });
   const [cancelOpen, setCancelOpen] = useState(false);
+  // 26.11.2026: Einsatz im Büro abschließen (wer nicht mit der App arbeitet) – job_office_close (Script 60)
+  const [closeOpen, setCloseOpen] = useState(false);
+  const [cl, setCl] = useState(() => ({ arr: job && job.start_time ? String(job.start_time).slice(0, 5) : "", fin: "", outcome: "done", rh: 1, rm: 0, reason: "" }));
   const [rep, setRep] = useState(() => ({ ...repOf(null), mode: preset && preset.repeat ? "week" : "none", days: [isoDow((preset && preset.date) || isoOf(new Date()))] }));
   useEffect(() => { if (!job && rep.days.length <= 1) setRep((p) => ({ ...p, days: [isoDow(f.work_date || isoOf(new Date()))] })); }, [f.work_date]); // eslint-disable-line react-hooks/exhaustive-deps
   const [series, setSeries] = useState(null);
@@ -510,6 +513,15 @@ function JobDialog({ org, data, job, preset, onClose, onSaved, onAssign }) {
     if (up.error) { setMsg({ kind: "err", text: errText(up.error) }); setBusy(false); return; }
     if (scope === "all") { await endFollowing(tx("Storniert – die Reihe endet hier.")); return; }
     onSaved(tx("Auftrag storniert"), job.work_date);
+  }
+  async function officeClose() {
+    if (cl.arr && cl.fin && cl.fin <= cl.arr) return setMsg({ kind: "err", text: tx("„Fertig“ muss nach „Angekommen“ liegen.") });
+    const rest = cl.outcome === "partial" ? (+cl.rh || 0) * 60 + (+cl.rm || 0) : null;
+    if (cl.outcome === "partial" && rest < 15) return setMsg({ kind: "err", text: tx("Bitte angeben, wie lange es noch dauert.") });
+    setBusy(true);
+    const r = await org.supabase.rpc("job_office_close", { p_job: job.id, p_outcome: cl.outcome, p_arrived: cl.arr || null, p_finished: cl.fin || null, p_remaining_min: rest, p_reason: cl.reason.trim() || null });
+    if (r.error) { setMsg({ kind: "err", text: /job_office_close/.test(r.error.message || "") ? tx("Bitte zuerst Datenbank-Skript 60 ausführen.") : errText(r.error) }); setBusy(false); return; }
+    onSaved(r.data && r.data.continuation ? tx("Abgeschlossen – Fortsetzung angelegt. Bitte unter „Bitte prüfen“ einen Termin einplanen.") : tx("Einsatz abgeschlossen ✓"), job.work_date);
   }
   async function reopen() {
     setBusy(true);
@@ -644,11 +656,43 @@ function JobDialog({ org, data, job, preset, onClose, onSaved, onAssign }) {
         </section>
       )}
 
+      {closeOpen && (
+        <section data-office-close className="mb-2 rounded-lg border border-emerald-200 bg-emerald-50/60 p-3">
+          <div className="mb-1 text-sm font-semibold text-slate-800">{tx("Einsatz abschließen")}</div>
+          <p className="mb-2 text-xs text-slate-600">{tx("Für Mitarbeitende, die nicht mit der App arbeiten: das Büro trägt das Ergebnis selbst ein.")}</p>
+          <div className="flex flex-wrap items-end gap-3">
+            <label className="block"><span className={lbl}>{tx("Angekommen um")} <span className="font-normal text-slate-400">{tx("(optional)")}</span></span><input type="time" className={`${inpBase} w-32`} value={cl.arr} onChange={(e) => setCl({ ...cl, arr: e.target.value })} /></label>
+            <label className="block"><span className={lbl}>{tx("Fertig um")} <span className="font-normal text-slate-400">{tx("(optional)")}</span></span><input type="time" className={`${inpBase} w-32`} value={cl.fin} onChange={(e) => setCl({ ...cl, fin: e.target.value })} /></label>
+            {cl.arr && cl.fin && cl.fin > cl.arr && <span className="pb-2 text-sm text-slate-600">{tx("= {0} Std. (geplant {1})", hm(toMin(cl.fin) - toMin(cl.arr)), hm(job.duration_min))}</span>}
+          </div>
+          <div className="mt-3 grid gap-2 sm:grid-cols-2">
+            {[["done", tx("Alles erledigt")], ["partial", tx("Nicht fertig – muss weitergehen")]].map(([k, t]) => (
+              <label key={k} className={`flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-sm ${cl.outcome === k ? (k === "done" ? "border-emerald-500 bg-white font-semibold" : "border-amber-500 bg-white font-semibold") : "border-slate-200 bg-white"}`}>
+                <input type="radio" name="office-outcome" checked={cl.outcome === k} onChange={() => setCl({ ...cl, outcome: k })} />{t}
+              </label>
+            ))}
+          </div>
+          {cl.outcome === "partial" && (
+            <div className="mt-3 flex flex-wrap items-end gap-3">
+              <span className="pb-2 text-sm text-slate-700">{tx("Wie lange dauert es noch?")}</span>
+              <label className="block"><span className={lbl}>{tx("Stunden")}</span><select className={`${inpBase} w-20`} value={cl.rh} onChange={(e) => setCl({ ...cl, rh: +e.target.value })}>{Array.from({ length: 13 }, (_, i) => <option key={i} value={i}>{i}</option>)}</select></label>
+              <label className="block"><span className={lbl}>{tx("Minuten")}</span><select className={`${inpBase} w-20`} value={cl.rm} onChange={(e) => setCl({ ...cl, rm: +e.target.value })}>{[0, 15, 30, 45].map((m) => <option key={m} value={m}>{m}</option>)}</select></label>
+            </div>
+          )}
+          <label className="mt-3 block"><span className={lbl}>{cl.outcome === "partial" ? tx("Grund") : tx("Es hat länger gedauert – warum?")} <span className="font-normal text-slate-400">{tx("(optional)")}</span></span><input className={inp} maxLength={200} value={cl.reason} onChange={(e) => setCl({ ...cl, reason: e.target.value })} /></label>
+          {cl.outcome === "partial" && <p className="mt-2 text-xs text-slate-600">{tx("Dienstigo legt eine Fortsetzung an. Sie erscheint unter „Bitte prüfen“ – dort den Termin mit dem Kunden einplanen.")}</p>}
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button type="button" className={`${btn} bg-emerald-600 text-white hover:bg-emerald-700`} onClick={officeClose} disabled={busy}>{busy ? tx("Speichert …") : tx("Abschließen")}</button>
+            <button type="button" className="text-sm text-slate-600 underline" onClick={() => setCloseOpen(false)}>{tx("Zurück")}</button>
+          </div>
+        </section>
+      )}
       <Msg msg={msg} />
       <div className="tv-actions mt-4 flex flex-wrap items-center justify-between gap-2">
         <div>
           {editing && job.status !== "cancelled" && !cancelOpen && <button type="button" className="text-sm text-rose-700 underline" onClick={() => setCancelOpen(true)}>{tx("Auftrag stornieren …")}</button>}
           {editing && job.status !== "cancelled" && job.status !== "done" && !cancelOpen && onAssign && <button type="button" className="ml-3 text-sm text-teal-700 underline" onClick={() => onAssign(job)}>{tx("Personal zuteilen")}</button>}
+          {editing && ["new", "accepted"].includes(job.status) && !job.needs_confirm && job.work_date <= isoOf(new Date()) && !cancelOpen && !closeOpen && <button type="button" data-office-close-btn className="ml-3 text-sm font-semibold text-emerald-700 underline" onClick={() => { setCloseOpen(true); setMsg(null); }}>{tx("Einsatz abschließen …")}</button>}
           {editing && ["new", "accepted"].includes(job.status) && !cancelOpen && <button type="button" className="ml-3 text-sm text-slate-500 underline" onClick={() => deleteJob()} disabled={busy}>{tx("Löschen")}</button>}
           {cancelOpen && (
             <div className="flex flex-wrap items-center gap-2">
@@ -2594,7 +2638,7 @@ export default function TourenView() {
       {assignDlg && <AssignPanel org={org} job={assignDlg} data={data} onChanged={afterAssign}
         onClose={async () => { const a = assignDlg; setAssignDlg(null); if (a && a.__team) { const r = await sb.rpc("touren_series_team_from", { p_job: a.id }); if (!r.error) setFlash(tx("Personal für alle Termine der Reihe übernommen ✓")); await afterAssign(); } }}
         onTeamAll={async () => { const a = assignDlg; setAssignDlg(null); const r = await sb.rpc("touren_series_team_from", { p_job: a.id }); setFlash(r.error ? errText(r.error) : tx("Personal für alle folgenden Termine übernommen ✓")); await afterAssign(); }} />}
-      {jobDlg && <JobDialog org={org} data={data} job={jobDlg.job} preset={jobDlg.preset} onClose={() => setJobDlg(null)} onSaved={onJobSaved} onAssign={(j) => { setJobDlg(null); setAssignDlg(j); }} />}
+      {jobDlg && <JobDialog org={org} data={data} job={jobDlg.job} preset={jobDlg.preset} onClose={() => setJobDlg(null)} onSaved={async (t, d, e) => { await onJobSaved(t, d, e); await loadConflicts(); }} onAssign={(j) => { setJobDlg(null); setAssignDlg(j); }} />}
       {custDlg && <CustomerDialog key={custDlg.customer ? custDlg.customer.id : "new"} org={org} data={data} customer={custDlg.customer ? data.customers.find((x) => x.id === custDlg.customer.id) || custDlg.customer : null} onClose={() => setCustDlg(null)} onSaved={onCustSaved}
         onNewJob={(c, o) => { setCustDlg(null); setTab("jobs"); setJobDlg({ preset: { customerId: c.id, date: day, repeat: !!(o && o.repeat) } }); }} />}
     </div>
