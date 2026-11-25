@@ -50,6 +50,7 @@ export default function AdminDashboard({ view = "admin" }) {
   const [open, setOpen] = useState(null);
   const [showDone, setShowDone] = useState(false);
   const [tzPlan, setTzPlan] = useState({}); // Demo-Anfrage -> gewählte Art der Testfirma (Standard: allgemein)
+  const [regSel, setRegSel] = useState({}); // Registrierung -> Auswahl vor „Annehmen“ (vorbelegt aus dem Formular)
   const [mf, setMf] = useState({ email: "", role: "supervisor", staffId: "", password: "" });
   const [mErr, setMErr] = useState("");
   const [nErr, setNErr] = useState("");
@@ -143,8 +144,27 @@ export default function AdminDashboard({ view = "admin" }) {
   if (state.status === "error") return shell(<div style={{ ...card, background: "#FCE5EA", color: "#8A2A3E" }}>Fehler: {state.message}</div>);
 
   const { firms, me, demo = [], holidays = null } = state;
-  const demoOpen = demo.filter((d) => d.status !== "erledigt").length;
-  const demoShown = showDone ? demo : demo.filter((d) => d.status !== "erledigt");
+  const isClosed = (d) => d.status === "erledigt" || d.status === "abgelehnt";
+  const demoOpen = demo.filter((d) => !isClosed(d)).length;
+  const demoShown = showDone ? demo : demo.filter((d) => !isClosed(d));
+  // Registrierung (script 59): Vorschlag aus den Antworten; der Admin kann alles ändern.
+  const regDefault = (d) => {
+    const x = d.details || {}, n = Array.isArray(x.needs) ? x.needs : [];
+    return {
+      planner: n.includes("shift") ? (x.industry === "practice" ? "lab_planner" : "generic_planner") : "",
+      time: n.includes("time"), touren: n.includes("touren"), app: n.includes("app") || n.includes("touren") || n.includes("shift"),
+      country: x.country === "AE" ? "AE" : "DE", language: d.lang === "en" ? "en" : "de",
+      industry: ["cleaning", "care", "facility"].includes(x.industry) ? x.industry : "general",
+    };
+  };
+  const regOf = (d) => regSel[d.id] || regDefault(d);
+  const setReg = (d, patch) => setRegSel({ ...regSel, [d.id]: { ...regOf(d), ...patch } });
+  const regProducts = (v) => [v.planner, v.time && "time_tracking", v.touren && "touren", v.app && "employee_app"].filter(Boolean);
+  const REG_TXT = {
+    country: { DE: "Deutschland", AE: "VAE", OTHER: "anderes Land" },
+    industry: { cleaning: "Reinigung", care: "Pflege & Betreuung", practice: "Praxis / Labor", facility: "Hausmeister & Technik", other: "Andere" },
+    needs: { shift: "Dienstplan", time: "Zeiterfassung", touren: "Touren", app: "Mitarbeiter-App" },
+  };
   const toggleProducts = (key) => setNf((f) => ({ ...f, products: { ...f.products, [key]: !f.products[key] } }));
 
   // Finanzen = eigene Seite /admin/finanzen (gleiche Anmeldung, gleiche Daten, nur Abrechnung).
@@ -207,7 +227,7 @@ export default function AdminDashboard({ view = "admin" }) {
 
       <details style={card} data-demo-list open={demoOpen > 0 ? true : undefined}>
         <summary style={{ cursor: "pointer", fontSize: 16, fontWeight: 700 }}>
-          <span style={{ color: demoOpen > 0 ? "#C0262D" : INK }}>Demo-Anfragen</span>
+          <span style={{ color: demoOpen > 0 ? "#C0262D" : INK }}>Demo-Anfragen & Registrierungen</span>
           {demoOpen > 0 && <span data-demo-count style={{ marginLeft: 8, display: "inline-block", minWidth: 22, textAlign: "center", borderRadius: 999, background: "#C0262D", color: "#fff", fontSize: 13, fontWeight: 750, padding: "2px 7px" }}>{demoOpen}</span>}
           <span style={{ marginLeft: 8, fontSize: 13, fontWeight: 400, color: MUTED }}>{demo.length === 0 ? "noch keine" : `${demo.length} insgesamt`}</span>
         </summary>
@@ -219,31 +239,86 @@ export default function AdminDashboard({ view = "admin" }) {
                 Erledigte anzeigen ({demo.length - demoOpen})
               </label>
             )}
-            <div data-demo-scroll style={{ marginTop: 8, maxHeight: 380, overflowY: "auto", border: `1px solid ${LINE}`, borderRadius: 12 }}>
+            <div data-demo-scroll style={{ marginTop: 8, maxHeight: 560, overflowY: "auto", border: `1px solid ${LINE}`, borderRadius: 12 }}>
               {demoShown.length === 0 && <div style={{ padding: "10px 12px", fontSize: 14, color: MUTED }}>Keine offenen Anfragen.</div>}
               {demoShown.map((d, i) => {
-                const done = d.status === "erledigt";
+                const done = isClosed(d);
+                const reg = d.kind === "registration";
+                const x = d.details || {};
+                const v = reg ? regOf(d) : null;
                 return (
                   <details key={d.id} data-demo-row={d.id} style={{ borderTop: i ? `1px solid ${LINE}` : "none", background: done ? "#F7F8FB" : "#fff" }}>
                     <summary className="dg-row" style={{ cursor: "pointer", display: "flex", gap: 10, alignItems: "center", padding: "8px 12px", fontSize: 14, listStyle: "none" }}>
                       <span style={{ width: 8, height: 8, borderRadius: 999, background: done ? "#AEB8CB" : "#C0262D", flex: "0 0 auto" }} />
                       <span style={{ fontWeight: 650, flex: "1 1 auto", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: done ? MUTED : INK }}>{d.company}</span>
+                      {reg && <span data-reg-badge style={{ fontSize: 11, fontWeight: 700, borderRadius: 999, padding: "2px 8px", flex: "0 0 auto", background: "#E3ECFA", color: "#1E3F7A" }}>Registrierung{d.lang === "en" ? " · EN" : ""}</span>}
                       <span style={{ fontSize: 12, color: MUTED, flex: "0 0 auto" }}>{fmt(d.created_at)}</span>
-                      <span style={{ fontSize: 11, fontWeight: 650, borderRadius: 999, padding: "2px 8px", flex: "0 0 auto", background: done ? "#EEF0F4" : "#FCE5EA", color: done ? MUTED : "#8A2A3E" }}>{done ? "erledigt" : "offen"}</span>
+                      <span style={{ fontSize: 11, fontWeight: 650, borderRadius: 999, padding: "2px 8px", flex: "0 0 auto", background: done ? "#EEF0F4" : "#FCE5EA", color: done ? MUTED : "#8A2A3E" }}>{d.status === "abgelehnt" ? "abgelehnt" : done ? "erledigt" : "offen"}</span>
                     </summary>
                     <div style={{ padding: "0 12px 10px 30px" }}>
                       <div style={{ fontSize: 14 }}>
-                        <a href={`mailto:${d.email}?subject=${encodeURIComponent("Ihre Demo-Anfrage bei Dienstigo")}`} style={{ color: PRIMARY, fontWeight: 600 }}>{d.email}</a>
+                        {reg && (x.firstName || x.lastName) && <b style={{ marginRight: 8 }}>{`${x.firstName || ""} ${x.lastName || ""}`.trim()}</b>}
+                        <a href={`mailto:${d.email}?subject=${encodeURIComponent(reg ? (d.lang === "en" ? "Your registration with Dienstigo" : "Ihre Registrierung bei Dienstigo") : "Ihre Demo-Anfrage bei Dienstigo")}`} style={{ color: PRIMARY, fontWeight: 600 }}>{d.email}</a>
                         {d.phone && <> · <a href={`tel:${d.phone.replace(/[^0-9+]/g, "")}`} style={{ color: PRIMARY }}>{d.phone}</a></>}
                       </div>
+                      {reg && (
+                        <div data-reg-details style={{ display: "grid", gridTemplateColumns: "max-content 1fr", gap: "2px 12px", fontSize: 13, marginTop: 6 }}>
+                          <span style={{ color: MUTED }}>Land</span><span>{REG_TXT.country[x.country] || x.country || "–"}</span>
+                          <span style={{ color: MUTED }}>Branche</span><span>{REG_TXT.industry[x.industry] || x.industry || "–"}</span>
+                          <span style={{ color: MUTED }}>Mitarbeitende</span><span>{x.size || "–"}</span>
+                          <span style={{ color: MUTED }}>Bereiche</span><span>{(x.needs || []).map((k) => REG_TXT.needs[k] || k).join(", ") || "–"}</span>
+                          <span style={{ color: MUTED }}>Sprache</span><span>{d.lang === "en" ? "English" : "Deutsch"}</span>
+                          {x.source && <><span style={{ color: MUTED }}>Gehört über</span><span style={{ overflowWrap: "anywhere" }}>{x.source}</span></>}
+                        </div>
+                      )}
                       {d.message && <div style={{ fontSize: 14, marginTop: 6, whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{d.message}</div>}
                       <div style={{ fontSize: 12, marginTop: 6, color: d.mail_sent ? "#1F6347" : "#8A2A3E" }}>{d.mail_sent ? "✉ E-Mail an info@ gesendet" : `✉ E-Mail nicht gesendet${d.mail_error ? ` (${d.mail_error})` : ""}`}</div>
                       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
+                        {(!reg || (done && !d.org_id)) && (
                         <button style={{ ...ghost, background: done ? "#fff" : "#DDF2E8", color: done ? INK : "#1F6347", borderColor: done ? LINE : "#B7E1CB" }} disabled={busy}
                           onClick={() => act({ action: "demo_status", id: d.id, done: !done }, { key: "dm" + d.id, okText: done ? `„${d.company}“ wieder offen.` : `„${d.company}“ erledigt.` })}>
                           {label("dm" + d.id, done ? "Wieder öffnen" : "Erledigt ✓")}
                         </button>
-                        {!d.org_id && (
+                        )}
+                        {reg && !d.org_id && d.status !== "abgelehnt" && (
+                          <div data-reg-accept={d.id} style={{ flexBasis: "100%", border: `1px solid ${LINE}`, borderRadius: 12, padding: "10px 12px", background: "#F8FAFD" }}>
+                            <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>Zugang einrichten (vorbelegt aus der Registrierung, änderbar)</div>
+                            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", fontSize: 13 }}>
+                              <select aria-label="Dienstplan" value={v.planner} onChange={(e) => setReg(d, { planner: e.target.value })} style={{ ...fld, width: "auto", marginTop: 0, padding: "6px 8px" }}>
+                                <option value="">kein Dienstplan</option>
+                                <option value="generic_planner">Dienstplan allgemein</option>
+                                <option value="lab_planner">Dienstplan Labor</option>
+                              </select>
+                              {[["time", "Zeiterfassung"], ["touren", "Touren"], ["app", "Mitarbeiter-App"]].map(([k, t]) => (
+                                <label key={k} style={{ display: "inline-flex", gap: 5, alignItems: "center", cursor: "pointer" }}><input type="checkbox" checked={!!v[k]} onChange={(e) => setReg(d, { [k]: e.target.checked })} />{t}</label>
+                              ))}
+                            </div>
+                            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginTop: 8 }}>
+                              <select aria-label="Land" value={v.country} onChange={(e) => setReg(d, { country: e.target.value })} style={{ ...fld, width: "auto", marginTop: 0, padding: "6px 8px" }}>
+                                <option value="DE">Deutschland</option><option value="AE">VAE</option>
+                              </select>
+                              <select aria-label="Sprache" value={v.language} onChange={(e) => setReg(d, { language: e.target.value })} style={{ ...fld, width: "auto", marginTop: 0, padding: "6px 8px" }}>
+                                <option value="de">Deutsch</option><option value="en">English</option>
+                              </select>
+                              {v.touren && (
+                                <select aria-label="Branche (Vorlage Touren)" value={v.industry} onChange={(e) => setReg(d, { industry: e.target.value })} style={{ ...fld, width: "auto", marginTop: 0, padding: "6px 8px" }}>
+                                  <option value="cleaning">Vorlage Reinigung</option><option value="care">Vorlage Pflege</option><option value="facility">Vorlage Hausmeister</option><option value="general">Vorlage allgemein</option>
+                                </select>
+                              )}
+                            </div>
+                            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 }}>
+                              <button style={{ ...ghost, background: PRIMARY, color: "#fff", borderColor: PRIMARY }} disabled={busy || regProducts(v).length === 0}
+                                onClick={() => { if (window.confirm(`Zugang für „${d.company}“ anlegen (14 Tage kostenlos)?\n\nInhaber-Konto: ${d.email}\nEinladung mit vorläufigem Passwort auf ${v.language === "en" ? "Englisch" : "Deutsch"} an ${d.email}.`)) act({ action: "registration_accept", id: d.id, products: regProducts(v), country: v.country, language: v.language, industry: v.industry }, { key: "ra" + d.id, title: "Zugang angelegt – die E-Mail an den Kunden konnte NICHT gesendet werden. Bitte diese Zugangsdaten selbst weitergeben", okText: `Zugang für „${d.company}“ angelegt, Einladung gesendet.` }); }}>
+                                {label("ra" + d.id, "Annehmen & Zugang senden")}
+                              </button>
+                              <button style={{ ...ghost, color: "#B3263E" }} disabled={busy}
+                                onClick={() => { if (window.confirm(`Registrierung von „${d.company}“ ablehnen? Es wird keine E-Mail verschickt.`)) act({ action: "registration_reject", id: d.id }, { key: "rr" + d.id, okText: "Registrierung abgelehnt." }); }}>
+                                {label("rr" + d.id, "Ablehnen")}
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                        {!reg && !d.org_id && (
                           <span data-tz={d.id} style={{ display: "inline-flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
                             <select aria-label="Art der Testfirma" value={tzPlan[d.id] || "generic_planner"} onChange={(e) => setTzPlan({ ...tzPlan, [d.id]: e.target.value })} style={{ ...fld, width: "auto", marginTop: 0, padding: "6px 8px" }}>
                               <option value="generic_planner">Dienstplaner allgemein</option>
@@ -255,7 +330,7 @@ export default function AdminDashboard({ view = "admin" }) {
                             </button>
                           </span>
                         )}
-                        {d.org_id && <span data-tz-done={d.id} style={{ fontSize: 13, color: "#1F6347", fontWeight: 600, alignSelf: "center" }}>✓ Testzugang angelegt{(() => { const f = firms.find((x) => x.id === d.org_id); return f ? ` („${f.name}“)` : ""; })()}</span>}
+                        {d.org_id && <span data-tz-done={d.id} style={{ fontSize: 13, color: "#1F6347", fontWeight: 600, alignSelf: "center" }}>✓ {reg ? "Zugang angelegt" : "Testzugang angelegt"}{(() => { const f = firms.find((x) => x.id === d.org_id); return f ? ` („${f.name}“)` : ""; })()}</span>}
                         <button style={{ ...ghost, color: "#B3263E" }} disabled={busy}
                           onClick={() => { if (window.confirm(`Anfrage von „${d.company}“ endgültig löschen?`)) act({ action: "demo_delete", id: d.id }, { key: "dd" + d.id, okText: "Anfrage gelöscht." }); }}>
                           {label("dd" + d.id, "Löschen")}
