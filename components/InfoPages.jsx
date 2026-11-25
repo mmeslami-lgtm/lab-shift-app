@@ -13,8 +13,21 @@ const ICSS = `
 .dg-block p{margin:0;color:#3A465E}
 .dg-ico{width:46px;height:46px;border-radius:14px;display:flex;align-items:center;justify-content:center;font-size:22px;margin-bottom:14px;background:linear-gradient(135deg,#243B6B,#2BB3A3);box-shadow:0 12px 22px -10px rgba(36,59,107,.7);transform:rotate(-6deg)}
 .dg-block:hover .dg-ico{transform:rotate(0) scale(1.06);transition:transform .3s ease}
-.dg-values{display:flex;flex-wrap:wrap;gap:10px;margin:26px 0 0}
-.dg-values span{background:#fff;border:1px solid var(--line);border-radius:999px;padding:8px 16px;font-weight:700;color:var(--navy);box-shadow:0 8px 18px -14px rgba(24,35,58,.5)}
+.dg-about-hero{display:grid;grid-template-columns:1.15fr 1fr;gap:48px;align-items:center;padding:30px 0 50px}
+.dg-about-hero .dg-lead{margin-bottom:0}
+.dg-stats{display:grid;grid-template-columns:1fr 1fr;gap:16px;perspective:1200px}
+.dg-stat{background:#fff;border:1px solid var(--line);border-radius:20px;padding:22px 22px 20px;box-shadow:0 22px 40px -30px rgba(24,35,58,.55);transform:rotateY(-8deg) rotateX(4deg);transition:transform .4s cubic-bezier(.2,.7,.2,1)}
+.dg-stat:nth-child(2n){transform:rotateY(-8deg) rotateX(4deg) translateY(18px)}
+.dg-stat:hover{transform:none}
+.dg-stat b{display:block;font-family:var(--dg-display),system-ui,sans-serif;font-size:2.4rem;line-height:1;letter-spacing:-.03em;background:linear-gradient(90deg,#243B6B,#2BB3A3);-webkit-background-clip:text;background-clip:text;color:transparent;margin-bottom:8px}
+.dg-stat span{color:#3A465E;font-size:.95rem}
+.dg-values{display:grid;grid-template-columns:repeat(4,1fr);gap:0;background:#fff;border:1px solid var(--line);border-radius:22px;overflow:hidden;box-shadow:0 22px 44px -36px rgba(24,35,58,.55)}
+.dg-value{padding:26px 24px;position:relative}
+.dg-value+.dg-value{border-left:1px solid var(--line)}
+.dg-value::before{content:"";position:absolute;left:24px;top:0;width:44px;height:4px;border-radius:0 0 4px 4px;background:linear-gradient(90deg,#243B6B,#2BB3A3)}
+.dg-value h3{font-family:var(--dg-display),system-ui,sans-serif;font-size:1.15rem;font-weight:700;margin:6px 0 6px;color:var(--ink)}
+.dg-value p{margin:0;color:#56617A;font-size:.95rem}
+.dg-kick{display:block;font-size:.8rem;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:#1F8A80;margin-bottom:10px}
 .dg-faq{max-width:820px}
 .dg-faq details{background:#fff;border:1px solid var(--line);border-radius:16px;margin:0 0 12px;box-shadow:0 12px 26px -24px rgba(24,35,58,.5)}
 .dg-faq summary{cursor:pointer;list-style:none;padding:18px 54px 18px 22px;font-weight:700;font-size:1.06rem;position:relative}
@@ -30,13 +43,17 @@ const ICSS = `
 .dg-mailcard p{margin:0 0 20px;color:#D5DDEE}
 .dg-mailcard a.dg-big{display:inline-block;font-size:1.35rem;font-weight:800;color:#fff;text-decoration:none;border-bottom:2px solid rgba(255,255,255,.4);position:relative;z-index:1}
 .dg-formcard{background:#fff;border:1px solid var(--line);border-radius:24px;padding:28px 24px;box-shadow:0 24px 44px -32px rgba(24,35,58,.55)}
+@media (max-width:900px){.dg-about-hero{grid-template-columns:1fr;gap:30px}.dg-values{grid-template-columns:1fr 1fr}.dg-value:nth-child(3){border-left:0}.dg-value:nth-child(n+3){border-top:1px solid var(--line)}}
 @media (max-width:820px){.dg-blocks,.dg-contact{grid-template-columns:1fr}}
+@media (max-width:520px){.dg-values{grid-template-columns:1fr}.dg-value+.dg-value{border-left:0;border-top:1px solid var(--line)}.dg-stat,.dg-stat:nth-child(2n){transform:none}}
 `;
 
 const ABOUT = {
   de: {
     h1: "Über Dienstigo", lead: "Dienstigo ist eine Online-Software für Dienstplan, Zeiterfassung und Einsätze beim Kunden – entwickelt vom Team Dienstigo, aus dem Schichtdienst für den Schichtdienst.",
-    values: ["Fair", "Einfach", "Sicher", "Zeitsparend"],
+    kick: "Über uns", valuesH: "Wofür wir stehen",
+    stats: [["5", "Produkte, einzeln oder zusammen"], ["2", "Sprachen: Deutsch und Englisch"], ["14", "Tage kostenlos testen"], ["1", "Anmeldung für alle Bereiche"]],
+    values: [["Fair", "Schichten, Wochenenden und Nächte werden gerecht nach Vertrag und Wünschen verteilt."], ["Einfach", "Ohne Installation und ohne lange Schulung – im Browser und auf dem Handy."], ["Sicher", "Datenbank in Frankfurt am Main, die Daten jeder Firma strikt getrennt."], ["Zeitsparend", "Ein Klick statt Stunden mit Tabellen, Telefonaten und Zetteln."]],
     blocks: [
       ["🧪", "Entstanden im Schichtdienst", "Dienstigo wurde von jemandem entwickelt, der selbst im Labor Schichten arbeitet. Jede Funktion löst ein Problem, das im Alltag wirklich vorkommt – vom Nachtdienst bis zur kurzfristigen Krankmeldung."],
       ["🎯", "Unser Ziel", "Planung, die fair ist und Zeit spart: weniger Tabellen, weniger Telefonate und keine Diskussionen mehr darüber, wer schon wieder am Wochenende arbeitet."],
@@ -47,7 +64,9 @@ const ABOUT = {
   },
   en: {
     h1: "About Dienstigo", lead: "Dienstigo is online software for shift planning, time tracking, and jobs at customers’ premises – developed by the Dienstigo team, from shift work for shift work.",
-    values: ["Fair", "Simple", "Secure", "Time-saving"],
+    kick: "About us", valuesH: "What we stand for",
+    stats: [["5", "products, on their own or together"], ["2", "languages: German and English"], ["14", "days free of charge"], ["1", "sign-in for every area"]],
+    values: [["Fair", "Shifts, weekends, and nights are distributed fairly according to contracts and wishes."], ["Simple", "No installation and no lengthy training – in the browser and on the phone."], ["Secure", "Database in Frankfurt am Main, with each company’s data kept strictly separate."], ["Time-saving", "One click instead of hours of spreadsheets, phone calls, and paperwork."]],
     blocks: [
       ["🧪", "Born in shift work", "Dienstigo was developed by someone who works shifts in a laboratory. Every feature solves a problem that genuinely arises in day-to-day work – from night shifts to last-minute sick calls."],
       ["🎯", "Our goal", "Planning that is fair and saves time: fewer spreadsheets, fewer phone calls, and no more arguments about who is working the weekend again."],
@@ -65,7 +84,7 @@ const FAQ = {
       ["Was kostet Dienstigo?", "Die ersten 14 Tage sind kostenlos und ohne Zahlungsdaten. Der Preis richtet sich danach, welche Produkte Sie nutzen. Schreiben Sie uns, und wir machen Ihnen ein Angebot."],
       ["Was passiert nach den 14 Tagen?", "Sie entscheiden, ob Sie weitermachen. Ohne Ihre Entscheidung endet die Testphase einfach – es entstehen keine Kosten."],
       ["Muss ich etwas installieren?", "Nein. Dienstigo läuft im Browser auf Computer, Tablet und Handy. Auch die Mitarbeiter-App braucht keinen App-Store."],
-      ["Eignet sich Dienstigo für mehrere Filialen?", "Ja. Im Dienstplan allgemein bekommt jede Filiale eigene Schichten und ein eigenes Team, alles in einem Plan. Mitarbeitende sehen in der App, in welcher Filiale sie arbeiten, und der Stundenzettel zeigt den Ort. In Touren startet jede Person von ihrem eigenen Startpunkt, zum Beispiel ihrer Filiale."],
+      ["Eignet sich Dienstigo für mehrere Filialen?", "Ja. Im Dienstplan allgemein bekommt jede Filiale eigene Schichten und ein eigenes Team, alles in einem Plan. Mitarbeitende sehen in der App, in welcher Filiale sie arbeiten, und der Stundenzettel zeigt den Ort."],
       ["Kann ich nur ein Produkt nutzen?", "Ja. Jedes Produkt funktioniert allein, zum Beispiel nur die Zeiterfassung oder nur Touren. Weitere Produkte können Sie jederzeit dazunehmen."],
       ["Wie kommen meine Mitarbeitenden ins Programm?", "Sie legen sie einmal an und geben ihnen einen Zugang. Die Anmeldung funktioniert mit E-Mail oder Handynummer."],
       ["Brauche ich ein Stempelgerät?", "Nicht unbedingt. Ein Tablet am Eingang genügt; gestempelt wird per Handy mit QR-Code, mit Chip oder mit PIN."],
@@ -81,7 +100,7 @@ const FAQ = {
       ["How much does Dienstigo cost?", "The first 14 days are free, with no payment details required. The price depends on which products you use. Write to us, and we will send you an offer."],
       ["What happens after the 14 days?", "You decide whether to continue. If you do not decide, the trial simply ends – there are no costs."],
       ["Do I need to install anything?", "No. Dienstigo runs in the browser on computers, tablets, and phones. The staff app does not need an app store either."],
-      ["Is Dienstigo suitable for several branches?", "Yes. In the General planner, each branch gets its own shifts and its own team, all in one schedule. Employees see in the app which branch they work at, and the timesheet shows the location. In Dispatcher, each person starts from their own starting point – their branch, for example."],
+      ["Is Dienstigo suitable for several branches?", "Yes. In the General planner, each branch gets its own shifts and its own team, all in one schedule. Employees see in the app which branch they work at, and the timesheet shows the location."],
       ["Can I use just one product?", "Yes. Each product works on its own – for example, only time tracking or only Dispatcher. You can add more products at any time."],
       ["How do my employees get into the program?", "You add them once and give them access. They sign in with their email address or mobile number."],
       ["Do I need a time clock?", "Not necessarily. A tablet at the entrance is enough; employees clock in by phone with a QR code, with a chip card, or with a PIN."],
@@ -121,15 +140,22 @@ export function AboutPage() {
         return (
           <main>
             <style dangerouslySetInnerHTML={{ __html: ICSS }} />
-            <section className="dg-page-h">
-              <h1 className="dg-h1">{A.h1}</h1>
-              <p className="dg-lead">{A.lead}</p>
-              <div className="dg-values">{A.values.map((v) => <span key={v}>{v}</span>)}</div>
+            <section className="dg-about-hero">
+              <div>
+                <span className="dg-kick">{A.kick}</span>
+                <h1 className="dg-h1">{A.h1}</h1>
+                <p className="dg-lead">{A.lead}</p>
+              </div>
+              <div className="dg-stats">{A.stats.map(([n, t]) => <div key={t} className="dg-stat"><b>{n}</b><span>{t}</span></div>)}</div>
             </section>
             <div className="dg-blocks">
               {A.blocks.map(([i, t, p]) => <div key={t} className="dg-block"><div className="dg-ico" aria-hidden="true">{i}</div><h2>{t}</h2><p>{p}</p></div>)}
             </div>
             <section className="dg-sec" style={{ marginTop: 64 }}>
+              <h2 className="dg-h2" style={{ marginBottom: 24 }}>{A.valuesH}</h2>
+              <div className="dg-values">{A.values.map(([t, x]) => <div key={t} className="dg-value"><h3>{t}</h3><p>{x}</p></div>)}</div>
+            </section>
+            <section className="dg-sec">
               <div className="dg-origin" style={{ maxWidth: "44em" }}>
                 <p>{A.teamH}</p>
                 <p>{A.teamP} <a href="mailto:info@dienstigo.de" style={{ color: "#243B6B", fontWeight: 700 }}>info@dienstigo.de</a></p>

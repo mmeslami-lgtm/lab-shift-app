@@ -15,7 +15,7 @@ export const SITE_CSS = `
 .dg-top{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:22px 0}
 .dg-mark{font-family:var(--dg-display),system-ui,sans-serif;font-weight:700;font-size:1.6rem;letter-spacing:-.03em;color:var(--navy);text-decoration:none}
 .dg-mark{position:relative;padding:0;background:none;width:auto;height:auto;display:inline-block;border-radius:0;flex:none}.dg-mark::before,.dg-mark::after{display:none!important;content:none!important}
-.dg-nav{display:flex;flex-direction:row;align-items:center;gap:22px;font-size:.98rem;background:none;border:0;box-shadow:none;padding:0;margin:0;position:static;width:auto;height:auto}
+.dg-nav{display:flex;flex-direction:row;align-items:center;gap:18px;font-size:.98rem;background:none;border:0;box-shadow:none;padding:0;margin:0;position:static;width:auto;height:auto}
 .dg-nav a.dg-l{text-decoration:none;color:var(--muted)}
 .dg-nav a.dg-l:hover{color:var(--ink)}
 .dg-btn{display:inline-block;white-space:nowrap;text-decoration:none;font-weight:700;border-radius:12px;padding:12px 20px;font-size:1rem;line-height:1.2;transition:transform .08s ease,background-color .15s ease}
@@ -162,7 +162,7 @@ export const SITE_CSS = `
 .dg-foot a{text-decoration:none;color:var(--muted)}
 .dg-foot a:hover{color:var(--ink)}
 @media (max-width:900px){.dg-stage{min-height:0;height:auto;aspect-ratio:1.25}}
-@media (max-width:820px){
+@media (max-width:1080px){
   .dg-nav a.dg-l{display:none}
   .dg-burger{display:inline-flex}
   .dg-top .dg-ghost{display:none}
@@ -192,7 +192,7 @@ export function SiteShell({ active, children, before = null }) {
   const lang = useSiteLang();
   const N = NAV[lang];
   const [open, setOpen] = useState(false);
-  const links = [["products", "/produkte"], ["tour", "/demo"], ["about", "/ueber-uns"], ["faq", "/fragen"], ["contact", "/kontakt"]];
+  const links = [["about", "/ueber-uns"], ["products", "/produkte"], ["tour", "/demo"], ["contact", "/kontakt"], ["faq", "/fragen"]];
   const cur = (k) => (k === active ? "page" : undefined);
   // Bewegung: Abschnitte und Karten unterhalb des Bildschirms gleiten beim Scrollen herein (gestaffelt).
   useEffect(() => {
@@ -220,7 +220,7 @@ export function SiteShell({ active, children, before = null }) {
         <header className="dg-top">
           <a href="/" className="dg-mark" aria-label={N.home}><span className="dg-logo">Dienstigo</span></a>
           <nav className="dg-nav" aria-label={N.nav}>
-            {links.slice(0, 4).map(([k, h]) => <a key={k} className="dg-l" href={h} aria-current={cur(k)}>{N[k]}</a>)}
+            {links.map(([k, h]) => <a key={k} className="dg-l" href={h} aria-current={cur(k)}>{N[k]}</a>)}
             <a className="dg-btn dg-ghost" href="/login">{N.login}</a>
             <a className="dg-btn dg-primary" href="/registrieren">{N.register}</a>
             <span className="dg-langbox"><LangSwitch lang={lang} /></span>

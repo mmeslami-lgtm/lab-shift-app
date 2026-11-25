@@ -10,7 +10,7 @@ import { SceneAllgemein, DT_CSS } from "./DemoTour";
 
 export const PRODUCTS = [
   {
-    slug: "dienstplan-labor", img: { de: "/demo/plan.webp", en: "scene" },
+    slug: "dienstplan-labor", img: { de: "/demo/plan.webp", en: "/demo/plan.webp" }, top: true,
     de: {
       name: "Dienstplan Labor", short: "Früh-, Spät- und Nachtdienste rund um die Uhr, fair verteilt nach Vertragsstunden.",
       lead: "Für Labore, Kliniken und Stationen mit Diensten rund um die Uhr. Ein Klick, und Dienstigo verteilt alle Schichten des Monats gerecht – nach Vertrag, Wünschen, Urlaub und Ruhezeiten.",
@@ -23,7 +23,7 @@ export const PRODUCTS = [
     },
   },
   {
-    slug: "dienstplan", img: { de: "scene", en: "scene" },
+    slug: "dienstplan", img: { de: "/site/plan-allgemein-de.webp", en: "/site/plan-allgemein-en.webp" }, top: true,
     de: {
       name: "Dienstplan allgemein", short: "Eigene Schichten und Öffnungstage – für Praxen, Hotels, Restaurants und Firmen mit mehreren Filialen.",
       lead: "Sie legen Ihre Schichten mit Namen und Uhrzeit selbst an und bestimmen, an welchen Tagen wie viele Personen arbeiten. Dienstigo erstellt daraus den Monatsplan – für einen Standort oder für mehrere Filialen in einem Programm.",
@@ -55,8 +55,8 @@ export const PRODUCTS = [
     gallery: [{ de: "/demo/touren-zuteilen-de.webp", en: "/demo/touren-zuteilen-en.webp" }, { de: "/demo/touren-ersatz-de.webp", en: "/demo/touren-ersatz-en.webp" }],
     de: {
       name: "Touren", short: "Einsätze beim Kunden planen: Auftrag, Personal, Route, regelmäßige Kunden und Ersatz bei Krankheit.",
-      lead: "Für Reinigung, Pflege, Hausmeister und alle mobilen Dienste – vom kleinen Team bis zur Firma mit mehreren Filialen. Sie tragen Aufträge ein, Dienstigo schlägt das passende Personal vor, und das Team erledigt den Einsatz mit dem Handy. Das Büro sieht alles live.",
-      forWho: ["Reinigungsfirmen", "Pflege- und Betreuungsdienste", "Hausmeister- und Facility-Dienste", "Mobile Teams und Handwerk", "Firmen mit mehreren Filialen"],
+      lead: "Für Reinigung, Pflege, Hausmeister und alle mobilen Dienste – vom kleinen Team bis zum großen Betrieb. Sie tragen Aufträge ein, Dienstigo schlägt das passende Personal vor, und das Team erledigt den Einsatz mit dem Handy. Das Büro sieht alles live.",
+      forWho: ["Reinigungsfirmen", "Pflege- und Betreuungsdienste", "Hausmeister- und Facility-Dienste", "Mobile Teams und Handwerk"],
       points: [
         ["Aufträge in Minuten", "Kunde, Adresse, Uhrzeit, Dauer, Leistung, Anzahl Personal und Hinweise wie „Schlüssel beim Pförtner“ – einmalig oder regelmäßig."],
         ["Kunden und Leistungen", "Kundenkartei mit Adresse, bevorzugtem Personal und Verlauf. Leistungen und Fähigkeiten kommen aus einer Branchenvorlage und lassen sich anpassen."],
@@ -72,8 +72,8 @@ export const PRODUCTS = [
     },
     en: {
       name: "Dispatcher", short: "Plan jobs at customers’ premises: order, staff, route, recurring customers, and replacements in case of illness.",
-      lead: "For cleaning, care, facility, and all mobile services – from small teams to companies with several branches. You enter the jobs, Dienstigo suggests the right staff, and the team completes the job using their phones. The office follows everything live.",
-      forWho: ["Cleaning companies", "Care and support services", "Facility and caretaker services", "Mobile teams and trades", "Companies with several branches"],
+      lead: "For cleaning, care, facility, and all mobile services – from small teams to large businesses. You enter the jobs, Dienstigo suggests the right staff, and the team completes the job using their phones. The office follows everything live.",
+      forWho: ["Cleaning companies", "Care and support services", "Facility and caretaker services", "Mobile teams and trades"],
       points: [
         ["Jobs in minutes", "Customer, address, time, duration, service, number of staff, and notes such as “Key with the concierge” – one-off or recurring."],
         ["Customers and services", "A customer file with address, preferred staff, and history. Services and skills come from an industry template and can be adjusted."],
@@ -111,6 +111,8 @@ const UI = {
 const PCSS = `
 .dg-scene-wrap{width:100%}
 .dg-card-img.dg-wide{align-items:center;padding:16px}
+.dg-card-img.dg-top-img{padding:16px 14px 0}
+.dg-card-img.dg-top-img img{width:100%;height:154px;object-fit:cover;object-position:left top;border-radius:10px 10px 0 0;transform:rotateX(12deg)}
 .dg-card-img.dg-wide img{width:100%;height:auto;object-fit:contain;border-radius:10px;transform:rotateX(10deg);transform-origin:center}
 .dg-scene-wrap .dt-frame{border-radius:0}
 .dg-card-img .dg-scene-wrap{width:92%;transform:rotateX(14deg);transform-origin:bottom;border-radius:10px 10px 0 0;overflow:hidden;box-shadow:0 16px 30px -18px rgba(24,35,58,.6)}
@@ -155,7 +157,7 @@ export function ProductCards({ lang, skip }) {
       <Styles />
       {PRODUCTS.filter((p) => p.slug !== skip).map((p) => (
         <a key={p.slug} className="dg-card" href={`/produkte/${p.slug}`} data-product={p.slug}>
-          <div className={`dg-card-img${p.phone ? " dg-phone" : ""}${p.wide ? " dg-wide" : ""}`}><Shot p={p} lang={lang} alt={p[lang].name} /></div>
+          <div className={`dg-card-img${p.phone ? " dg-phone" : ""}${p.wide ? " dg-wide" : ""}${p.top ? " dg-top-img" : ""}`}><Shot p={p} lang={lang} alt={p[lang].name} /></div>
           <div className="dg-card-b"><h3>{p[lang].name}</h3><p>{p[lang].short}</p><span className="dg-more">{U.more}</span></div>
         </a>
       ))}
