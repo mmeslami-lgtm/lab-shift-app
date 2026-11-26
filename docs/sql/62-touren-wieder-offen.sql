@@ -1,13 +1,14 @@
 -- 62 – Touren: Auftrag wieder geöffnet → Ergebnis zurücksetzen (26.11.2026, Fehler aus Test: Auftrag 3 war „nicht fertig“,
 --      wurde von Hand wieder auf „Angenommen“ gesetzt, behielt aber outcome und bekam später „fertig (mit Fortsetzung)“).
--- * BEFORE-Trigger: status done → new/accepted: outcome und finished_at leeren (Ankunft bleibt), damit Büro/App neu abschließen können.
+-- * BEFORE-Trigger: status done → new/accepted: outcome, finished_at und arrived_at leeren (Nachtrag 62b: auch die Ankunft,
+--   sonst zeigt der Auftrag „vor Ort“), damit Büro/App neu abschließen können.
 -- * jobs_followup_done (Script 61): Vorgänger nur dann auf 'completed', wenn er selbst erledigt ist.
 -- * Einmalige Bereinigung: offene Aufträge mit altem Ergebnis.
 create or replace function public.jobs_reopen_reset()
 returns trigger language plpgsql as $$
 begin
   if old.status = 'done' and new.status in ('new', 'accepted') then
-    new.outcome := null; new.finished_at := null;
+    new.outcome := null; new.finished_at := null; new.arrived_at := null;
   end if;
   return new;
 end $$;
@@ -31,3 +32,5 @@ end $$;
 revoke all on function public.jobs_followup_done() from public, anon, authenticated;
 
 update public.jobs set outcome = null, finished_at = null where status in ('new', 'accepted') and outcome is not null;
+-- 62b (26.11.2026): Auftrag 3 (UAE Test) wurde vor 62 wieder geöffnet und zeigte „vor Ort“ – Ankunft leeren
+update public.jobs set arrived_at = null where status in ('new', 'accepted') and arrived_at is not null and work_date < (now() at time zone org_tz(org_id))::date;

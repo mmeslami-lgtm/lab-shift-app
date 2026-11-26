@@ -84,7 +84,25 @@ const hhmm = (t) => String(t || "").slice(0, 5);
 const toMin = (t) => { const [h, m] = String(t || "0:0").split(":"); return (+h || 0) * 60 + (+m || 0); };
 const endOf = (start, dur) => { const e = (((toMin(start) + (dur || 0)) % 1440) + 1440) % 1440; return `${pad(Math.floor(e / 60))}:${pad(e % 60)}`; };
 // D3c-1: Ist-Zeiten und Live-Status eines Auftrags (angekommen / fertig / läuft länger / Termin offen)
-const tsHm = (ts) => { if (!ts) return ""; const d = new Date(ts); return `${pad(d.getHours())}:${pad(d.getMinutes())}`; };
+// 26.11.2026: Ist-Zeiten immer in der Zeitzone der Firma (nicht des Browsers) – Büro in Deutschland, Firma in Dubai.
+let ORG_TZ = null;
+const tsHm = (ts) => {
+  if (!ts) return "";
+  const d = new Date(ts);
+  try { if (ORG_TZ) { const p = new Intl.DateTimeFormat("en-GB", { timeZone: ORG_TZ, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(d); const g = (t) => (p.find((x) => x.type === t) || {}).value; return `${g("hour")}:${g("minute")}`; } } catch (e) { /* Browserzeit */ }
+  return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+};
+// Datum + Uhrzeit in der Firmen-Zeitzone → ISO (UTC)
+const zonedIso = (date, time) => {
+  const [y, mo, da] = date.split("-").map(Number); const [h, mi] = time.split(":").map(Number);
+  const guess = Date.UTC(y, mo - 1, da, h, mi);
+  if (!ORG_TZ) return new Date(`${date}T${time}:00`).toISOString();
+  try {
+    const off = (ms) => { const p = new Intl.DateTimeFormat("en-GB", { timeZone: ORG_TZ, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(new Date(ms)); const g = (t) => +(p.find((x) => x.type === t) || {}).value; return Date.UTC(g("year"), g("month") - 1, g("day"), g("hour"), g("minute")) - ms; };
+    let ms = guess - off(guess); ms = guess - off(ms);
+    return new Date(ms).toISOString();
+  } catch (e) { return new Date(`${date}T${time}:00`).toISOString(); }
+};
 const hm = (min) => { const m = Math.abs(Math.round(min)); return `${Math.floor(m / 60)}:${pad(m % 60)}`; };
 function liveStatus(j) {
   if (j.status === "cancelled") return { label: txRaw("Storniert"), cls: "bg-rose-50 text-rose-700 border-rose-200 line-through" };
@@ -456,7 +474,7 @@ function JobDialog({ org, data, job, preset, onClose, onSaved, onAssign }) {
           Object.assign(row, { address_text: job.address_text, maps_url: job.maps_url, lat: job.lat, lng: job.lng });
         }
         if (showIst) {
-          const at = (t) => (t ? new Date(`${f.work_date}T${t}:00`).toISOString() : null);
+          const at = (t) => (t ? zonedIso(f.work_date, t) : null);
           if (ist.arr && ist.fin && ist.fin <= ist.arr) throw new Error(tx("„Fertig“ muss nach „Angekommen“ liegen."));
           Object.assign(row, { arrived_at: at(ist.arr), finished_at: at(ist.fin) });
         }
@@ -2534,6 +2552,7 @@ export default function TourenView() {
   };
 
   TERMS = data.settings.industry || "general";
+  ORG_TZ = org.timezone || null;
   const afterAssign = async () => { await loadJobs(); await loadConflicts(); const oc = await sb.rpc("touren_open_count", { p_org: org.orgId }); if (!oc.error) setOpenCount(oc.data || 0); };
   const absentSet = useMemo(() => new Set(conflicts.map((c) => `${c.job_id}|${c.staff_id}`)), [conflicts]);
   const todayIso = isoOf(new Date());
