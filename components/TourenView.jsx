@@ -444,7 +444,8 @@ function JobDialog({ org, data, job, preset, onClose, onSaved, onAssign }) {
   // 26.11.2026: Einsatz im Büro abschließen (wer nicht mit der App arbeitet) – job_office_close (Script 60)
   const [closeOpen, setCloseOpen] = useState(false);
   const [cl, setCl] = useState(() => ({ arr: job && job.start_time ? String(job.start_time).slice(0, 5) : "", fin: "", outcome: "done", rh: 1, rm: 0, reason: "" }));
-  const [rep, setRep] = useState(() => ({ ...repOf(null), mode: preset && preset.repeat ? "week" : "none", days: [isoDow((preset && preset.date) || isoOf(new Date()))] }));
+  const [rep, setRep] = useState(() => ({ ...repOf(null), mode: preset && preset.repeat ? "week" : "none", days: [isoDow((job && job.work_date) || (preset && preset.date) || isoOf(new Date()))] }));
+  const canRepeatEdit = !!(job && !job.series_id && ["new", "accepted"].includes(job.status) && !job.needs_confirm);
   useEffect(() => { if (!job && rep.days.length <= 1) setRep((p) => ({ ...p, days: [isoDow(f.work_date || isoOf(new Date()))] })); }, [f.work_date]); // eslint-disable-line react-hooks/exhaustive-deps
   const [series, setSeries] = useState(null);
   const [scopeFor, setScopeFor] = useState(null); // save | cancel | delete
@@ -485,10 +486,12 @@ function JobDialog({ org, data, job, preset, onClose, onSaved, onAssign }) {
     const st = Math.max(1, Math.min(50, parseInt(f.staff_needed, 10) || 1));
     const miss = missingRequired(jobFields, f.extra);
     if (miss.length) return setMsg({ kind: "err", text: tx("Bitte ausfüllen: {0}", miss.join(", ")) });
-    const repeat = !editing && rep.mode !== "none";
-    if (repeat && rep.mode !== "month" && !rep.days.length) return setMsg({ kind: "err", text: tx("Bitte mindestens einen Tag wählen.") });
-    if (repeat && rep.untilOn && rep.until && rep.until < f.work_date) return setMsg({ kind: "err", text: tx("„Bis“ liegt vor „Von“.") });
-    if (repeat && !seriesNext({ ...repRule(rep), start_date: f.work_date, end_date: rep.untilOn && rep.until ? rep.until : null }, f.work_date).length) return setMsg({ kind: "err", text: tx("In diesem Zeitraum gibt es keinen Termin.") });
+    // 26.11.2026: auch ein vorhandener Einzel-Auftrag (bekannter Kunde) kann ab seinem Datum regelmäßig werden
+    const repeatAny = rep.mode !== "none" && (!editing || canRepeatEdit);
+    const repeat = !editing && repeatAny;
+    if (repeatAny && rep.mode !== "month" && !rep.days.length) return setMsg({ kind: "err", text: tx("Bitte mindestens einen Tag wählen.") });
+    if (repeatAny && rep.untilOn && rep.until && rep.until < f.work_date) return setMsg({ kind: "err", text: tx("„Bis“ liegt vor „Von“.") });
+    if (repeatAny && !seriesNext({ ...repRule(rep), start_date: f.work_date, end_date: rep.untilOn && rep.until ? rep.until : null }, f.work_date).length) return setMsg({ kind: "err", text: tx("In diesem Zeitraum gibt es keinen Termin.") });
     if (editing && job.series_id && !scope && f.work_date === job.work_date) { setScopeFor("save"); return; }
     setBusy(true);
     const sb = org.supabase;
@@ -515,6 +518,7 @@ function JobDialog({ org, data, job, preset, onClose, onSaved, onAssign }) {
         if (!manual && addrChoice === job.address_id) { // Adresse nicht geändert: Text/Ort des Auftrags so lassen
           Object.assign(row, { address_text: job.address_text, maps_url: job.maps_url, lat: job.lat, lng: job.lng });
         }
+        const tmplRow = { ...row }; // Vorlage für eine neue Reihe (ohne Ist-Zeiten)
         if (showIst) {
           const at = (t) => (t ? zonedIso(f.work_date, t) : null);
           if (ist.arr && ist.fin && ist.fin <= ist.arr) throw new Error(tx("„Fertig“ muss nach „Angekommen“ liegen."));
@@ -528,6 +532,19 @@ function JobDialog({ org, data, job, preset, onClose, onSaved, onAssign }) {
           const ch = await sb.rpc("touren_series_change", { p_series: job.series_id, p_from: job.work_date, p });
           if (ch.error) throw ch.error;
           onSaved(tx("Gespeichert ✓ – auch alle folgenden Termine."), f.work_date); return;
+        }
+        if (repeatAny) { // vorhandenen Auftrag zur Reihe machen: Reihe ab diesem Datum, dieser Auftrag gehört dazu
+          const { work_date: _wd2, ...tmpl } = tmplRow; // eslint-disable-line no-unused-vars
+          let ids = [];
+          if (rep.same) { const js = await sb.from("job_staff").select("staff_id").eq("job_id", job.id); if (js.error) throw js.error; ids = (js.data || []).map((x) => x.staff_id); }
+          const rule = { ...repRule(rep), start_date: f.work_date, end_date: rep.untilOn && rep.until ? rep.until : null };
+          const is = await sb.from("job_series").insert({ org_id: org.orgId, ...tmpl, ...repRule(rep), start_date: f.work_date, end_date: rule.end_date, same_team: ids.length > 0, staff_ids: ids }).select().single();
+          if (is.error) throw is.error;
+          if (seriesHit(rule, f.work_date)) { const ln = await sb.from("jobs").update({ series_id: is.data.id }).eq("id", job.id); if (ln.error) throw ln.error; }
+          const fl = await sb.rpc("touren_series_fill", { p_org: org.orgId });
+          if (fl.error) throw fl.error;
+          const n = await sb.from("jobs").select("id", { count: "exact", head: true }).eq("series_id", is.data.id);
+          onSaved(tx("Regelmäßiger Auftrag angelegt ✓ ({0} Termine in den nächsten 12 Wochen)", n.count || 0), f.work_date); return;
         }
       } else if (repeat) { // D3c-2: Reihe anlegen, Termine erzeugen
         const { work_date: _wd, ...tmpl } = row; // eslint-disable-line no-unused-vars
@@ -697,7 +714,7 @@ function JobDialog({ org, data, job, preset, onClose, onSaved, onAssign }) {
         </div>
       </section>
 
-      {!editing && <section className="mb-4"><RepeatFields value={rep} onChange={setRep} date={f.work_date} /></section>}
+      {(!editing || canRepeatEdit) && <section className="mb-4"><RepeatFields value={rep} onChange={setRep} date={f.work_date} /></section>}
 
       <section className="mb-2 grid gap-3 sm:grid-cols-2">
         <label className="block"><span className={lbl}>{tx("Hinweise für Mitarbeitende")}</span><textarea rows={3} className={inp} value={f.notes_staff} onChange={(e) => set("notes_staff", e.target.value)} placeholder={tx("z. B. Schlüssel beim Pförtner, Parken in der Tiefgarage")} /></label>
