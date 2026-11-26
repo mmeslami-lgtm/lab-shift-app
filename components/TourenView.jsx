@@ -932,7 +932,7 @@ function SeriesDialog({ org, data, series: s, customer, onClose, onSaved }) {
   );
 }
 
-function SeriesSection({ org, data, customer, onChanged, onNew }) {
+function SeriesSection({ org, data, customer, onChanged }) {
   const today = isoOf(new Date());
   const [list, setList] = useState(null);
   const [nextOf, setNextOf] = useState({});
@@ -973,10 +973,13 @@ function SeriesSection({ org, data, customer, onChanged, onNew }) {
       { title: tx("Beendet"), text: tx("Hallo {0}, wie besprochen ist Ihr letzter regelmäßiger Termin am {1}. Vielen Dank für Ihr Vertrauen – wir sind jederzeit gern wieder für Sie da.", customer.name, dmy(dateOf(last))) });
   }
   const small = "rounded-lg border px-2.5 py-1 text-xs font-medium disabled:opacity-50";
+  // 26.11.2026 (Wunsch): kein eigener Knopf „Regelmäßiger Termin“ mehr – neu geht über „+ Auftrag für diesen Kunden“ → Wiederholen.
+  // Ohne Reihen wird der Abschnitt nicht gezeigt; mit Reihen bleibt er zum Ändern, Pausieren und Beenden.
+  if (list && list.length === 0) return null;
   return (
     <section className="mt-5">
-      <div className="mb-2 flex flex-wrap items-center justify-between gap-2"><h3 className="text-sm font-semibold text-slate-700">🔁 {tx("Regelmäßige Termine")}</h3><button type="button" className={btnLight} onClick={onNew}><Plus size={15} />{tx("Regelmäßiger Termin")}</button></div>
-      {list === null ? <p className="text-sm text-slate-500">{tx("Lädt …")}</p> : list.length === 0 ? <p className="text-sm text-slate-500">{tx("Noch keine regelmäßigen Termine.")}</p> : (
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2"><h3 className="text-sm font-semibold text-slate-700">🔁 {tx("Regelmäßige Termine")}</h3></div>
+      {list === null ? <p className="text-sm text-slate-500">{tx("Lädt …")}</p> : (
         <div className="space-y-2">
           {list.map((s) => {
             const ended = s.end_date && s.end_date < today; const paused = !ended && s.pause_from && s.pause_until && s.pause_until >= today;
@@ -1961,7 +1964,7 @@ function CustomerDialog({ org, data, customer, onClose, onSaved, onNewJob }) {
       </section>
 
       {editing && <PrefsSection org={org} data={data} customer={customer} onChanged={(t) => onSaved(t, customer, true, true)} />}
-      {editing && <SeriesSection org={org} data={data} customer={customer} onChanged={(t) => onSaved(t, customer, true, true)} onNew={() => onNewJob(customer, { repeat: true })} />}
+      {editing && <SeriesSection org={org} data={data} customer={customer} onChanged={(t) => onSaved(t, customer, true, true)} />}
 
       {editing && (
         <section className="mt-5">
