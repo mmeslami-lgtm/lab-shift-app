@@ -5,7 +5,7 @@
 // Kein fester Schichtplan: Zeit, Adresse und Personenzahl sind bei jedem Auftrag anders und werden von Hand eingetragen.
 // Adresse: aus den gespeicherten Adressen des Kunden wählen oder neu eintragen (Kartenlink → Koordinaten).
 // Noch nicht hier (D3b): Personen zuteilen, „My jobs“, Anfragen. Kein Preis (Entscheidung Nutzer).
-import React, { useCallback, useContext, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { OrgContext } from "../lib/orgContext";
 import PlannerShell from "./PlannerShell";
@@ -15,7 +15,7 @@ import { tx as txRaw, loc, wdShort, wdLong, dmy, dm, isoDmy, getLang, dec, month
 import { useLang } from "../lib/useLang";
 import { coordsFromText, isShortMapsLink, mapsHref, normPhone } from "../lib/maps";
 import { buildTrips } from "../lib/tourenTrips";
-import { suggestStaff } from "../lib/tourenSuggest";
+import { suggestStaff, teamSkillGap } from "../lib/tourenSuggest";
 
 // Branchenvorlage (D3b): bei „Pflege & Betreuung“ heißen Kunden „Klienten“ und Aufträge „Einsätze“ (EN: clients / visits).
 // Gilt nur in dieser Datei; die gespeicherten Daten ändern sich nicht.
@@ -83,6 +83,49 @@ const monthGrid = (iso) => { const a = mondayOf(monthFirst(iso)); const b = addD
 const hhmm = (t) => String(t || "").slice(0, 5);
 const toMin = (t) => { const [h, m] = String(t || "0:0").split(":"); return (+h || 0) * 60 + (+m || 0); };
 const endOf = (start, dur) => { const e = (((toMin(start) + (dur || 0)) % 1440) + 1440) % 1440; return `${pad(Math.floor(e / 60))}:${pad(e % 60)}`; };
+// 26.11.2026 (Script 63): mehrere Leistungen pro Auftrag – erste = service_type_id, weitere = extra_service_ids
+const jobSvcIds = (j) => [j && j.service_type_id, ...((j && j.extra_service_ids) || [])].filter(Boolean);
+const svcNames = (j, services) => jobSvcIds(j).map((id) => (services.find((x) => x.id === id) || {}).name).filter(Boolean).join(" + ");
+const svcSkills = (j, data) => [...new Set(data.serviceSkills.filter((x) => jobSvcIds(j).includes(x.service_type_id)).map((x) => x.skill_id))];
+function ServicePicker({ services, value, onChange }) {
+  // 26.11.2026 (Wunsch): wie die alte Auswahlliste, aber jede Leistung mit Kästchen zum Ankreuzen; „Fertig“ schließt die Liste.
+  const [open, setOpen] = useState(false);
+  const box = useRef(null);
+  const list = services.filter((x) => x.active || value.includes(x.id));
+  const toggle = (id) => onChange(value.includes(id) ? value.filter((x) => x !== id) : [...value, id]);
+  useEffect(() => {
+    if (!open) return undefined;
+    const out = (e) => { if (box.current && !box.current.contains(e.target)) setOpen(false); };
+    const esc = (e) => { if (e.key === "Escape") { e.stopPropagation(); setOpen(false); } };
+    document.addEventListener("mousedown", out); document.addEventListener("keydown", esc, true);
+    return () => { document.removeEventListener("mousedown", out); document.removeEventListener("keydown", esc, true); };
+  }, [open]);
+  const names = value.map((id) => (services.find((x) => x.id === id) || {}).name).filter(Boolean);
+  return (
+    <div ref={box} data-service-picker className="relative">
+      <button type="button" className={`${inp} flex items-center justify-between gap-2 text-left`} aria-haspopup="listbox" aria-expanded={open} title={names.join(" + ") || undefined} onClick={() => setOpen((v) => !v)} disabled={!list.length}>
+        <span className={`truncate ${names.length ? "text-slate-800" : "text-slate-500"}`}>{names.length ? names.join(" + ") : tx("– keine Angabe –")}</span>
+        <span className="flex shrink-0 items-center gap-1 text-slate-500">{names.length > 1 && <span className="rounded-full bg-slate-100 px-1.5 text-[11px] font-semibold text-slate-700">{names.length}</span>}<span aria-hidden="true">▾</span></span>
+      </button>
+      {open && (
+        <div role="listbox" aria-multiselectable="true" className="absolute left-0 right-0 z-30 mt-1 rounded-lg border border-slate-300 bg-white shadow-lg">
+          <div className="max-h-60 overflow-y-auto py-1">
+            {list.map((x) => (
+              <label key={x.id} className="flex cursor-pointer items-center gap-2 px-3 py-1.5 text-sm text-slate-800 hover:bg-slate-50">
+                <input type="checkbox" className="h-4 w-4" checked={value.includes(x.id)} onChange={() => toggle(x.id)} />{x.name}
+              </label>
+            ))}
+          </div>
+          <div className="flex items-center justify-between border-t border-slate-200 px-3 py-1.5">
+            <span className="text-xs text-slate-500">{tx("{0} gewählt", value.length)}</span>
+            <button type="button" className="rounded-md bg-slate-800 px-3 py-1 text-xs font-semibold text-white" onClick={() => setOpen(false)}>{tx("Fertig")}</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // D3c-1: Ist-Zeiten und Live-Status eines Auftrags (angekommen / fertig / läuft länger / Termin offen)
 // 26.11.2026: Ist-Zeiten immer in der Zeitzone der Firma (nicht des Browsers) – Büro in Deutschland, Firma in Dubai.
 let ORG_TZ = null;
@@ -394,9 +437,9 @@ function JobDialog({ org, data, job, preset, onClose, onSaved, onAssign }) {
   const [addr, setAddr] = useState(job && !job.address_id ? { address: job.address_text, maps_url: job.maps_url || "", lat: job.lat, lng: job.lng, label: "", coordState: job.lat !== null && job.lat !== undefined ? "ok" : "none" } : emptyAddr());
   const [saveAddr, setSaveAddr] = useState(!job);
   const [f, setF] = useState(() => job ? {
-    work_date: job.work_date, start_time: hhmm(job.start_time), dh: Math.floor(job.duration_min / 60), dm: job.duration_min % 60, service_type_id: job.service_type_id || "",
+    work_date: job.work_date, start_time: hhmm(job.start_time), dh: Math.floor(job.duration_min / 60), dm: job.duration_min % 60, svc: jobSvcIds(job),
     staff_needed: job.staff_needed, material: job.material || "", notes_staff: job.notes_staff || "", notes_internal: job.notes_internal || "", source: job.source, status: job.status, extra: job.extra || {},
-  } : { work_date: (preset && preset.date) || isoOf(new Date()), start_time: "", dh: 2, dm: 0, service_type_id: "", staff_needed: 1, material: "", notes_staff: "", notes_internal: "", source: "phone", status: "new", extra: {} });
+  } : { work_date: (preset && preset.date) || isoOf(new Date()), start_time: "", dh: 2, dm: 0, svc: [], staff_needed: 1, material: "", notes_staff: "", notes_internal: "", source: "phone", status: "new", extra: {} });
   const [cancelOpen, setCancelOpen] = useState(false);
   // 26.11.2026: Einsatz im Büro abschließen (wer nicht mit der App arbeitet) – job_office_close (Script 60)
   const [closeOpen, setCloseOpen] = useState(false);
@@ -428,7 +471,6 @@ function JobDialog({ org, data, job, preset, onClose, onSaved, onAssign }) {
   }, [search, customers]);
 
   const duration = (+f.dh || 0) * 60 + (+f.dm || 0);
-  const svcList = services.filter((s) => s.active || s.id === f.service_type_id);
 
   async function save(scope) {
     setMsg(null);
@@ -466,7 +508,7 @@ function JobDialog({ org, data, job, preset, onClose, onSaved, onAssign }) {
       }
       const row = {
         customer_id: customer.id, address_id: addressId, address_text: a.label ? `${a.label}: ${a.address}` : a.address, maps_url: a.maps_url || null, lat: a.lat ?? null, lng: a.lng ?? null,
-        work_date: f.work_date, start_time: f.start_time, duration_min: duration, service_type_id: f.service_type_id || null, staff_needed: st, material: f.material || null,
+        work_date: f.work_date, start_time: f.start_time, duration_min: duration, service_type_id: f.svc[0] || null, extra_service_ids: f.svc.slice(1), staff_needed: st, material: f.material || null,
         notes_staff: clean(f.notes_staff), notes_internal: clean(f.notes_internal), source: f.source, extra: f.extra || {},
       };
       if (editing) {
@@ -482,7 +524,7 @@ function JobDialog({ org, data, job, preset, onClose, onSaved, onAssign }) {
         if (up.error) throw up.error;
         if (scope === "all") { // auch alle folgenden Termine der Reihe
           const p = { address_id: row.address_id || "", address_text: row.address_text, maps_url: row.maps_url || "", lat: row.lat, lng: row.lng, start_time: row.start_time, duration_min: row.duration_min,
-            service_type_id: row.service_type_id || "", staff_needed: row.staff_needed, material: row.material || "", notes_staff: row.notes_staff || "", notes_internal: row.notes_internal || "", extra: row.extra };
+            service_type_id: row.service_type_id || "", extra_service_ids: row.extra_service_ids, staff_needed: row.staff_needed, material: row.material || "", notes_staff: row.notes_staff || "", notes_internal: row.notes_internal || "", extra: row.extra };
           const ch = await sb.rpc("touren_series_change", { p_series: job.series_id, p_from: job.work_date, p });
           if (ch.error) throw ch.error;
           onSaved(tx("Gespeichert ✓ – auch alle folgenden Termine."), f.work_date); return;
@@ -636,13 +678,11 @@ function JobDialog({ org, data, job, preset, onClose, onSaved, onAssign }) {
             </div>
           </div>
           <div><span className={lbl}>{tx("Ende")}</span><div className="py-1.5 text-sm text-slate-700">{/^\d{2}:\d{2}$/.test(f.start_time) && duration ? endOf(f.start_time, duration) : "–"}</div></div>
-          <label className="block sm:col-span-2"><span className={lbl}>{tx("Leistung")}</span>
-            <select className={inp} value={f.service_type_id} onChange={(e) => set("service_type_id", e.target.value)}>
-              <option value="">{tx("– keine Angabe –")}</option>
-              {svcList.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-            </select>
+          <div className="block sm:col-span-2"><span className={lbl}>{tx("Leistungen")} <span className="font-normal text-slate-400">{tx("(mehrere möglich)")}</span></span>
+            <ServicePicker services={services} value={f.svc} onChange={(v) => set("svc", v)} />
             {services.length === 0 && <span className="mt-1 block text-[11px] text-slate-500">{tx("Leistungen legt der Inhaber unter „Einstellungen“ an.")}</span>}
-          </label>
+            {f.svc.length > 1 && <span className="mt-1 block text-[11px] text-slate-500">{tx("Tipp: Braucht eine Leistung andere Fähigkeiten, bei „Anzahl Personal“ mehr Personen eintragen – Touren schlägt dann Personal vor, das die fehlenden Fähigkeiten mitbringt.")}</span>}
+          </div>
           {data.settings.industry !== "care" && (
             <label className="block"><span className={lbl}>{tx("Material")}</span>
               <select className={inp} value={f.material} onChange={(e) => set("material", e.target.value)}>{MATERIAL.map(([k, l]) => <option key={k} value={k}>{tx(l)}</option>)}</select></label>
@@ -809,7 +849,7 @@ function InformDialog({ title, phone, text: text0, onClose }) {
 function SeriesDialog({ org, data, series: s, customer, onClose, onSaved }) {
   const today = isoOf(new Date());
   const [rep, setRep] = useState(() => repOf(s));
-  const [f, setF] = useState({ start_time: hhmm(s.start_time), dh: Math.floor(s.duration_min / 60), dm: s.duration_min % 60, service_type_id: s.service_type_id || "", staff_needed: s.staff_needed, notes_staff: s.notes_staff || "" });
+  const [f, setF] = useState({ start_time: hhmm(s.start_time), dh: Math.floor(s.duration_min / 60), dm: s.duration_min % 60, svc: jobSvcIds(s), staff_needed: s.staff_needed, notes_staff: s.notes_staff || "" });
   const [team, setTeam] = useState(() => [...(s.staff_ids || [])]);
   const [from, setFrom] = useState(() => seriesNext(s, today)[0] || today);
   const [busy, setBusy] = useState(false);
@@ -829,7 +869,7 @@ function SeriesDialog({ org, data, series: s, customer, onClose, onSaved }) {
     if (ruleChanged) Object.assign(p, nu);
     if (f.start_time !== hhmm(s.start_time)) p.start_time = f.start_time;
     if (duration !== s.duration_min) p.duration_min = duration;
-    if ((f.service_type_id || "") !== (s.service_type_id || "")) p.service_type_id = f.service_type_id || "";
+    if (f.svc.join() !== jobSvcIds(s).join()) { p.service_type_id = f.svc[0] || ""; p.extra_service_ids = f.svc.slice(1); }
     const st = Math.max(1, Math.min(50, parseInt(f.staff_needed, 10) || 1)); if (st !== s.staff_needed) p.staff_needed = st;
     if ((clean(f.notes_staff) || "") !== (s.notes_staff || "")) p.notes_staff = clean(f.notes_staff) || "";
     if ([...team].sort().join() !== [...(s.staff_ids || [])].sort().join()) p.staff_ids = team;
@@ -853,8 +893,8 @@ function SeriesDialog({ org, data, series: s, customer, onClose, onSaved }) {
             <select className={inp} value={f.dm} onChange={(e) => set("dm", +e.target.value)} aria-label={tx("Minuten")}>{[0, 15, 30, 45].map((m) => <option key={m} value={m}>{getLang() === "en" ? `${m} min` : `${m} Min.`}</option>)}</select>
           </div>
         </div>
-        <label className="block"><span className={lbl}>{tx("Leistung")}</span>
-          <select className={inp} value={f.service_type_id} onChange={(e) => set("service_type_id", e.target.value)}><option value="">{tx("– keine Angabe –")}</option>{data.services.filter((x) => x.active || x.id === f.service_type_id).map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}</select></label>
+        <div className="block sm:col-span-2"><span className={lbl}>{tx("Leistungen")} <span className="font-normal text-slate-400">{tx("(mehrere möglich)")}</span></span>
+          <ServicePicker services={data.services} value={f.svc} onChange={(v) => set("svc", v)} /></div>
         <label className="block"><span className={lbl}>{tx("Anzahl Personal")}</span><input type="number" min="1" max="50" className={inp} value={f.staff_needed} onChange={(e) => set("staff_needed", e.target.value)} /></label>
       </div>
       <div className="mt-4"><div className={lbl}>{tx("Festes Personal")}</div>
@@ -923,8 +963,7 @@ function SeriesSection({ org, data, customer, onChanged, onNew }) {
         <div className="space-y-2">
           {list.map((s) => {
             const ended = s.end_date && s.end_date < today; const paused = !ended && s.pause_from && s.pause_until && s.pause_until >= today;
-            const svc = data.services.find((x) => x.id === s.service_type_id);
-            const info = [svc && svc.name, (s.staff_ids || []).length ? (s.staff_ids || []).map(nameOf).join(", ") : null].filter(Boolean).join(" · ");
+            const info = [svcNames(s, data.services), (s.staff_ids || []).length ? (s.staff_ids || []).map(nameOf).join(", ") : null].filter(Boolean).join(" · ");
             return (
               <div key={s.id} className={`rounded-xl p-3 ${ended ? "border border-slate-200 bg-slate-50 opacity-60" : paused ? "border border-dashed border-slate-300 bg-slate-50" : "border border-slate-200 bg-white"}`}>
                 <div className={`text-sm font-medium ${paused ? "text-slate-500" : "text-slate-800"}`}>{ruleText(s)}</div>
@@ -990,7 +1029,7 @@ function AssignPanel({ org, job, data, onClose, onChanged, onTeamAll }) {
   useEffect(() => { load(); }, [load]);
 
   const cur = dayJobs.find((x) => x.id === job.id) || job;
-  const required = data.serviceSkills.filter((x) => x.service_type_id === cur.service_type_id).map((x) => x.skill_id);
+  const required = svcSkills(cur, data);
   const skillName = (id) => (data.skills.find((k) => k.id === id) || {}).name || "?";
   const custOf = (id) => custName(data.customers.find((c) => c.id === id));
   const rows = ctx ? suggestStaff({ job: cur, dayJobs, assign: ctx.assign || [], staff: ctx.staff || [], settings: ctx.settings, history: ctx.history || [], prefs: data.prefs, requiredSkills: required }) : [];
@@ -1024,6 +1063,7 @@ function AssignPanel({ org, job, data, onClose, onChanged, onTeamAll }) {
         <div className="font-semibold text-slate-800">{wdShort(dateOf(cur.work_date).getDay())} {isoDmy(cur.work_date)} · {hhmm(cur.start_time)}–{endOf(cur.start_time, cur.duration_min)} · {custOf(cur.customer_id)}</div>
         <div className="text-xs text-slate-600">{cur.address_text}</div>
         <div className={`mt-1 text-sm font-medium ${have >= cur.staff_needed ? "text-emerald-700" : "text-rose-700"}`}>{tx("Personal: {0}/{1}", have, cur.staff_needed)}{required.length ? <span className="ml-2 text-xs font-normal text-slate-500">{tx("nötig: {0}", required.map(skillName).join(", "))}</span> : null}</div>
+        {ctx && required.length > 0 && (() => { const gap = teamSkillGap({ job: cur, assign: ctx.assign || [], staff: ctx.staff || [], requiredSkills: required }); return gap.length && have > 0 ? <div data-skill-gap className="mt-0.5 text-xs font-medium text-amber-700">{tx("Im Team fehlt noch: {0}", gap.map(skillName).join(", "))}</div> : null; })()}
       </div>
       {!ctx ? <p className="text-sm text-slate-500">{tx("Lädt …")}</p> : rows.length === 0 ? <p className="text-sm text-slate-500">{tx("Noch keine Mitarbeitenden. Inhaber oder Leitung legt sie unter „Mitarbeitende“ an.")}</p> : (
         <ul className="space-y-1.5">
@@ -1133,7 +1173,7 @@ function BulkReplaceDialog({ org, data, person, items, onClose, onDone, onReplac
         const dayJobs = j.data || [];
         items.filter((it) => it.work_date === days[i]).forEach((it) => {
           const job = dayJobs.find((x) => x.id === it.job_id); if (!job) return;
-          const required = data.serviceSkills.filter((x) => x.service_type_id === job.service_type_id).map((x) => x.skill_id);
+          const required = svcSkills(job, data);
           suggestStaff({ job, dayJobs, assign: c.data.assign || [], staff: c.data.staff || [], settings: c.data.settings, history: c.data.history || [], prefs: data.prefs, requiredSkills: required })
             .forEach((r, rank) => {
               if (r.staff.id === person.staff_id) return;
@@ -1441,7 +1481,7 @@ function ContinuationDialog({ org, data, job, onClose, onSaved, onAssign }) {
 function JobCard({ j, data, onOpen, compact, assign = [], onAssign, absent }) {
   const isAbs = (sid) => !!(absent && absent.has(`${j.id}|${sid}`));
   const c = data.customers.find((x) => x.id === j.customer_id);
-  const s = data.services.find((x) => x.id === j.service_type_id);
+  const sn = svcNames(j, data.services);
   const live = liveStatus(j); const st = live || { label: tx((STATUS[j.status] || STATUS.new).label), cls: (STATUS[j.status] || STATUS.new).cls };
   return (
     <div className={`rounded-xl border border-slate-200 bg-white shadow-sm hover:border-teal-400 hover:shadow ${compact ? "px-2 py-1.5" : "px-3 py-2.5"} ${j.status === "cancelled" ? "opacity-60" : ""}`}>
@@ -1453,7 +1493,7 @@ function JobCard({ j, data, onOpen, compact, assign = [], onAssign, absent }) {
       <div className={`mt-0.5 truncate ${compact ? "text-xs" : "text-sm"} text-slate-800`}>{custName(c)}{!compact && c ? <span className="ml-1 text-slate-400">#{c.customer_no}</span> : null}{j.series_id ? <span className="ml-1 text-[11px]" title={tx("Regelmäßiger Termin")}>🔁</span> : null}{j.parent_job_id ? <span className="ml-1.5 rounded bg-violet-50 px-1.5 py-0.5 text-[10px] font-semibold text-violet-700">{tx("Fortsetzung")}</span> : null}</div>
       {!compact && <div className="mt-0.5 truncate text-xs text-slate-600">{j.address_text}</div>}
       <div className={`mt-0.5 flex flex-wrap gap-x-3 text-slate-500 ${compact ? "text-[10px]" : "text-xs"}`}>
-        {s ? <span>{s.name}</span> : null}
+        {sn ? <span>{sn}</span> : null}
         {(() => { const n = assign.filter((a) => a.job_id === j.id && !isAbs(a.staff_id)).length; const full = n >= j.staff_needed;
           return <span className={j.status === "cancelled" ? "" : full ? "font-medium text-emerald-700" : "font-medium text-rose-700"}>{tx("Personal: {0}/{1}", n, j.staff_needed)}</span>; })()}
         {j.material ? <span>{j.material === "ours" ? tx("Material: von uns") : tx("Material: vom Kunden")}</span> : null}
@@ -1648,7 +1688,6 @@ function PrintDialog({ org, data, day, mode, onClose }) {
 function PrintSheet({ org, data, sheet, onBack, onClose, onReload }) {
   const { from, to, jobs, assign, names, absent, opts } = sheet;
   const custOf = (id) => data.customers.find((c) => c.id === id);
-  const svcOf = (id) => (data.services.find((x) => x.id === id) || {}).name || "";
   const staffOf = (j) => assign.filter((a) => a.job_id === j.id).map((a) => ({ id: a.staff_id, name: names[a.staff_id] || "?", absent: absent.has(`${j.id}|${a.staff_id}`) })).sort((a, b) => a.name.localeCompare(b.name));
   const present = (j) => staffOf(j).filter((x) => !x.absent).length;
   const short = jobs.filter((j) => present(j) < j.staff_needed);
@@ -1746,7 +1785,7 @@ function PrintSheet({ org, data, sheet, onBack, onClose, onReload }) {
           <div className="dgp-band"><span>{dayHead(d)}</span><span>{nJobs(list.length)}</span></div>
           <table>{cols(["15%", opts.notes ? "32%" : "42%", "17%", "17%", opts.notes && "19%"])}<thead><tr><th>{tx("Zeit")}</th><th>{tx("Kunde / Adresse")}</th><th>{tx("Leistung")}</th><th>{tx("Personal")}</th>{opts.notes && <th>{tx("Hinweis")}</th>}</tr></thead>
             <tbody>{list.map((j) => { const ss = staffOf(j); const n = present(j); return (
-              <tr key={j.id}>{timeCell(j)}{custCell(j)}<td>{svcOf(j.service_type_id)}</td>
+              <tr key={j.id}>{timeCell(j)}{custCell(j)}<td>{svcNames(j, data.services)}</td>
                 <td>{ss.map((x) => <div key={x.id} className={x.absent ? "dgp-warn" : ""}>{x.absent ? `⚠ ${x.name} (${tx("abwesend")})` : x.name}</div>)}
                   {n < j.staff_needed && <div className="dgp-warn">{tx("fehlt: {0}", j.staff_needed - n)}</div>}</td>
                 {noteCell(j)}</tr>); })}</tbody></table>
@@ -1761,7 +1800,7 @@ function PrintSheet({ org, data, sheet, onBack, onClose, onReload }) {
           <div className="dgp-person"><span style={{ fontSize: "14pt", fontWeight: 700 }}>{p.name}</span><span>{nJobs(p.list.length)} · {tx("{0} Std.", dec(Math.round(h * 10) / 10))}</span></div>
           <table>{cols(["11%", "15%", opts.notes ? "28%" : "38%", "15%", "12%", opts.notes && "19%"])}<thead><tr><th>{tx("Tag")}</th><th>{tx("Zeit")}</th><th>{tx("Kunde / Adresse")}</th><th>{tx("Leistung")}</th><th>{tx("Mit")}</th>{opts.notes && <th>{tx("Hinweis")}</th>}</tr></thead>
             <tbody>{p.list.map((j) => (
-              <tr key={j.id}><td style={{ whiteSpace: "nowrap" }}>{wdShort(dateOf(j.work_date).getDay())} {dm(dateOf(j.work_date))}{absent.has(`${j.id}|${p.id}`) ? <div className="dgp-warn">⚠ {tx("abwesend")}</div> : null}</td>{timeCell(j)}{custCell(j)}<td>{svcOf(j.service_type_id)}</td>
+              <tr key={j.id}><td style={{ whiteSpace: "nowrap" }}>{wdShort(dateOf(j.work_date).getDay())} {dm(dateOf(j.work_date))}{absent.has(`${j.id}|${p.id}`) ? <div className="dgp-warn">⚠ {tx("abwesend")}</div> : null}</td>{timeCell(j)}{custCell(j)}<td>{svcNames(j, data.services)}</td>
                 <td>{staffOf(j).filter((x) => x.id !== p.id).map((x) => x.name).join(", ") || "–"}</td>{noteCell(j)}</tr>))}</tbody></table>
         </div>); })}
       {short.length > 0 && !opts.pages && (
@@ -1799,7 +1838,7 @@ function CustomerDialog({ org, data, customer, onClose, onSaved, onNewJob }) {
   useEffect(() => {
     if (!editing) return undefined;
     let alive = true;
-    org.supabase.from("jobs").select("id, job_no, work_date, start_time, duration_min, service_type_id, status, address_text, series_id").eq("org_id", org.orgId).eq("customer_id", customer.id).order("work_date", { ascending: false }).limit(120)
+    org.supabase.from("jobs").select("id, job_no, work_date, start_time, duration_min, service_type_id, extra_service_ids, status, address_text, series_id").eq("org_id", org.orgId).eq("customer_id", customer.id).order("work_date", { ascending: false }).limit(120)
       .then(({ data: rows }) => { const t = isoOf(new Date()); if (alive) setHistory((rows || []).filter((h) => !(h.series_id && h.work_date > t)).slice(0, 20)); }); // künftige Termine einer Reihe stehen unter „Regelmäßige Termine“
     return () => { alive = false; };
   }, [editing, customer, org]);
@@ -1912,8 +1951,8 @@ function CustomerDialog({ org, data, customer, onClose, onSaved, onNewJob }) {
           <div className="mb-2 flex items-center justify-between"><h3 className="text-sm font-semibold text-slate-700">{tx("Letzte Aufträge")}</h3><button type="button" className={btnLight} onClick={() => onNewJob(customer)}><Plus size={15} />{tx("Auftrag für diesen Kunden")}</button></div>
           {history === null ? <p className="text-sm text-slate-500">{tx("Lädt …")}</p> : history.length === 0 ? <p className="text-sm text-slate-500">{tx("Noch keine Aufträge.")}</p> : (
             <ul className="divide-y divide-slate-100 rounded-lg border border-slate-200 text-sm">
-              {history.map((h) => { const s = data.services.find((x) => x.id === h.service_type_id); return (
-                <li key={h.id} className="flex flex-wrap items-center gap-x-3 px-3 py-1.5"><span className="w-24 text-slate-700">{isoDmy(h.work_date)}</span><span className="w-24 text-slate-600">{hhmm(h.start_time)}–{endOf(h.start_time, h.duration_min)}{h.series_id ? " 🔁" : ""}</span><span className="flex-1 truncate text-slate-600">{s ? s.name : ""}</span><span className={`rounded-full border px-2 py-0.5 text-[10px] ${(STATUS[h.status] || STATUS.new).cls}`}>{tx((STATUS[h.status] || STATUS.new).label)}</span></li>
+              {history.map((h) => { const sn = svcNames(h, data.services); return (
+                <li key={h.id} className="flex flex-wrap items-center gap-x-3 px-3 py-1.5"><span className="w-24 text-slate-700">{isoDmy(h.work_date)}</span><span className="w-24 text-slate-600">{hhmm(h.start_time)}–{endOf(h.start_time, h.duration_min)}{h.series_id ? " 🔁" : ""}</span><span className="flex-1 truncate text-slate-600">{sn}</span><span className={`rounded-full border px-2 py-0.5 text-[10px] ${(STATUS[h.status] || STATUS.new).cls}`}>{tx((STATUS[h.status] || STATUS.new).label)}</span></li>
               ); })}
             </ul>
           )}
