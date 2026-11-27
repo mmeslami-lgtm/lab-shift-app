@@ -332,7 +332,7 @@ export default function TourenGuide() {
             <ol>
               <li>How many people are free compared to how many are needed. Below: who is free, and who is not free and why (other job, absent, “please not” for this customer).</li>
               <li>Other jobs at the same time that do not have staff yet are counted too – they need people as well.</li>
-              <li><b>Free times on this day</b> – tap a time to take it over as the start time.</li>
+              <li><b>Free time windows on this day</b> – e.g. “12:30–14:30”: the whole job fits into this window. Tap it to start at the beginning; you can then move the start time within the window.</li>
             </ol>
             <div className="tg-note">It is only a hint – you can still save. Absences count only if they are entered in Dienstigo (Requests or <b>Report absence</b>). Travel time between two jobs is not counted here; you see “tight” when you assign staff.</div>
           </Step>
@@ -341,7 +341,7 @@ export default function TourenGuide() {
             <Shot src="4b-earliest" alt="Find earliest appointment" />
             <ol>
               <li>Press <b>Find earliest appointment</b>. Dienstigo searches the next 3 weeks with the details you entered (duration, staff, services, customer) – only on working days and within your working hours (1.3).</li>
-              <li>The first 3 days with enough free staff appear, each with the earliest time. Tap one – date and time are filled in.</li>
+              <li>The first 3 days with enough free staff appear, each with all its free time windows (e.g. “07:00–20:00”). Tap a window – date and start time are filled in. Every start time within the window works.</li>
             </ol>
             <p>For a repeating job, the next appointments are checked too. You see a warning if one of them is short of staff.</p>
           </Step>

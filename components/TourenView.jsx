@@ -1045,7 +1045,7 @@ function SeriesSection({ org, data, customer, onChanged }) {
 // wann ist der früheste Termin?“. Nur ein Hinweis – gespeichert werden kann trotzdem.
 // Zählt: abwesend, schon eingeteilt (gleiche Zeit), Kunde „bitte nicht“, nötige Fähigkeiten (fürs Team) und
 // Plätze anderer Aufträge zur selben Zeit, die noch ohne Personal sind (die brauchen ja auch jemanden).
-const AV_STEP = 30, AV_DAYS = 21;
+const AV_DAYS = 21;
 // Arbeitszeit der Firma (Einstellungen → Arbeitszeiten, SQL 66); ohne Angabe 07:00–20:00, alle Tage
 const workOf = (st) => { const a = toMin(hhmm((st && st.work_from) || "07:00")), b = toMin(hhmm((st && st.work_to) || "20:00")); const days = st && Array.isArray(st.work_days) && st.work_days.length ? st.work_days.map(Number) : [0, 1, 2, 3, 4, 5, 6]; return b > a ? { from: a, to: b, days } : { from: 420, to: 1200, days }; };
 const clockOf = (m) => `${pad(Math.floor(m / 60))}:${pad(m % 60)}`;
@@ -1072,6 +1072,18 @@ function availAt(day, startMin, dur, needed, required, custId, jobId, prefs) {
   const have = new Set(free.flatMap((p) => p.skills || []));
   const missing = required.filter((k) => !have.has(k));
   return { free, blocked, open, openJobs, avail, missing, ok: avail >= needed && !missing.length };
+}
+
+// Freie Zeitfenster eines Tages: alle Beginn-Zeiten im 5-Minuten-Raster prüfen (so passen auch 12:30 oder 18:05);
+// zusammenhängende Beginn-Zeiten = ein Fenster „von – bis“, in das der ganze Auftrag passt.
+function freeWindows(day, from, to, dur, needed, required, custId, jobId, prefs, minStart = -1) {
+  const out = []; let a = null, last = null;
+  for (let m = from; m + dur <= to; m += 5) {
+    const ok = m >= minStart && availAt(day, m, dur, needed, required, custId, jobId, prefs).ok;
+    if (ok) { if (a === null) a = m; last = m; } else if (a !== null) { out.push({ s: a, e: last + dur }); a = null; }
+  }
+  if (a !== null) out.push({ s: a, e: last + dur });
+  return out;
 }
 
 function AvailabilityBox({ org, data, jobId, custId, date, start, duration, needed, svc, rep, onPick }) {
@@ -1107,11 +1119,9 @@ function AvailabilityBox({ org, data, jobId, custId, date, start, duration, need
   // freie Zeiten an diesem Tag
   const slots = useMemo(() => {
     if (!day || day.date !== date || !cur || cur.ok) return [];
-    const out = []; const today = orgToday(); const nowM = date === today ? toMin(tsHm(new Date())) + 30 : -1;
-    for (let m = AV_FROM; m + dur <= AV_TO; m += AV_STEP) if (m >= nowM && availAt(day, m, dur, needed, required, custId, jobId, data.prefs).ok) out.push(m);
-    const want = toMin(start);
-    return out.sort((a, b) => Math.abs(a - want) - Math.abs(b - want)).slice(0, 5).sort((a, b) => a - b);
-  }, [day, date, cur && cur.ok, dur, needed, required, custId, jobId, data.prefs, start, AV_FROM, AV_TO]); // eslint-disable-line react-hooks/exhaustive-deps
+    const nowM = date === orgToday() ? toMin(tsHm(new Date())) + 30 : -1;
+    return freeWindows(day, AV_FROM, AV_TO, dur, needed, required, custId, jobId, data.prefs, nowM);
+  }, [day, date, cur && cur.ok, dur, needed, required, custId, jobId, data.prefs, AV_FROM, AV_TO]); // eslint-disable-line react-hooks/exhaustive-deps
   // Wiederholung: die nächsten Termine mitprüfen
   const repKey = rep && rep.mode !== "none" && okTime && date ? JSON.stringify([rep.mode, rep.days, rep.untilOn, rep.until, date, start, dur, needed, required, custId]) : "";
   useEffect(() => {
@@ -1140,10 +1150,8 @@ function AvailabilityBox({ org, data, jobId, custId, date, start, duration, need
         const vs = await Promise.all(ds.map((d) => loadDay(d)));
         ds.forEach((d, k) => {
           if (found.length >= 3) return;
-          for (let m = AV_FROM; m + dur <= AV_TO; m += AV_STEP) {
-            if (d === today && m < nowM) continue;
-            if (availAt({ date: d, ...vs[k] }, m, dur, needed, required, custId, jobId, data.prefs).ok) { found.push({ date: d, time: clockOf(m) }); break; }
-          }
+          const wins = freeWindows({ date: d, ...vs[k] }, AV_FROM, AV_TO, dur, needed, required, custId, jobId, data.prefs, d === today ? nowM : -1);
+          if (wins.length) found.push({ date: d, wins });
         });
       }
       setEarly(found);
@@ -1177,8 +1185,8 @@ function AvailabilityBox({ org, data, jobId, custId, date, start, duration, need
           {cur.blocked.length > 0 && <div className="flex flex-wrap items-center gap-1"><span className="text-xs text-slate-600">{tx("Nicht frei:")}</span>{cur.blocked.map((r) => <span key={r.staff.id} className={`${chip} border-slate-300 bg-white text-slate-600`}>{r.staff.name} · {why(r)}</span>)}</div>}
           {cur.missing.length > 0 && <div className="text-xs font-medium text-rose-800">{tx("Fähigkeit fehlt im Team: {0}", cur.missing.map(skillName).join(", "))}</div>}
           {!cur.ok && (slots.length ? (
-            <div className="flex flex-wrap items-center gap-1.5 pt-0.5"><span className="text-xs text-slate-700">{tx("Freie Zeiten an diesem Tag:")}</span>
-              {slots.map((m) => <button key={m} type="button" className="rounded-full border border-teal-600 bg-white px-2.5 py-0.5 text-xs font-semibold text-teal-800 hover:bg-teal-50" onClick={() => onPick(date, clockOf(m))}>{clockOf(m)}</button>)}</div>
+            <div className="flex flex-wrap items-center gap-1.5 pt-0.5"><span className="text-xs text-slate-700">{tx("Freie Zeitfenster an diesem Tag:")}</span>
+              {slots.map((w) => <button key={w.s} type="button" title={tx("Beginn zwischen {0} und {1}", clockOf(w.s), clockOf(w.e - dur))} className="rounded-full border border-teal-600 bg-white px-2.5 py-0.5 text-xs font-semibold text-teal-800 hover:bg-teal-50" onClick={() => onPick(date, clockOf(w.s))}>{clockOf(w.s)}–{clockOf(w.e)}</button>)}</div>
           ) : <div className="text-xs text-slate-700">{tx("An diesem Tag ist zwischen {0} und {1} keine Zeit mit genug freiem Personal.", clockOf(AV_FROM), clockOf(AV_TO))}</div>)}
           {repInfo && repInfo.length > 0 && (repInfo.every((x) => x.ok)
             ? <div className="text-xs text-emerald-800">{tx("Wiederholung: die nächsten {0} Termine sind auch frei ✓", repInfo.length)}</div>
@@ -1188,8 +1196,11 @@ function AvailabilityBox({ org, data, jobId, custId, date, start, duration, need
       {Array.isArray(early) && (
         <div className="mt-2 rounded-lg border border-teal-200 bg-white p-2 text-sm">
           {early.length ? (<>
-            <div className="text-xs text-slate-600">{tx("Früheste Termine mit {0} freien Personen ({1}–{2} Uhr):", needed, clockOf(AV_FROM), clockOf(AV_TO))}</div>
-            <div className="mt-1 flex flex-wrap gap-1.5">{early.map((x) => <button key={x.date} type="button" className="rounded-full border border-teal-600 bg-teal-600 px-3 py-1 text-xs font-semibold text-white hover:bg-teal-700" onClick={() => onPick(x.date, x.time)}>{dayLbl(x.date)} · {x.time}</button>)}</div>
+            <div className="text-xs text-slate-600">{tx("Früheste freie Zeitfenster mit {0} Personen ({1}–{2} Uhr):", needed, clockOf(AV_FROM), clockOf(AV_TO))}</div>
+            <div className="mt-1 space-y-1">{early.map((x) => (
+              <div key={x.date} className="flex flex-wrap items-center gap-1.5"><span className="w-20 shrink-0 text-xs font-semibold text-slate-700">{dayLbl(x.date)}</span>
+                {x.wins.map((w) => <button key={w.s} type="button" title={tx("Beginn zwischen {0} und {1}", clockOf(w.s), clockOf(w.e - dur))} className="rounded-full border border-teal-600 bg-teal-600 px-3 py-1 text-xs font-semibold text-white hover:bg-teal-700" onClick={() => onPick(x.date, clockOf(w.s))}>{clockOf(w.s)}–{clockOf(w.e)}</button>)}</div>))}</div>
+            <div className="mt-1 text-[11px] text-slate-500">{tx("Der ganze Auftrag passt in das Fenster. Antippen = Beginn am Anfang; die Uhrzeit können Sie danach im Fenster verschieben.")}</div>
           </>) : <div className="text-xs text-slate-700">{tx("In den nächsten {0} Tagen gibt es keinen Termin mit genug freiem Personal.", AV_DAYS)}</div>}
         </div>
       )}
