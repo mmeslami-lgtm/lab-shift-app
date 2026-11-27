@@ -30,7 +30,7 @@ function tx(...a) {
   if (TERMS !== "care" || typeof out !== "string") return out;
   return (SWAP[getLang()] || SWAP.de).reduce((t, [re, w]) => t.replace(re, w), out);
 }
-const DEFAULT_SETTINGS = { industry: "general", near_km: 3, fairness_pp: 10, travel_min: 30 };
+const DEFAULT_SETTINGS = { industry: "general", near_km: 3, fairness_pp: 10, travel_min: 30, work_from: "07:00", work_to: "20:00", work_days: [0, 1, 2, 3, 4, 5, 6] };
 const INDUSTRY = { cleaning: "Reinigung", care: "Pflege & Betreuung", facility: "Hausmeister & Technik", general: "Allgemein" };
 import { CalendarDays, ClipboardList, Users, Settings, LogOut, MapPin, Plus, X, ChevronLeft, ChevronRight, Phone, KeyRound, UserCog, MoreHorizontal, FileText, Printer, BookOpen } from "lucide-react";
 
@@ -718,6 +718,11 @@ function JobDialog({ org, data, job, preset, onClose, onSaved, onAssign }) {
         </div>
       </section>
 
+      {(!editing || ["new", "accepted"].includes(job.status)) && (
+        <AvailabilityBox org={org} data={data} jobId={editing ? job.id : null} custId={custId} date={f.work_date} start={f.start_time} duration={duration}
+          needed={Math.max(1, +f.staff_needed || 1)} svc={f.svc} rep={(!editing || canRepeatEdit) ? rep : null}
+          onPick={(d, t) => setF((p) => ({ ...p, work_date: d, start_time: t }))} />
+      )}
       {(!editing || canRepeatEdit) && <section className="mb-4"><RepeatFields value={rep} onChange={setRep} date={f.work_date} /></section>}
 
       <section className="mb-2 grid gap-3 sm:grid-cols-2">
@@ -1035,6 +1040,164 @@ function SeriesSection({ org, data, customer, onChanged }) {
   );
 }
 
+// ---------- Personal verfügbar? (27.11.2026) ----------
+// Wunsch: „Bevor ich den Plan speichere, möchte ich wissen, ob genug Personal frei ist“ + „mit den eingegebenen Angaben:
+// wann ist der früheste Termin?“. Nur ein Hinweis – gespeichert werden kann trotzdem.
+// Zählt: abwesend, schon eingeteilt (gleiche Zeit), Kunde „bitte nicht“, nötige Fähigkeiten (fürs Team) und
+// Plätze anderer Aufträge zur selben Zeit, die noch ohne Personal sind (die brauchen ja auch jemanden).
+const AV_STEP = 30, AV_DAYS = 21;
+// Arbeitszeit der Firma (Einstellungen → Arbeitszeiten, SQL 66); ohne Angabe 07:00–20:00, alle Tage
+const workOf = (st) => { const a = toMin(hhmm((st && st.work_from) || "07:00")), b = toMin(hhmm((st && st.work_to) || "20:00")); const days = st && Array.isArray(st.work_days) && st.work_days.length ? st.work_days.map(Number) : [0, 1, 2, 3, 4, 5, 6]; return b > a ? { from: a, to: b, days } : { from: 420, to: 1200, days }; };
+const clockOf = (m) => `${pad(Math.floor(m / 60))}:${pad(m % 60)}`;
+const orgToday = () => { try { if (ORG_TZ) return new Intl.DateTimeFormat("en-CA", { timeZone: ORG_TZ, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date()); } catch (e) { /* Browserzeit */ } return isoOf(new Date()); };
+function availAt(day, startMin, dur, needed, required, custId, jobId, prefs) {
+  const { ctx, jobs } = day;
+  const job = { id: jobId || "__new", start_time: clockOf(startMin), duration_min: dur, staff_needed: needed, customer_id: custId, lat: null, lng: null };
+  const rows = suggestStaff({ job, dayJobs: jobs, assign: ctx.assign || [], staff: ctx.staff || [], settings: ctx.settings, history: [], prefs, requiredSkills: [] });
+  const free = rows.filter((r) => !r.blocked).map((r) => r.staff);
+  const blocked = rows.filter((r) => r.blocked);
+  // andere Aufträge zur selben Zeit, die noch Personal brauchen
+  const end = startMin + dur;
+  const absentIds = new Set((ctx.staff || []).filter((p) => p.absent).map((p) => p.id));
+  let open = 0; const openJobs = [];
+  for (const x of jobs) {
+    if (x.id === jobId || x.status === "cancelled" || x.status === "done") continue;
+    const xs = toMin(x.start_time), xe = xs + (x.duration_min || 0);
+    if (!(xs < end && startMin < xe)) continue;
+    const have = (ctx.assign || []).filter((a) => a.job_id === x.id && !absentIds.has(a.staff_id)).length;
+    const miss = Math.max(0, (x.staff_needed || 1) - have);
+    if (miss) { open += miss; openJobs.push({ job: x, miss }); }
+  }
+  const avail = Math.max(0, free.length - open);
+  const have = new Set(free.flatMap((p) => p.skills || []));
+  const missing = required.filter((k) => !have.has(k));
+  return { free, blocked, open, openJobs, avail, missing, ok: avail >= needed && !missing.length };
+}
+
+function AvailabilityBox({ org, data, jobId, custId, date, start, duration, needed, svc, rep, onPick }) {
+  const sb = org.supabase;
+  const cache = useRef({});
+  const [day, setDay] = useState(null); // { ctx, jobs } für date
+  const [err, setErr] = useState(null);
+  const [repInfo, setRepInfo] = useState(null);
+  const [early, setEarly] = useState(null); // null | "busy" | [{date, time}]
+  const loadDay = useCallback(async (d) => {
+    if (cache.current[d]) return cache.current[d];
+    const [c, j] = await Promise.all([
+      sb.rpc("touren_day_context", { p_org: org.orgId, p_day: d }),
+      sb.from("jobs").select("id, start_time, duration_min, staff_needed, status, customer_id").eq("org_id", org.orgId).eq("work_date", d),
+    ]);
+    if (c.error || j.error) throw c.error || j.error;
+    const v = { ctx: c.data || {}, jobs: j.data || [] };
+    cache.current[d] = v; return v;
+  }, [sb, org.orgId]);
+  const required = useMemo(() => [...new Set(data.serviceSkills.filter((x) => (svc || []).includes(x.service_type_id)).map((x) => x.skill_id))], [data.serviceSkills, svc]);
+  const skillName = (id) => (data.skills.find((k) => k.id === id) || {}).name || "?";
+  const custOf = (id) => custName(data.customers.find((c) => c.id === id));
+  const okTime = /^\d{2}:\d{2}$/.test(start || "");
+  const dur = Math.max(15, duration || 0);
+  const W = workOf(data.settings); const AV_FROM = W.from, AV_TO = W.to;
+  useEffect(() => {
+    if (!date) { setDay(null); return undefined; }
+    let alive = true; setErr(null);
+    const t = setTimeout(() => { loadDay(date).then((v) => { if (alive) setDay({ date, ...v }); }).catch((e) => { if (alive) { setErr(errText(e)); setDay(null); } }); }, 250);
+    return () => { alive = false; clearTimeout(t); };
+  }, [date, loadDay]);
+  const cur = day && day.date === date && okTime ? availAt(day, toMin(start), dur, needed, required, custId, jobId, data.prefs) : null;
+  // freie Zeiten an diesem Tag
+  const slots = useMemo(() => {
+    if (!day || day.date !== date || !cur || cur.ok) return [];
+    const out = []; const today = orgToday(); const nowM = date === today ? toMin(tsHm(new Date())) + 30 : -1;
+    for (let m = AV_FROM; m + dur <= AV_TO; m += AV_STEP) if (m >= nowM && availAt(day, m, dur, needed, required, custId, jobId, data.prefs).ok) out.push(m);
+    const want = toMin(start);
+    return out.sort((a, b) => Math.abs(a - want) - Math.abs(b - want)).slice(0, 5).sort((a, b) => a - b);
+  }, [day, date, cur && cur.ok, dur, needed, required, custId, jobId, data.prefs, start, AV_FROM, AV_TO]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Wiederholung: die nächsten Termine mitprüfen
+  const repKey = rep && rep.mode !== "none" && okTime && date ? JSON.stringify([rep.mode, rep.days, rep.untilOn, rep.until, date, start, dur, needed, required, custId]) : "";
+  useEffect(() => {
+    if (!repKey) { setRepInfo(null); return undefined; }
+    let alive = true;
+    const t = setTimeout(async () => {
+      try {
+        const sr = { ...repRule(rep), start_date: date, end_date: rep.untilOn && rep.until ? rep.until : null };
+        const ds = (sr.freq === "month" || sr.weekdays.length ? seriesNext(sr, date, 5) : []).filter((d) => d !== date).slice(0, 4);
+        const res = [];
+        for (const d of ds) { const v = await loadDay(d); const a = availAt({ date: d, ...v }, toMin(start), dur, needed, required, custId, jobId, data.prefs); res.push({ d, ok: a.ok, avail: a.avail }); }
+        if (alive) setRepInfo(res);
+      } catch (e) { if (alive) setRepInfo(null); }
+    }, 400);
+    return () => { alive = false; clearTimeout(t); };
+  }, [repKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { setEarly(null); }, [dur, needed, required.join(","), custId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function findEarliest() {
+    setEarly("busy");
+    const found = []; const today = orgToday(); const nowM = toMin(tsHm(new Date())) + 60;
+    try {
+      const open = W.days; // nur Arbeitstage der Firma
+      for (let i = 0; i < AV_DAYS && found.length < 3; i += 7) {
+        const ds = Array.from({ length: 7 }, (_, k) => addDays(today, i + k)).filter((d, k) => i + k < AV_DAYS && open.includes(dateOf(d).getDay()));
+        const vs = await Promise.all(ds.map((d) => loadDay(d)));
+        ds.forEach((d, k) => {
+          if (found.length >= 3) return;
+          for (let m = AV_FROM; m + dur <= AV_TO; m += AV_STEP) {
+            if (d === today && m < nowM) continue;
+            if (availAt({ date: d, ...vs[k] }, m, dur, needed, required, custId, jobId, data.prefs).ok) { found.push({ date: d, time: clockOf(m) }); break; }
+          }
+        });
+      }
+      setEarly(found);
+    } catch (e) { setEarly(null); setErr(errText(e)); }
+  }
+
+  const why = (r) => {
+    const b = r.blocked;
+    if (b.kind === "absent") return tx("abwesend");
+    if (b.kind === "excluded") return tx("Kunde: bitte nicht");
+    if (b.kind === "busy") return tx("{0}–{1} bei {2}", b.from, b.to, custOf(b.job.customer_id));
+    return "";
+  };
+  const tone = !cur ? "border-slate-200 bg-slate-50" : cur.ok ? "border-emerald-200 bg-emerald-50" : "border-rose-200 bg-rose-50";
+  const chip = "inline-flex items-center rounded-full border px-2 py-0.5 text-xs";
+  return (
+    <section data-availability className={`mb-4 rounded-xl border p-3 ${tone}`}>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="text-sm font-semibold text-slate-800">👥 {tx("Personal verfügbar?")}</div>
+        <button type="button" className={btnLight} onClick={findEarliest} disabled={early === "busy"}>{early === "busy" ? tx("Sucht …") : tx("Frühesten Termin finden")}</button>
+      </div>
+      {err && <p className="mt-1 text-xs text-rose-700">{err}</p>}
+      {!err && !okTime && <p className="mt-1 text-xs text-slate-600">{tx("Datum und Beginn eintragen – dann sehen Sie, wer frei ist.")}</p>}
+      {!err && okTime && !cur && <p className="mt-1 text-xs text-slate-500">{tx("Lädt …")}</p>}
+      {cur && (
+        <div className="mt-1.5 space-y-1.5 text-sm">
+          {(!W.days.includes(dateOf(date).getDay()) || toMin(start) < AV_FROM || toMin(start) + dur > AV_TO) && <div className="text-xs font-medium text-amber-800">{tx("Außerhalb der Arbeitszeit der Firma ({0}–{1}, {2}).", clockOf(AV_FROM), clockOf(AV_TO), W.days.length === 7 ? tx("alle Tage") : [1, 2, 3, 4, 5, 6, 0].filter((d) => W.days.includes(d)).map((d) => wdShort(d)).join(", "))}</div>}
+          <div className={`font-semibold ${cur.ok ? "text-emerald-800" : "text-rose-800"}`}>{cur.ok ? tx("✓ {0} frei – {1} nötig", cur.avail, needed) : tx("⚠ Nur {0} frei – {1} nötig", cur.avail, needed)}</div>
+          {cur.free.length > 0 && <div className="flex flex-wrap items-center gap-1"><span className="text-xs text-slate-600">{tx("Frei:")}</span>{cur.free.map((p) => <span key={p.id} className={`${chip} border-emerald-300 bg-white text-emerald-800`}>{p.name}</span>)}</div>}
+          {cur.open > 0 && <div className="text-xs text-slate-700">{tx("Zur selben Zeit fehlt anderen Aufträgen noch Personal ({0}):", cur.open)} {cur.openJobs.map((o) => `${hhmm(o.job.start_time)} ${custOf(o.job.customer_id)} (${o.miss})`).join(" · ")}</div>}
+          {cur.blocked.length > 0 && <div className="flex flex-wrap items-center gap-1"><span className="text-xs text-slate-600">{tx("Nicht frei:")}</span>{cur.blocked.map((r) => <span key={r.staff.id} className={`${chip} border-slate-300 bg-white text-slate-600`}>{r.staff.name} · {why(r)}</span>)}</div>}
+          {cur.missing.length > 0 && <div className="text-xs font-medium text-rose-800">{tx("Fähigkeit fehlt im Team: {0}", cur.missing.map(skillName).join(", "))}</div>}
+          {!cur.ok && (slots.length ? (
+            <div className="flex flex-wrap items-center gap-1.5 pt-0.5"><span className="text-xs text-slate-700">{tx("Freie Zeiten an diesem Tag:")}</span>
+              {slots.map((m) => <button key={m} type="button" className="rounded-full border border-teal-600 bg-white px-2.5 py-0.5 text-xs font-semibold text-teal-800 hover:bg-teal-50" onClick={() => onPick(date, clockOf(m))}>{clockOf(m)}</button>)}</div>
+          ) : <div className="text-xs text-slate-700">{tx("An diesem Tag ist zwischen {0} und {1} keine Zeit mit genug freiem Personal.", clockOf(AV_FROM), clockOf(AV_TO))}</div>)}
+          {repInfo && repInfo.length > 0 && (repInfo.every((x) => x.ok)
+            ? <div className="text-xs text-emerald-800">{tx("Wiederholung: die nächsten {0} Termine sind auch frei ✓", repInfo.length)}</div>
+            : <div className="text-xs font-medium text-rose-800">{tx("Wiederholung: zu wenig Personal am {0}", repInfo.filter((x) => !x.ok).map((x) => `${dayLbl(x.d)} (${x.avail}/${needed})`).join(", "))}</div>)}
+        </div>
+      )}
+      {Array.isArray(early) && (
+        <div className="mt-2 rounded-lg border border-teal-200 bg-white p-2 text-sm">
+          {early.length ? (<>
+            <div className="text-xs text-slate-600">{tx("Früheste Termine mit {0} freien Personen ({1}–{2} Uhr):", needed, clockOf(AV_FROM), clockOf(AV_TO))}</div>
+            <div className="mt-1 flex flex-wrap gap-1.5">{early.map((x) => <button key={x.date} type="button" className="rounded-full border border-teal-600 bg-teal-600 px-3 py-1 text-xs font-semibold text-white hover:bg-teal-700" onClick={() => onPick(x.date, x.time)}>{dayLbl(x.date)} · {x.time}</button>)}</div>
+          </>) : <div className="text-xs text-slate-700">{tx("In den nächsten {0} Tagen gibt es keinen Termin mit genug freiem Personal.", AV_DAYS)}</div>}
+        </div>
+      )}
+      <p className="mt-2 text-[11px] text-slate-500">{tx("Nur ein Hinweis – speichern geht trotzdem.")}</p>
+    </section>
+  );
+}
+
 // ---------- Personal zuteilen (D3b) ----------
 function AssignPanel({ org, job, data, onClose, onChanged, onTeamAll }) {
   const sb = org.supabase;
@@ -1132,7 +1295,7 @@ function AssignPanel({ org, job, data, onClose, onChanged, onTeamAll }) {
 }
 
 // ---------- Abwesend: betroffene Aufträge (Krankmeldung aus der App oder von der Leitung eingetragen) ----------
-function ConflictBox({ items, onReplace, onReplaceAll, busy, attention, onOpenJob, onPlan }) {
+function ConflictBox({ items, onReplace, onReplaceAll, busy, attention, onOpenJob, onPlan, onMove }) {
   const over = (attention && attention.overrun) || [], conf = (attention && attention.confirm) || [];
   if (!items.length && !over.length && !conf.length) return null;
   const n = items.length + over.length + conf.length;
@@ -1149,8 +1312,9 @@ function ConflictBox({ items, onReplace, onReplaceAll, busy, attention, onOpenJo
         ))}
         {conf.map((c) => (
           <li key={"c" + c.job_id} className={row}>
-            <span><b>{c.customer}</b> · {tx("nicht fertig – Fortsetzung ({0}) braucht einen Termin", durTxt(c.duration_min).trim())}</span>
-            <button type="button" className={btnPrimary} onClick={() => onPlan(c.job_id)}>{tx("Einplanen")}</button>
+            {c.parent_no ? <span><b>{c.customer}</b> · {tx("nicht fertig – Fortsetzung ({0}) braucht einen Termin", durTxt(c.duration_min).trim())}</span>
+              : <span><b>{c.customer}</b> · {tx("verschoben – Kunde muss noch zustimmen")} · {dayLbl(c.work_date)} {c.start_time}</span>}
+            <button type="button" className={btnPrimary} onClick={() => onPlan(c.job_id)}>{c.parent_no ? tx("Einplanen") : tx("Klären")}</button>
           </li>
         ))}
         {[...new Set(items.map((c) => c.staff_id))].map((sid) => { const g = items.filter((c) => c.staff_id === sid); return (
@@ -1164,14 +1328,110 @@ function ConflictBox({ items, onReplace, onReplaceAll, busy, attention, onOpenJo
             {g.map((c) => (
               <li key={`${c.job_id}|${c.staff_id}`} className={`flex flex-wrap items-center justify-between gap-2 rounded-lg bg-white/70 px-2 py-1.5 text-sm text-rose-900 ${g.length > 1 && onReplaceAll ? "ml-4" : ""}`}>
                 <span>{g.length > 1 && onReplaceAll ? null : <b>{c.staff_name} </b>}{g.length > 1 && onReplaceAll ? null : `${tx("abwesend – Ersatz nötig")} · `}{wdShort(dateOf(c.work_date).getDay())} {dm(dateOf(c.work_date))} {c.start_time} · {c.customer}</span>
-                <button type="button" className={g.length > 1 && onReplaceAll ? btnLight : btnPrimary} onClick={() => onReplace(c)} disabled={busy}>{tx("Ersatz finden")}</button>
+                <span className="flex flex-wrap gap-1.5">
+                  {onMove && <button type="button" className={btnLight} onClick={() => onMove(c)} disabled={busy}>{tx("Verschieben …")}</button>}
+                  <button type="button" className={g.length > 1 && onReplaceAll ? btnLight : btnPrimary} onClick={() => onReplace(c)} disabled={busy}>{tx("Ersatz finden")}</button>
+                </span>
               </li>
             ))}
           </React.Fragment>
         ); })}
       </ul>
-      {items.length > 0 && <p className="mt-1.5 text-[11px] text-rose-700">{tx("„Ersatz finden“ nimmt die Person aus dem Auftrag und zeigt gleich die besten Vorschläge.")}</p>}
+      {items.length > 0 && <p className="mt-1.5 text-[11px] text-rose-700">{tx("„Ersatz finden“ nimmt die Person aus dem Auftrag und zeigt gleich die besten Vorschläge.")} {onMove ? tx("Kein Ersatz frei? „Verschieben …“: neuen Termin suchen, mit dem Kunden klären, dann bestätigen.") : ""}</p>}
     </div>
+  );
+}
+
+// ---------- Abwesend: Termin verschieben, vorher mit dem Kunden klären (27.11.2026) ----------
+// Wunsch: wie bei der Fortsetzung – wenn kein Ersatz frei ist: freie Zeit suchen, Kunden per WhatsApp fragen,
+// dann „Kunde hat zugestimmt“. „Speichern (noch offen)“ = needs_confirm: Mitarbeitende sehen den Termin noch nicht.
+function MoveDialog({ org, data, jobId, absentId, onClose, onSaved, onAssign }) {
+  const sb = org.supabase;
+  const [job, setJob] = useState(null);
+  const [team, setTeam] = useState([]);
+  const [f, setF] = useState({ work_date: "", start_time: "" });
+  const [text, setText] = useState("");
+  const [touched, setTouched] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      const [j, t] = await Promise.all([sb.from("jobs").select("*").eq("id", jobId).single(), sb.from("job_staff").select("staff_id").eq("job_id", jobId)]);
+      if (!alive) return;
+      if (j.error) { setMsg({ kind: "err", text: errText(j.error) }); return; }
+      setJob(j.data); setTeam(((!t.error && t.data) || []).map((x) => x.staff_id));
+      setF({ work_date: j.data.work_date, start_time: hhmm(j.data.start_time) });
+    })();
+    return () => { alive = false; };
+  }, [sb, jobId]);
+  const c = job ? data.customers.find((x) => x.id === job.customer_id) : null;
+  const nameOf = (id) => (data.staffList.find((x) => x.id === id) || {}).name || "?";
+  const orig = job && job.needs_confirm && job.extra && job.extra.moved_from ? job.extra.moved_from : job ? { date: job.work_date, time: hhmm(job.start_time) } : null;
+  const draft = job && f.work_date && /^\d{2}:\d{2}$/.test(f.start_time) ? tx("Hallo {0}, leider fällt am {1} um {2} Uhr unser Personal aus. Passt es Ihnen stattdessen am {3} um {4} Uhr?",
+    c ? (c.kind === "company" && c.company ? c.name || c.company : c.name) : "", `${wdLong(dateOf(orig.date).getDay())}, ${dmy(dateOf(orig.date))}`, orig.time, `${wdLong(dateOf(f.work_date).getDay())}, ${dmy(dateOf(f.work_date))}`, f.start_time) : "";
+  useEffect(() => { if (!touched) setText(draft); }, [draft, touched]);
+  const changed = job && (f.work_date !== job.work_date || f.start_time !== hhmm(job.start_time));
+
+  async function save(confirm) {
+    setMsg(null);
+    if (!f.work_date || !/^\d{2}:\d{2}$/.test(f.start_time)) return setMsg({ kind: "err", text: tx("Bitte Datum und Uhrzeit angeben.") });
+    setBusy(true);
+    const extra = { ...(job.extra || {}) };
+    if (confirm) delete extra.moved_from; else if (!extra.moved_from) extra.moved_from = { date: job.work_date, time: hhmm(job.start_time) };
+    const row = { work_date: f.work_date, start_time: f.start_time, needs_confirm: !confirm, extra };
+    let err = null;
+    const up = await sb.from("jobs").update(row).eq("id", job.id).select().single(); err = up.error;
+    // bestätigt: wer am neuen Tag abwesend ist, kommt aus dem Auftrag
+    let left = team;
+    if (!err && confirm) {
+      const ctx = await sb.rpc("touren_day_context", { p_org: org.orgId, p_day: f.work_date });
+      const absentNow = new Set(((!ctx.error && ctx.data && ctx.data.staff) || []).filter((p) => p.absent).map((p) => p.id));
+      const out = team.filter((id) => absentNow.has(id) || (ctx.error && id === absentId));
+      for (const id of out) { const d = await sb.from("job_staff").delete().eq("job_id", job.id).eq("staff_id", id); if (d.error) { err = d.error; break; } }
+      left = team.filter((id) => !out.includes(id));
+    }
+    setBusy(false);
+    if (err) return setMsg({ kind: "err", text: errText(err) });
+    if (!confirm) return onSaved(tx("Gespeichert – Termin noch offen."), f.work_date);
+    if (left.length < (job.staff_needed || 1) && onAssign) { onSaved(tx("Termin bestätigt ✓"), f.work_date); onAssign(up.data); return; }
+    onSaved(tx("Termin bestätigt ✓ – Team eingeteilt."), f.work_date);
+  }
+  const step = "mb-1.5 text-sm font-semibold text-slate-700";
+  return (
+    <Modal title={tx("Termin verschieben")} onClose={onClose} wide>
+      {!job ? <p className="text-sm text-slate-500">{msg ? msg.text : tx("Lädt …")}</p> : (<>
+        <div className="mb-3 rounded-lg bg-slate-50 p-3 text-sm">
+          <div className="font-semibold text-slate-800">{custName(c)} · {tx("Auftrag Nr. {0}", job.job_no)}</div>
+          <div className="text-slate-600">{tx("Bisher: {0} um {1} Uhr", `${wdShort(dateOf(orig.date).getDay())} ${dmy(dateOf(orig.date))}`, orig.time)}{absentId ? ` · ${tx("{0} ist abwesend", nameOf(absentId))}` : ""}</div>
+          {team.length > 0 && <div className="text-xs text-slate-500">{tx("Team: {0}", team.map(nameOf).join(", "))}</div>}
+        </div>
+        <div className={step}>① {tx("Neuen Termin suchen")}</div>
+        <div className="mb-2 flex flex-wrap items-end gap-3">
+          <label className="block"><span className={lbl}>{tx("Datum")}</span><input type="date" className={inpBase} value={f.work_date} onChange={(e) => setF({ ...f, work_date: e.target.value })} /></label>
+          <label className="block"><span className={lbl}>{tx("Beginn")}</span><input type="time" step="300" className={`${inpBase} w-32`} value={f.start_time} onChange={(e) => setF({ ...f, start_time: e.target.value })} /></label>
+          <span className="pb-2 text-sm text-slate-600">{tx("Dauer")}: {durTxt(job.duration_min).trim()} · {tx("Personal: {0}", job.staff_needed || 1)}</span>
+        </div>
+        <AvailabilityBox org={org} data={data} jobId={job.id} custId={job.customer_id} date={f.work_date} start={f.start_time} duration={job.duration_min}
+          needed={job.staff_needed || 1} svc={jobSvcIds(job)} rep={null} onPick={(d, t) => setF({ work_date: d, start_time: t })} />
+        <div className={step}>② {tx("Mit dem Kunden klären")}</div>
+        <textarea rows={3} className={inp} value={text} onChange={(e) => { setText(e.target.value); setTouched(true); }} aria-label={tx("Nachricht")} />
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          {c && c.phone ? <a href={`https://wa.me/${digits(c.phone)}?text=${encodeURIComponent(text)}`} target="_blank" rel="noopener noreferrer" className={`${btn} min-h-[40px] bg-emerald-600 text-white hover:bg-emerald-700`}>WhatsApp</a>
+            : <span className="text-sm text-slate-500">{tx("Für diesen Kunden ist keine Telefonnummer gespeichert.")}</span>}
+          {c && c.phone && <a href={`tel:${c.phone}`} className={btnLight}><Phone size={15} />{tx("Anrufen")}</a>}
+          {touched && <button type="button" className="text-xs text-slate-500 underline" onClick={() => setTouched(false)}>{tx("Text neu vorschlagen")}</button>}
+        </div>
+        <p className="mt-1 text-[11px] text-slate-500">{tx("Solange der Termin offen ist, sehen die Mitarbeitenden ihn nicht.")}</p>
+        <div className={`${step} mt-4`}>③ {tx("Antwort des Kunden")}</div>
+        <Msg msg={msg} />
+        <div className="tv-actions mt-2 flex flex-wrap justify-end gap-2">
+          <button type="button" className={btnLight} onClick={onClose} disabled={busy}>{tx("Abbrechen")}</button>
+          <button type="button" className={btnLight} onClick={() => save(false)} disabled={busy || !changed && !job.needs_confirm}>{tx("Speichern (noch offen)")}</button>
+          <button type="button" className={btnPrimary} onClick={() => save(true)} disabled={busy}>✓ {tx("Kunde hat zugestimmt")}</button>
+        </div>
+      </>)}
+    </Modal>
   );
 }
 
@@ -2431,6 +2691,37 @@ function StaffView({ org, data, onChanged, onAbsence }) {
   );
 }
 
+// ---------- Einstellungen: Arbeitszeiten der Firma (SQL 66, 27.11.2026) ----------
+function HoursSection({ org, data, done }) {
+  const st = data.settings; const W = workOf(st);
+  const init = () => ({ from: clockOf(W.from), to: clockOf(W.to), days: W.days });
+  const [v, setV] = useState(init);
+  useEffect(() => { setV(init()); }, [st.work_from, st.work_to, JSON.stringify(st.work_days)]); // eslint-disable-line react-hooks/exhaustive-deps
+  const toggle = (d) => setV((p) => ({ ...p, days: p.days.includes(d) ? p.days.filter((x) => x !== d) : [...p.days, d].sort((a, b) => a - b) }));
+  const save = async () => {
+    if (!/^\d{2}:\d{2}$/.test(v.from) || !/^\d{2}:\d{2}$/.test(v.to) || v.to <= v.from) return done({ error: { message: tx("„Bis“ liegt vor „Von“.") } });
+    if (!v.days.length) return done({ error: { message: tx("Bitte mindestens einen Arbeitstag wählen.") } });
+    const r = await org.supabase.from("touren_settings").upsert({ org_id: org.orgId, work_from: v.from, work_to: v.to, work_days: v.days }, { onConflict: "org_id" });
+    if (r.error && /work_(from|to|days)|schema cache|column/.test(r.error.message || "")) return done({ error: { message: tx("Bitte zuerst Datenbank-Skript 66 ausführen.") } });
+    await done(r, tx("Arbeitszeiten gespeichert ✓"));
+  };
+  return (
+    <section data-hours className="rounded-xl border border-slate-200 bg-white p-4">
+      <h2 className="text-base font-semibold text-slate-800">{tx("Arbeitszeiten der Firma")}</h2>
+      <p className="mb-3 text-xs text-slate-500">{tx("Wann Ihre Firma Aufträge annimmt. „Personal verfügbar?“ und „Frühesten Termin finden“ schlagen nur Zeiten in diesem Rahmen vor.")}</p>
+      <div className="flex flex-wrap items-end gap-3">
+        <label className="block"><span className={lbl}>{tx("Von")}</span><input type="time" step="900" className={`${inpBase} w-32`} value={v.from} onChange={(e) => setV({ ...v, from: e.target.value })} /></label>
+        <label className="block"><span className={lbl}>{tx("Bis")}</span><input type="time" step="900" className={`${inpBase} w-32`} value={v.to} onChange={(e) => setV({ ...v, to: e.target.value })} /></label>
+        <div><span className={lbl}>{tx("Arbeitstage")}</span>
+          <div className="flex flex-wrap gap-1">{[1, 2, 3, 4, 5, 6, 0].map((d) => { const on = v.days.includes(d); return (
+            <button key={d} type="button" aria-pressed={on} onClick={() => toggle(d)} className={`min-h-[36px] min-w-[44px] rounded-full border px-2.5 text-sm ${on ? "border-teal-600 bg-teal-600 text-white" : "border-slate-300 bg-white text-slate-600"}`}>{wdShort(d)}</button>); })}</div>
+        </div>
+      </div>
+      <button type="button" className={`${btnPrimary} mt-3`} onClick={save}>{tx("Speichern")}</button>
+    </section>
+  );
+}
+
 // ---------- Einstellungen D3b: Regeln, Orte, Fähigkeiten ----------
 function RulesSection({ org, data, done }) {
   const st = data.settings;
@@ -2554,6 +2845,7 @@ function SettingsView({ org, data, reload }) {
   };
   return (
     <div className="space-y-6">
+      <HoursSection org={org} data={data} done={done} />
       <RulesSection org={org} data={data} done={done} />
       <PlacesSection org={org} data={data} done={done} />
       <SkillsSection org={org} data={data} done={done} />
@@ -2652,6 +2944,7 @@ export default function TourenView() {
   const [printOpen, setPrintOpen] = useState(false);
   const [attention, setAttention] = useState({ overrun: [], confirm: [] }); // D3c-1: läuft länger / offene Fortsetzungen
   const [contDlg, setContDlg] = useState(null);
+  const [moveDlg, setMoveDlg] = useState(null); // { jobId, absentId } – Termin verschieben (abwesend)
   const sb = org.supabase;
 
   const loadBase = useCallback(async () => {
@@ -2706,7 +2999,7 @@ export default function TourenView() {
   useEffect(() => { loadConflicts(); }, [loadConflicts]);
   // live: alle 60 s „läuft länger“ / Status neu laden, solange „Aufträge“ offen ist
   useEffect(() => { if (tab !== "jobs") return undefined; const t = setInterval(() => { loadConflicts(); loadJobs(); }, 60000); return () => clearInterval(t); }, [tab, loadConflicts, loadJobs]);
-  const openJobById = async (id, cont) => { const r = await sb.from("jobs").select("*").eq("id", id).single(); if (r.error) { setFlash(errText(r.error)); return; } if (cont || r.data.needs_confirm) setContDlg(r.data); else setJobDlg({ job: r.data }); };
+  const openJobById = async (id, cont) => { const r = await sb.from("jobs").select("*").eq("id", id).single(); if (r.error) { setFlash(errText(r.error)); return; } if ((cont || r.data.needs_confirm) && !r.data.parent_job_id && r.data.needs_confirm) setMoveDlg({ jobId: r.data.id, absentId: null }); else if (cont || r.data.needs_confirm) setContDlg(r.data); else setJobDlg({ job: r.data }); };
   useEffect(() => { if (!flash) return undefined; const t = setTimeout(() => setFlash(null), 5000); return () => clearTimeout(t); }, [flash]);
 
   const onJobSaved = async (text, date, extra) => { setJobDlg(null); setFlash(text); if (extra && extra.teamJob) setAssignDlg({ ...extra.teamJob, __team: true }); await loadBase(); if (date && (date < range[0] || date > range[1])) setDay(date); else await loadJobs(); };
@@ -2787,10 +3080,10 @@ export default function TourenView() {
         <header className="dg-pagehead"><div><h1>{tx(h1)}</h1><p>{tx(sub)}</p></div></header>
         {loadErr && <div role="alert" className="rounded-xl bg-rose-50 px-4 py-3 text-sm text-rose-800">{loadErr}</div>}
         {!loadErr && !loaded && <p className="text-sm text-slate-500">{tx("Lädt …")}</p>}
-        {!loadErr && loaded && tab === "jobs" && <ConflictBox items={upcoming} onReplace={replace} onReplaceAll={(g) => setBulkRep(g)} busy={repBusy} attention={attention} onOpenJob={(id) => openJobById(id)} onPlan={(id) => openJobById(id, true)} />}
+        {!loadErr && loaded && tab === "jobs" && <ConflictBox items={upcoming} onReplace={replace} onReplaceAll={(g) => setBulkRep(g)} busy={repBusy} attention={attention} onOpenJob={(id) => openJobById(id)} onPlan={(id) => openJobById(id, true)} onMove={(c) => setMoveDlg({ jobId: c.job_id, absentId: c.staff_id })} />}
         {!loadErr && loaded && tab === "jobs" && (
           <JobsView org={org} data={data} jobs={jobs} assign={assign} absent={absentSet} onPrint={() => setPrintOpen(true)} onAssign={(j) => setAssignDlg(j)} day={day} setDay={setDay} mode={mode} setMode={setMode} showCancelled={showCancelled} setShowCancelled={setShowCancelled}
-            onNew={(d) => setJobDlg({ preset: { date: d } })} onOpen={(j) => (j.needs_confirm ? setContDlg(j) : setJobDlg({ job: j }))} />
+            onNew={(d) => setJobDlg({ preset: { date: d } })} onOpen={(j) => (j.needs_confirm ? (j.parent_job_id ? setContDlg(j) : setMoveDlg({ jobId: j.id, absentId: null })) : setJobDlg({ job: j }))} />
         )}
         {!loadErr && loaded && tab === "customers" && <CustomersView data={data} onNew={() => setCustDlg({})} onOpen={(c) => setCustDlg({ customer: c })} />}
         {!loadErr && loaded && tab === "settings" && isLeader && <SettingsView org={org} data={data} reload={loadBase} />}
@@ -2818,6 +3111,8 @@ export default function TourenView() {
       {flash && <div role="status" className="tv-only-phone tv-toast">{flash}</div>}
       {zugOpen && <ZugaengeDialog onClose={() => setZugOpen(false)} />}
       {reqOpen && <RequestsDialog onChanged={() => afterAbsence(null)} onClose={() => { setReqOpen(false); afterAbsence(null); }} />}
+      {moveDlg && <MoveDialog org={org} data={data} jobId={moveDlg.jobId} absentId={moveDlg.absentId} onClose={() => setMoveDlg(null)}
+        onSaved={async (text, date) => { setMoveDlg(null); await onJobSaved(text, date); await loadConflicts(); }} onAssign={(j) => setAssignDlg(j)} />}
       {contDlg && <ContinuationDialog org={org} data={data} job={contDlg} onClose={() => setContDlg(null)}
         onSaved={async (text, date) => { setContDlg(null); await onJobSaved(text, date); await loadConflicts(); }} onAssign={(j) => setAssignDlg(j)} />}
       {printOpen && data && <PrintDialog org={org} data={data} day={day} mode={mode} onClose={() => setPrintOpen(false)} />}

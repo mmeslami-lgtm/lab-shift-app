@@ -84,6 +84,7 @@ export default function TourenGuide() {
             <a href="#settings">1 · Company settings</a>
             <a href="#staff">2 · Staff</a>
             <a href="#customers">3 · Customers</a>
+            <a href="#daily">4 · Daily work</a>
           </nav>
           <button type="button" className="tg-btn" onClick={() => window.print()}>🖨 Print / PDF</button>
           <a href="/touren" className="tg-btn light">← Back to the app</a>
@@ -93,11 +94,12 @@ export default function TourenGuide() {
       <main className="tg-wrap">
         <div className="tg-hero">
           <h1>Dispatcher guide: getting started</h1>
-          <p>Set up your company in three steps: first the company settings, then your staff, then your customers. After that you can create the first job and assign staff. Each step shows a real screen; the <b style={{ color: "#E11D48" }}>red numbers</b> in the picture match the numbers in the text.</p>
+          <p>Set up your company in three steps: first the company settings, then your staff, then your customers. After that you can create the first job and assign staff. Chapter 4 shows the daily work: checking staff while you talk to a customer, and what to do when someone is sick. Each step shows a real screen; the <b style={{ color: "#E11D48" }}>red numbers</b> in the picture match the numbers in the text.</p>
           <div className="tg-road">
             <a href="#settings"><b>Chapter 1</b><span>Company settings</span><br /><small>Logo, places, skills, services</small></a>
             <a href="#staff"><b>Chapter 2</b><span>Staff</span><br /><small>People, starting point, app access</small></a>
             <a href="#customers"><b>Chapter 3</b><span>Customers</span><br /><small>Addresses, first job</small></a>
+            <a href="#daily"><b>Chapter 4</b><span>Daily work</span><br /><small>Free staff, sick staff, moving jobs</small></a>
           </div>
           <div className="tg-note"><b>Who can do what?</b> The <b>owner</b> and <b>managers</b> can do everything in this guide. The <b>office</b> can work with customers and jobs, but not with settings, staff or access. Staff only use the staff app on their phone.</div>
         </div>
@@ -123,7 +125,18 @@ export default function TourenGuide() {
             <Shot src="1c-nav-settings" alt="Settings in the menu" size="narrow" />
           </Step>
 
-          <Step id="s1-3" title="1.3 Rules for suggestions">
+          <Step id="s1-3" title="1.3 Company working hours">
+            <p>When your company takes jobs. “Staff available?” and “Find earliest appointment” in the job window only suggest times within these hours.</p>
+            <Shot src="1c2-hours" alt="Company working hours" />
+            <ol>
+              <li><b>From</b> – start of the working day.</li>
+              <li><b>To</b> – end of the working day. A job must end by then.</li>
+              <li><b>Working days</b> – tap the days (dark = working day).</li>
+              <li>Press <b>Save</b>.</li>
+            </ol>
+          </Step>
+
+          <Step id="s1-4" title="1.4 Rules for suggestions">
             <p>When you assign staff to a job, Dienstigo suggests the best people. These three numbers control the suggestions.</p>
             <Shot src="1d-rules" alt="Rules for suggestions" />
             <ol>
@@ -134,7 +147,7 @@ export default function TourenGuide() {
             </ol>
           </Step>
 
-          <Step id="s1-4" title="1.4 Company places (company accommodation, office, warehouse)">
+          <Step id="s1-5" title="1.5 Company places (company accommodation, office, warehouse)">
             <p>From here the way to the first job of the day is calculated, and the driver picks people up here. Press <b>+ Location</b>.</p>
             <Shot src="1e-places" alt="Company places" />
             <ol>
@@ -145,7 +158,7 @@ export default function TourenGuide() {
             </ol>
           </Step>
 
-          <Step id="s1-5" title="1.5 Skills / qualifications" sub="optional">
+          <Step id="s1-6" title="1.6 Skills / qualifications" sub="optional">
             <p>For example driving licence, glass cleaning or registered nurse. Later you tick them for each staff member.</p>
             <Shot src="1f-skills" alt="Skills" />
             <ol>
@@ -154,7 +167,7 @@ export default function TourenGuide() {
             </ol>
           </Step>
 
-          <Step id="s1-6" title="1.6 Services">
+          <Step id="s1-7" title="1.7 Services">
             <p>The list you choose from when you create a job – e.g. deep cleaning, window cleaning, maintenance.</p>
             <Shot src="1g-services" alt="Services" />
             <ol>
@@ -165,7 +178,7 @@ export default function TourenGuide() {
             <div className="tg-note">A service that is already used in jobs cannot be deleted – use <b>set inactive</b> instead.</div>
           </Step>
 
-          <Step id="s1-7" title="1.7 Custom fields" sub="optional">
+          <Step id="s1-8" title="1.8 Custom fields" sub="optional">
             <p>Your own extra details for customers or jobs, e.g. “Pet”, “Gate code” or “Floor”.</p>
             <Shot src="1h-fields" alt="Custom fields" />
             <ol>
@@ -202,7 +215,7 @@ export default function TourenGuide() {
             <ol>
               <li><b>Starting point</b> – where the person starts the day:
                 <ul>
-                  <li><b>Company accommodation</b> – choose one of the places from 1.4. No consent needed.</li>
+                  <li><b>Company accommodation</b> – choose one of the places from 1.5. No consent needed.</li>
                   <li><b>Private house (own address)</b> – the person’s own home. Needs signed consent (2.4).</li>
                   <li><b>– none –</b> – the person comes on their own; no transport service.</li>
                 </ul>
@@ -299,6 +312,7 @@ export default function TourenGuide() {
               <li><b>Staff</b> – how many people are needed.</li>
               <li>Press <b>Save</b>. For regular appointments choose <b>Repeat</b> (every week, every 2 weeks, every month) before saving.</li>
             </ol>
+            <div className="tg-note"><b>Staff available?</b> – the box under the appointment shows right away whether enough staff are free at this time (absences, other jobs, skills). If not, it suggests free times on the same day. <b>Find earliest appointment</b> searches the next 3 weeks within your working hours (1.3). Tap a suggestion to take over date and time.</div>
           </Step>
 
           <Step id="s3-6" title="3.6 Assign staff">
@@ -307,17 +321,78 @@ export default function TourenGuide() {
           </Step>
         </div>
 
+        {/* ---------------- Chapter 4 ---------------- */}
+        <div className="tg-ch" id="daily">
+          <h2><span className="n">4</span>Daily work</h2>
+          <p className="lead">Plan jobs while you are on the phone with the customer, and react quickly when someone cannot come.</p>
+
+          <Step id="s4-1" title="4.1 Staff available? – while you talk to the customer">
+            <p>As soon as you enter date, start, duration, number of staff and service in a job, the box <b>Staff available?</b> shows whether you have enough people – before you promise anything to the customer. Green = enough people, red = not enough.</p>
+            <Shot src="4a-avail" alt="Staff available" />
+            <ol>
+              <li>How many people are free compared to how many are needed. Below: who is free, and who is not free and why (other job, absent, “please not” for this customer).</li>
+              <li>Other jobs at the same time that do not have staff yet are counted too – they need people as well.</li>
+              <li><b>Free times on this day</b> – tap a time to take it over as the start time.</li>
+            </ol>
+            <div className="tg-note">It is only a hint – you can still save. Absences count only if they are entered in Dienstigo (Requests or <b>Report absence</b>). Travel time between two jobs is not counted here; you see “tight” when you assign staff.</div>
+          </Step>
+
+          <Step id="s4-2" title="4.2 Find the earliest appointment">
+            <Shot src="4b-earliest" alt="Find earliest appointment" />
+            <ol>
+              <li>Press <b>Find earliest appointment</b>. Dienstigo searches the next 3 weeks with the details you entered (duration, staff, services, customer) – only on working days and within your working hours (1.3).</li>
+              <li>The first 3 days with enough free staff appear, each with the earliest time. Tap one – date and time are filled in.</li>
+            </ol>
+            <p>For a repeating job, the next appointments are checked too. You see a warning if one of them is short of staff.</p>
+          </Step>
+
+          <Step id="s4-3" title="4.3 Someone is sick or absent">
+            <p>Open <P>Staff</P> and press <b>🤒 Report absence</b> next to the person (or approve their request under <P>Requests</P>). The affected jobs appear in the red box <b>Please check</b> at the top of <P>Jobs</P>.</p>
+            <Shot src="4c-check" alt="Please check" />
+            <ol>
+              <li><b>Move …</b> – no replacement free? Move the job to a new time together with the customer (4.4).</li>
+              <li><b>Find replacement</b> – another person takes over at the same time. The best suggestions are shown right away. If someone is absent for several days, <b>Replacement for all days</b> gives all jobs to one colleague.</li>
+            </ol>
+          </Step>
+
+          <Step id="s4-4" title="4.4 Move an appointment – first agree with the customer">
+            <Shot src="4d-move" alt="Move appointment" />
+            <ol>
+              <li>Choose the new <b>date</b> and <b>start</b>.</li>
+              <li><b>Staff available?</b> shows if there are enough people. <b>Find earliest appointment</b> suggests the next free times.</li>
+              <li>A message for the customer is ready. You can change the text.</li>
+              <li>Send it with <b>WhatsApp</b> or press <b>Call</b>.</li>
+              <li><b>Save (still open)</b> – the customer has not answered yet. Staff do not see the appointment yet.</li>
+              <li><b>Customer agreed</b> – the job moves to the new time. Whoever is still absent on the new day is taken off the job, and <b>Assign staff</b> opens if someone is missing.</li>
+            </ol>
+          </Step>
+
+          <Step id="s4-5" title="4.5 Waiting for the customer’s answer">
+            <p>As long as the customer has not answered, the job stays in <b>Please check</b> with “moved – customer still has to agree”.</p>
+            <Shot src="4e-open" alt="Open appointment" />
+            <ol>
+              <li>Press <b>Clarify</b> when the customer answers – then <b>Customer agreed</b>, or choose another time.</li>
+            </ol>
+          </Step>
+
+          <Step id="s4-6" title="4.6 A job could not be finished">
+            <p>If staff report “Not finished” in the app (or the office uses <b>Complete job …</b> → “Not finished – needs to continue”), Dienstigo creates a <b>continuation</b>. It appears in <b>Please check</b> with <b>Schedule</b>: agree a date with the customer in the same way (message, WhatsApp, <b>Customer agreed</b>). The first job is set to finished automatically when the continuation is done.</p>
+          </Step>
+        </div>
+
         <div className="tg-check">
           <h2>Checklist</h2>
           <ul>
             <li>☐ Logo and company details entered (1.1)</li>
-            <li>☐ Company accommodation / office created (1.4)</li>
-            <li>☐ Skills and services created (1.5, 1.6)</li>
+            <li>☐ Working hours set (1.3)</li>
+            <li>☐ Company accommodation / office created (1.5)</li>
+            <li>☐ Skills and services created (1.6, 1.7)</li>
             <li>☐ All staff created with starting point and contract hours (2.2, 2.3)</li>
             <li>☐ Signed consent for everyone with a private house (2.4)</li>
             <li>☐ App access for every staff member (2.6)</li>
             <li>☐ Customers with addresses created (3.2, 3.3)</li>
             <li>☐ First job created and staff assigned (3.5, 3.6)</li>
+            <li>☐ Team knows: absences go into Dienstigo, so “Staff available?” is correct (4.1, 4.3)</li>
           </ul>
           <p className="tg-noprint" style={{ marginTop: 14 }}><button type="button" className="tg-btn" onClick={() => window.print()}>🖨 Print / save as PDF</button></p>
         </div>
