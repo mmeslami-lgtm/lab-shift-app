@@ -14,7 +14,7 @@ const opt = { color: MUTED, fontWeight: 400 };
 
 const T = {
   de: {
-    title: "Jetzt registrieren", intro: "Erzählen Sie uns kurz von Ihrer Firma. Wir richten Ihren Zugang ein und schicken Ihnen eine Einladung mit Passwort per E-Mail. Die ersten 14 Tage sind kostenlos.",
+    title: "Jetzt registrieren", intro: "Erzählen Sie uns kurz von Ihrer Firma. Gleich danach erhalten Sie eine E-Mail mit dem Link und Ihrem Passwort. Die ersten 14 Tage sind kostenlos.",
     first: "Vorname", last: "Nachname", company: "Firmenname", country: "Land", industry: "Branche", size: "Anzahl Mitarbeitende", needs: "Was brauchen Sie?", needsHint: "Mehrere möglich",
     email: "E-Mail", phone: "Mobil / WhatsApp", lang: "Sprache für E-Mails und Programm", source: "Wie haben Sie von uns gehört?", message: "Nachricht", optional: "(optional)", choose: "– bitte wählen –",
     countries: [["DE", "Deutschland"], ["AE", "Vereinigte Arabische Emirate"], ["OTHER", "Anderes Land"]],
@@ -26,10 +26,10 @@ const T = {
     send: "Registrierung senden", sending: "Wird gesendet …", req: "Pflichtfeld",
     errFirst: "Bitte den Vornamen angeben.", errLast: "Bitte den Nachnamen angeben.", errCompany: "Bitte den Firmennamen angeben.", errEmail: "Bitte eine gültige E-Mail-Adresse angeben.", errChoose: "Bitte Land, Branche und Größe auswählen.", errNeeds: "Bitte mindestens einen Bereich auswählen.", errConsent: "Bitte der Datenschutzerklärung zustimmen.",
     fail: "Das hat leider nicht geklappt. Bitte erneut versuchen oder an info@dienstigo.de schreiben.", offline: "Keine Verbindung. Bitte erneut versuchen oder an info@dienstigo.de schreiben.",
-    thanks: "Vielen Dank!", thanksP: "Ihre Registrierung ist bei uns angekommen. Sobald Ihr Zugang eingerichtet ist, erhalten Sie eine E-Mail mit Ihrem Passwort.", home: "Zur Startseite", login: "Schon registriert? Anmelden",
+    thanks: "Vielen Dank!", thanksP: "Ihre Registrierung ist bei uns angekommen. Sobald Ihr Zugang eingerichtet ist, erhalten Sie eine E-Mail mit Ihrem Passwort.", createdH: "Ihr Zugang ist eingerichtet!", createdP: "Wir haben Ihnen gerade eine E-Mail mit dem Link und Ihrem vorläufigen Passwort geschickt. Bitte sehen Sie auch im Spam-Ordner nach. Die kostenlose Testphase läuft 14 Tage.", existsP: "Mit dieser E-Mail-Adresse gibt es bereits einen Zugang. Wir haben Ihnen eine E-Mail mit dem Link zur Anmeldung geschickt.", toLogin: "Zur Anmeldung", home: "Zur Startseite", login: "Schon registriert? Anmelden",
   },
   en: {
-    title: "Register now", intro: "Tell us briefly about your company. We will set up your account and send you an invitation with your password by email. The first 14 days are free of charge.",
+    title: "Register now", intro: "Tell us briefly about your company. Right afterwards, you will receive an email with the link and your password. The first 14 days are free of charge.",
     first: "First name", last: "Last name", company: "Company name", country: "Country", industry: "Industry", size: "Number of employees", needs: "What do you need?", needsHint: "Select all that apply",
     email: "Email", phone: "Mobile / WhatsApp", lang: "Language for emails and the app", source: "How did you hear about us?", message: "Message", optional: "(optional)", choose: "– please select –",
     countries: [["DE", "Germany"], ["AE", "United Arab Emirates"], ["OTHER", "Other country"]],
@@ -41,7 +41,7 @@ const T = {
     send: "Send registration", sending: "Sending …", req: "Required",
     errFirst: "Please enter your first name.", errLast: "Please enter your last name.", errCompany: "Please enter your company name.", errEmail: "Please enter a valid email address.", errChoose: "Please select your country, industry, and company size.", errNeeds: "Please select at least one area.", errConsent: "Please accept the privacy policy.",
     fail: "Sorry, that did not work. Please try again or write to info@dienstigo.de.", offline: "No connection. Please try again or write to info@dienstigo.de.",
-    thanks: "Thank you!", thanksP: "We have received your registration. As soon as your account is set up, you will receive an email with your password.", home: "Back to the home page", login: "Already registered? Sign in",
+    thanks: "Thank you!", thanksP: "We have received your registration. As soon as your account is set up, you will receive an email with your password.", createdH: "Your account is ready!", createdP: "We have just sent you an email with the link and your temporary password. Please also check your spam folder. The free trial runs for 14 days.", existsP: "There is already an account with this email address. We have sent you an email with the link to sign in.", toLogin: "Go to sign-in", home: "Back to the home page", login: "Already registered? Sign in",
   },
 };
 const EMAIL = /^[^\s@<>"',;]+@[^\s@<>"',;]+\.[^\s@<>"',;]{2,}$/;
@@ -51,6 +51,7 @@ export default function RegisterForm() {
   const L = T[lang];
   const [f, setF] = useState({ firstName: "", lastName: "", company: "", country: "", industry: "", size: "", needs: [], email: "", phone: "", lang: "", source: "", message: "", consent: false, website: "" });
   const [state, setState] = useState("idle");
+  const [auto, setAuto] = useState("manual");
   const [error, setError] = useState("");
   const opened = useRef(Date.now());
   const set = (k) => (e) => setF({ ...f, [k]: e.target.type === "checkbox" ? e.target.checked : e.target.value });
@@ -70,7 +71,7 @@ export default function RegisterForm() {
     try {
       const res = await fetch("/api/registrierung", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...f, lang: f.lang || lang, t: Date.now() - opened.current }) });
       let out = {}; try { out = await res.json(); } catch (x) { /* ignore */ }
-      if (res.ok && out.ok) { setState("done"); window.scrollTo(0, 0); return; }
+      if (res.ok && out.ok) { setAuto(out.auto || "manual"); setState("done"); window.scrollTo(0, 0); return; }
       setError(out.error || L.fail);
     } catch (x) { setError(L.offline); }
     setState("idle");
@@ -93,9 +94,10 @@ export default function RegisterForm() {
         <div style={{ background: "#fff", borderRadius: 20, padding: "26px 22px 22px", boxShadow: "0 18px 40px -24px rgba(16,24,40,.35)" }}>
           {state === "done" ? (
             <div data-register="done">
-              <h1 style={{ fontSize: 26, fontWeight: 750, letterSpacing: -0.4, margin: "0 0 8px", color: NAVY }}>{L.thanks}</h1>
-              <p style={{ margin: "0 0 20px", lineHeight: 1.6 }}>{L.thanksP}</p>
-              <a href="/" style={{ display: "inline-block", borderRadius: 12, background: NAVY, color: "#fff", fontWeight: 700, padding: "12px 20px", textDecoration: "none" }}>{L.home}</a>
+              <h1 style={{ fontSize: 26, fontWeight: 750, letterSpacing: -0.4, margin: "0 0 8px", color: NAVY }}>{auto === "created" ? L.createdH : L.thanks}</h1>
+              <p style={{ margin: "0 0 20px", lineHeight: 1.6 }}>{auto === "created" ? L.createdP : auto === "exists" ? L.existsP : L.thanksP}</p>
+              {auto !== "manual" ? <a href="/login" style={{ display: "inline-block", borderRadius: 12, background: NAVY, color: "#fff", fontWeight: 700, padding: "12px 20px", textDecoration: "none" }}>{L.toLogin}</a>
+                : <a href="/" style={{ display: "inline-block", borderRadius: 12, background: NAVY, color: "#fff", fontWeight: 700, padding: "12px 20px", textDecoration: "none" }}>{L.home}</a>}
             </div>
           ) : (
             <form onSubmit={send} noValidate>
