@@ -79,7 +79,7 @@ const ABOUT = {
 
 const FAQ = {
   de: {
-    h1: "Häufige Fragen", lead: "Die wichtigsten Antworten auf einen Blick. Ihre Frage ist nicht dabei? Schreiben Sie uns an info@dienstigo.de.",
+    h1: "Häufige Fragen", lead: "Die wichtigsten Antworten auf einen Blick. Ihre Frage ist nicht dabei? Schreiben Sie uns an info@dienstigo.de",
     items: [
       ["Was kostet Dienstigo?", "Die ersten 14 Tage sind kostenlos und ohne Zahlungsdaten. Der Preis richtet sich danach, welche Produkte Sie nutzen. Schreiben Sie uns, und wir machen Ihnen ein Angebot."],
       ["Was passiert nach den 14 Tagen?", "Sie entscheiden, ob Sie weitermachen. Ohne Ihre Entscheidung endet die Testphase einfach – es entstehen keine Kosten."],
@@ -90,12 +90,12 @@ const FAQ = {
       ["Brauche ich ein Stempelgerät?", "Nicht unbedingt. Ein Tablet am Eingang genügt; gestempelt wird per Handy mit QR-Code, mit Chip oder mit PIN."],
       ["Wo liegen meine Daten?", "In einer Datenbank in Frankfurt am Main. Die Daten jeder Firma sind strikt getrennt, und jede Person sieht nur, was sie sehen darf."],
       ["Welche Sprachen gibt es?", "Deutsch und Englisch. Jede Person kann ihre Sprache selbst wählen."],
-      ["Wie registriere ich meine Firma?", "Über „Jetzt registrieren“. Wir richten Ihren Zugang ein und schicken Ihnen eine E-Mail mit Ihrem Passwort."],
+      ["Wie registriere ich meine Firma?", "Über „Jetzt registrieren“. Ihr Zugang wird sofort eingerichtet, und Sie erhalten gleich eine E-Mail mit dem Link und Ihrem Passwort."],
       ["Wer hilft mir am Anfang?", "Im Programm gibt es eine Schulung Schritt für Schritt. Bei Fragen erreichen Sie uns jederzeit per E-Mail."],
     ],
   },
   en: {
-    h1: "Frequently asked questions", lead: "The most important answers at a glance. Is your question missing? Write to us at info@dienstigo.de.",
+    h1: "Frequently asked questions", lead: "The most important answers at a glance. Is your question missing? Write to us at info@dienstigo.de",
     items: [
       ["How much does Dienstigo cost?", "The first 14 days are free, with no payment details required. The price depends on which products you use. Write to us, and we will send you an offer."],
       ["What happens after the 14 days?", "You decide whether to continue. If you do not decide, the trial simply ends – there are no costs."],
@@ -106,7 +106,7 @@ const FAQ = {
       ["Do I need a time clock?", "Not necessarily. A tablet at the entrance is enough; employees clock in by phone with a QR code, with a chip card, or with a PIN."],
       ["Where is my data stored?", "In a database in Frankfurt am Main, Germany. Each company’s data is kept strictly separate, and everyone sees only what they are permitted to see."],
       ["Which languages are available?", "German and English. Everyone can choose their own language."],
-      ["How do I register my company?", "Click “Register now”. We will set up your account and send you an email with your password."],
+      ["How do I register my company?", "Click “Register now”. Your account is set up immediately, and you will receive an email with the link and your password right away."],
       ["Who helps me get started?", "The program includes step-by-step training. If you have questions, you can reach us by email at any time."],
     ],
   },

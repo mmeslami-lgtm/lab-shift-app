@@ -24,6 +24,14 @@ function newPassword() { // 16 characters, no look-alikes
 }
 
 const ROLE_LABEL = { supervisor: "Leitung", planner: "Schichtplaner", employee: "Mitarbeitende", office: "Büro" };
+// 27.11.2026 (Wunsch): Leitung / Büro / Schichtplaner ohne Platz im Plan bekommen Vorname, Nachname, Mobil, Personalnummer.
+// Gespeichert in den Benutzerdaten des Kontos (auth user_metadata) – kein Eintrag bei „Personal“, also nicht in Vorschlägen.
+const clip = (v, n) => String(v == null ? "" : v).trim().slice(0, n);
+function profileFrom(body) {
+  const first = clip(body.first_name, 80), last = clip(body.last_name, 80), phone = clip(body.phone_number, 40), pno = clip(body.personnel_no, 40);
+  if (phone && !/^[0-9+()/.\- ]+$/.test(phone)) return { error: "Bitte nur Ziffern und + ( ) / - in der Telefonnummer." };
+  return { first_name: first || null, last_name: last || null, full_name: `${first} ${last}`.trim() || null, phone: phone || null, personnel_no: pno || null };
+}
 // which roles the caller may create / reset / remove
 // „office“ = Büro / Disposition (Touren D3a): nur Kunden und Aufträge, keine Zeiterfassung – Inhaber und Leitung dürfen es vergeben
 const allowed = (callerRole, role) => role === "employee" || role === "planner" || role === "office" || (role === "supervisor" && callerRole === "owner");
@@ -70,7 +78,11 @@ export async function POST(request) {
         const staffMgr = [];
         for (const x of (all.data || []).filter((y) => y.role !== "employee")) { // Inhaber / Leitung / Schichtplaner
           const u = await supabaseAdmin.auth.admin.getUserById(x.user_id);
-          staffMgr.push({ userId: x.user_id, role: x.role, email: u.data && u.data.user ? u.data.user.email : "?", lastSignIn: u.data && u.data.user ? u.data.user.last_sign_in_at || null : null, canManage: x.role !== "owner" && allowed(me.orgRole, x.role) && x.user_id !== me.id });
+          const md = (u.data && u.data.user && u.data.user.user_metadata) || {};
+          const linked = x.staff_id ? (st.data || []).find((s) => s.id === x.staff_id) : null;
+          staffMgr.push({ userId: x.user_id, role: x.role, email: u.data && u.data.user ? u.data.user.email : "?", lastSignIn: u.data && u.data.user ? u.data.user.last_sign_in_at || null : null, canManage: x.role !== "owner" && allowed(me.orgRole, x.role) && x.user_id !== me.id,
+            canEdit: x.user_id === me.id || (x.role !== "owner" && allowed(me.orgRole, x.role)),
+            name: linked ? linked.name : md.full_name || null, firstName: md.first_name || null, lastName: md.last_name || null, phone: linked ? linked.phone || null : md.phone || null, personnelNo: md.personnel_no || null, staffLinked: !!linked });
         }
         for (const s of st.data || []) {
           const m = (ms.data || []).find((x) => x.staff_id === s.id);
@@ -93,6 +105,12 @@ export async function POST(request) {
         const email = byPhone ? phoneToEmail(String(body.phone)) : String(body.email || "").trim().toLowerCase();
         if (!EMAIL.test(email) || (!byPhone && email.endsWith("@" + PHONE_DOMAIN))) return json({ error: "Bitte eine gültige E-Mail-Adresse angeben." }, 400);
         let person = null;
+        let profile = null;
+        if (role !== "employee" && !body.staff_id) {
+          profile = profileFrom(body);
+          if (profile.error) return json({ error: profile.error }, 400);
+          if (!profile.first_name || !profile.last_name) return json({ error: "Bitte Vor- und Nachnamen eintragen." }, 400);
+        }
         if (body.staff_id || role === "employee") {
           const st = await supabaseAdmin.from("staff").select("id, name").eq("id", String(body.staff_id || "")).eq("org_id", orgId);
           if (!st.data || !st.data[0]) return json({ error: role === "employee" ? "Bitte die Person wählen (sie muss zu Ihrer Firma gehören)." : "Diese Person gehört nicht zu Ihrer Firma." }, 400);
@@ -109,13 +127,27 @@ export async function POST(request) {
           if (!prod.data || !prod.data.some((p) => p.enabled !== false)) return json({ error: "Die Mitarbeiter-App ist für Ihre Firma nicht freigeschaltet." }, 403);
         }
         const password = newPassword();
-        const { data, error } = await supabaseAdmin.auth.admin.createUser({ email, password, email_confirm: true });
+        const { data, error } = await supabaseAdmin.auth.admin.createUser({ email, password, email_confirm: true, ...(profile ? { user_metadata: profile } : {}) });
         if (error) return json({ error: /already|registered|exists/i.test(error.message) ? (byPhone ? "Diese Handynummer hat schon einen Zugang. Bitte die Plattform-Verwaltung fragen." : "Diese E-Mail hat schon ein Konto. Bitte eine andere verwenden oder die Plattform-Verwaltung fragen.") : error.message }, 400);
         const ins = await supabaseAdmin.from("memberships").insert({ user_id: data.user.id, org_id: orgId, role, staff_id: person ? person.id : null });
         if (ins.error) { await supabaseAdmin.auth.admin.deleteUser(data.user.id); return json({ error: "Zugang konnte nicht zugeordnet werden." }, 500); }
         await flagFirstLogin(data.user.id);
         await log(me, "create_login", orgId, email, { role, staffId: person ? person.id : null });
-        return json({ ok: true, email, password, name: person ? person.name : `${ROLE_LABEL[role]} (${email})` });
+        return json({ ok: true, email, password, name: person ? person.name : profile && profile.full_name ? profile.full_name : `${ROLE_LABEL[role]} (${email})` });
+      }
+      case "update_profile": { // Name / Mobil / Personalnummer eines Leitungs-/Büro-Kontos (oder des eigenen)
+        const userId = String(body.user_id || "");
+        const mine = userId === me.id;
+        if (!mine && !(await manageableLogin(orgId, userId, me.orgRole))) return json({ error: "Diesen Zugang dürfen Sie nicht ändern." }, 403);
+        const profile = profileFrom(body);
+        if (profile.error) return json({ error: profile.error }, 400);
+        if (!profile.first_name || !profile.last_name) return json({ error: "Bitte Vor- und Nachnamen eintragen." }, 400);
+        const cur = await supabaseAdmin.auth.admin.getUserById(userId);
+        if (cur.error || !cur.data || !cur.data.user) return json({ error: "Konto nicht gefunden." }, 404);
+        const { error } = await supabaseAdmin.auth.admin.updateUserById(userId, { user_metadata: { ...(cur.data.user.user_metadata || {}), ...profile } });
+        if (error) throw error;
+        await log(me, "update_profile", orgId, cur.data.user.email, { name: profile.full_name });
+        return json({ ok: true });
       }
       case "reset": {
         const userId = String(body.user_id || "");

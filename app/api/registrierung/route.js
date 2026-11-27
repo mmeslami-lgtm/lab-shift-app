@@ -1,18 +1,23 @@
 import { createHash } from "node:crypto";
 import { supabaseAdmin } from "../../../lib/supabaseAdmin";
 import { sendMail, smtpConfigured } from "../../../lib/mailer";
+import { findUserByEmail, openRegistrationAccount, registrationDefaults, sendAlreadyRegistered, siteOf } from "../../../lib/registration";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 // Registrierung von der Startseite (/registrieren, 25.11.2026). SERVER ONLY.
 // Wie /api/demo-anfrage: prüfen (Spam-Schutz), in demo_requests speichern (kind = 'registration', Antworten in details),
-// eine E-Mail an info@dienstigo.de. Ein Konto entsteht erst, wenn der Plattform-Admin in /admin „Annehmen“ drückt.
+// eine E-Mail an info@dienstigo.de.
+// 27.11.2026 (Wunsch): der Zugang entsteht AUTOMATISCH (Testfirma 14 Tage, Bereiche/Land/Branche aus den Antworten,
+// Einladung mit Link und vorläufigem Passwort) – außer die E-Mail hat schon ein Konto (dann nur eine Erinnerung,
+// kein zweiter Zugang). Schutz: höchstens AUTO_DAY automatische Zugänge pro 24 Std.; darüber und bei Fehlern
+// bleibt die Registrierung „offen“ und der Admin nimmt sie in /admin an.
 
 const EMAIL = /^[^\s@<>"',;]+@[^\s@<>"',;]+\.[^\s@<>"',;]{2,}$/;
 const PHONE = /^[0-9+()/.\- ]{0,40}$/;
 const TO = "info@dienstigo.de";
-const PER_DEVICE_HOUR = 3, ALL_HOUR = 30;
+const PER_DEVICE_HOUR = 3, ALL_HOUR = 30, AUTO_DAY = 20;
 const json = (body, status = 200) => Response.json(body, { status, headers: { "Cache-Control": "no-store" } });
 
 function ipHash(request) {
@@ -67,23 +72,55 @@ export async function POST(request) {
       .select("id, created_at").single();
     if (ins.error) throw ins.error;
 
+    // Automatisch: Zugang anlegen, wenn diese E-Mail noch keinen hat
+    const site = siteOf(request);
+    let auto = "manual", autoInfo = "";
+    try {
+      const prev = await supabaseAdmin.from("demo_requests").select("id", { count: "exact", head: true })
+        .eq("kind", "registration").eq("email", email).not("org_id", "is", null);
+      const has = (prev.count || 0) > 0 || !!(await findUserByEmail(email));
+      if (has) {
+        auto = "exists";
+        const sent = await sendAlreadyRegistered({ email, lang, site, firstName });
+        autoInfo = `Diese E-Mail hat schon einen Zugang – kein zweiter angelegt${sent ? ", Erinnerung gesendet" : ""}.`;
+        await supabaseAdmin.from("demo_requests").update({ status: "erledigt", done_at: new Date().toISOString(), details: { ...details, auto: "exists" } }).eq("id", ins.data.id);
+      } else {
+        const day = await supabaseAdmin.from("demo_requests").select("id", { count: "exact", head: true })
+          .eq("kind", "registration").is("done_by", null).not("org_id", "is", null).gte("done_at", new Date(Date.now() - 86400000).toISOString());
+        if ((day.count || 0) >= AUTO_DAY) autoInfo = "Tagesgrenze für automatische Zugänge erreicht – bitte in /admin annehmen.";
+        else {
+          const d = { id: ins.data.id, company, email, details, lang };
+          const def = registrationDefaults(d);
+          const out = await openRegistrationAccount({ d, ...def, site, doneBy: null });
+          auto = "created";
+          autoInfo = `Zugang automatisch angelegt: „${out.name}“ (${def.products.join(", ")}, ${def.country}, ${def.language}). Einladung ${out.mailSent ? "gesendet" : "NICHT gesendet (" + (out.mailError || "Fehler") + ") – bitte in /admin ein neues Passwort setzen"}.`;
+          await supabaseAdmin.from("demo_requests").update({ details: { ...details, auto: "created" } }).eq("id", ins.data.id);
+          await supabaseAdmin.from("admin_log").insert({ actor: null, actor_email: "auto-registrierung", action: "registration_auto", org_id: out.orgId, target: email, detail: { name: out.name, ...def, until: out.until, request: ins.data.id, mailSent: out.mailSent } });
+        }
+      }
+    } catch (e) {
+      auto = "manual";
+      autoInfo = "Automatischer Zugang fehlgeschlagen – bitte in /admin annehmen: " + String((e && e.message) || "Fehler").slice(0, 160);
+      console.error("registration auto:", autoInfo);
+    }
+
     let mailError = null;
     if (!smtpConfigured()) mailError = "SMTP nicht eingerichtet";
     else {
       const when = new Date(ins.data.created_at).toLocaleString("de-DE", { timeZone: "Europe/Berlin", dateStyle: "medium", timeStyle: "short" });
       const text = [
-        "Neue Registrierung über dienstigo.de", "",
+        "Neue Registrierung über dienstigo.de", "", autoInfo, "",
         `Name:        ${firstName} ${lastName}`, `Firma:       ${company}`, `E-Mail:      ${email}`, `Telefon:     ${phone || "–"}`,
         `Land:        ${details.country}`, `Branche:     ${details.industry}`, `Größe:       ${details.size} Mitarbeitende`,
         `Bereiche:    ${needs.join(", ")}`, `Sprache:     ${lang}`, `Gehört über: ${details.source || "–"}`, `Zeit:        ${when}`, "",
         "Nachricht:", message || "–", "",
-        "Annehmen oder ablehnen: https://www.dienstigo.de/admin (Anfragen)",
+        auto === "manual" ? "Annehmen oder ablehnen: https://www.dienstigo.de/admin (Anfragen)" : "Übersicht: https://www.dienstigo.de/admin (Anfragen)",
       ].join("\n");
-      try { await sendMail({ to: TO, replyTo: email, subject: `Registrierung: ${company}`, text }); }
+      try { await sendMail({ to: TO, replyTo: email, subject: `Registrierung${auto === "created" ? " (Zugang angelegt)" : auto === "exists" ? " (hat schon Zugang)" : ""}: ${company}`, text }); }
       catch (e) { mailError = String(e && e.message || "Fehler").slice(0, 200); console.error("registration mail:", mailError); }
     }
     await supabaseAdmin.from("demo_requests").update({ mail_sent: !mailError, mail_error: mailError }).eq("id", ins.data.id);
-    return json({ ok: true });
+    return json({ ok: true, auto });
   } catch (e) {
     console.error("registration failed");
     return json({ error: M.fail }, 500);

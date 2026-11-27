@@ -252,6 +252,7 @@ export default function AdminDashboard({ view = "admin" }) {
                       <span style={{ width: 8, height: 8, borderRadius: 999, background: done ? "#AEB8CB" : "#C0262D", flex: "0 0 auto" }} />
                       <span style={{ fontWeight: 650, flex: "1 1 auto", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: done ? MUTED : INK }}>{d.company}</span>
                       {reg && <span data-reg-badge style={{ fontSize: 11, fontWeight: 700, borderRadius: 999, padding: "2px 8px", flex: "0 0 auto", background: "#E3ECFA", color: "#1E3F7A" }}>Registrierung{d.lang === "en" ? " · EN" : ""}</span>}
+                      {reg && x.auto && <span data-reg-auto style={{ fontSize: 11, fontWeight: 700, borderRadius: 999, padding: "2px 8px", flex: "0 0 auto", background: x.auto === "created" ? "#DDF2E8" : "#F1F3F7", color: x.auto === "created" ? "#1F6347" : "#4B5568" }}>{x.auto === "created" ? "automatisch angelegt" : "hatte schon Zugang"}</span>}
                       <span style={{ fontSize: 12, color: MUTED, flex: "0 0 auto" }}>{fmt(d.created_at)}</span>
                       <span style={{ fontSize: 11, fontWeight: 650, borderRadius: 999, padding: "2px 8px", flex: "0 0 auto", background: done ? "#EEF0F4" : "#FCE5EA", color: done ? MUTED : "#8A2A3E" }}>{d.status === "abgelehnt" ? "abgelehnt" : done ? "erledigt" : "offen"}</span>
                     </summary>
