@@ -4,8 +4,9 @@ import React, { useEffect, useMemo, useState } from "react";
 import { createClient } from "@supabase/supabase-js";
 import { supabase, supabaseConfigured } from "../lib/supabaseClient";
 import LoginForm from "./LoginForm";
+import LetterheadCard from "./LetterheadCard";
 import { tx, loc } from "../lib/i18n";
-import { loginName } from "../lib/phoneLogin";
+import { isPhoneEmail, loginName } from "../lib/phoneLogin";
 
 const INK = "#1B2433", PRIMARY = "#243B6B", PAPER = "#E9EEF8", MUTED = "#6B7588", LINE = "#D9DEE7";
 const ROLE_LABEL = { owner: "Inhaber", supervisor: "Leitung", planner: "Schichtplaner", employee: "Mitarbeitende", office: "Büro" };
@@ -55,6 +56,10 @@ export default function ProfileView({ forced = false }) {
   const [show, setShow] = useState({ current: false, next: false, confirm: false });
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState(null);         // { kind: "ok" | "error", text }
+  // 27.11.2026: eigene Angaben (Name, Mobil, Personalnummer, Adresse, Registrierung) über /api/profil
+  const [me, setMe] = useState(null);
+  const [edit, setEdit] = useState(null);       // { first, last, phone }
+  const [meMsg, setMeMsg] = useState(null);
 
   useEffect(() => {
     if (!supabaseConfigured) { setSession(null); return; }
@@ -80,6 +85,24 @@ export default function ProfileView({ forced = false }) {
     })();
     return () => { alive = false; };
   }, [session, forced]);
+
+  async function loadMe(s) {
+    try {
+      const res = await fetch("/api/profil", { headers: { Authorization: `Bearer ${s.access_token}` } });
+      if (res.ok) setMe(await res.json());
+    } catch (e) { /* optional */ }
+  }
+  useEffect(() => { if (session && !forced) loadMe(session); }, [session, forced]); // eslint-disable-line react-hooks/exhaustive-deps
+  async function saveMe(e) {
+    e.preventDefault();
+    setMeMsg(null);
+    try {
+      const res = await fetch("/api/profil", { method: "POST", headers: { "content-type": "application/json", Authorization: `Bearer ${session.access_token}` }, body: JSON.stringify({ first_name: edit.first, last_name: edit.last, phone: edit.phone }) });
+      const b = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(b.error || tx("Konnte nicht gespeichert werden."));
+      setEdit(null); setMeMsg({ kind: "ok", text: tx("Gespeichert ✓") }); loadMe(session);
+    } catch (err) { setMeMsg({ kind: "error", text: tx(err.message) }); }
+  }
 
   const rules = useMemo(() => [
     { ok: f.next.length >= 12, text: tx("Mindestens 12 Zeichen") },
@@ -169,6 +192,37 @@ export default function ProfileView({ forced = false }) {
             {user.last_sign_in_at && <div style={{ fontSize: 12, color: MUTED, marginTop: 4 }}>{tx("Letzte Anmeldung:")} {fmt(user.last_sign_in_at)}</div>}
           </div>
 
+          {/* Mitarbeitende mit Platz im Plan: ihre Angaben stehen unten bei der Firma (gepflegt von der Leitung) */}
+          {me && !(me.firms || []).some((x) => x.staff) && (
+            <div style={card} data-my-data>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                <div style={{ fontSize: 16, fontWeight: 700 }}>{tx("Meine Angaben")}</div>
+                {!edit && <button type="button" style={{ ...ghost, padding: "6px 12px", fontSize: 13 }} onClick={() => { setMeMsg(null); setEdit({ first: me.firstName || "", last: me.lastName || "", phone: me.phone || "" }); }}>{tx("Bearbeiten")}</button>}
+              </div>
+              {edit ? (
+                <form onSubmit={saveMe}>
+                  {[["first", tx("Vorname")], ["last", tx("Nachname")], ["phone", tx("Mobil / WhatsApp")]].map(([k, l]) => (
+                    <label key={k} style={{ display: "block", fontSize: 13, color: MUTED, marginBottom: 10 }}>{l}
+                      <input value={edit[k]} onChange={(e) => setEdit({ ...edit, [k]: e.target.value })} type={k === "phone" ? "tel" : "text"} maxLength={k === "phone" ? 40 : 80} style={{ ...fld, padding: "10px 12px", marginTop: 4 }} />
+                    </label>
+                  ))}
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <button type="submit" style={{ ...btn, width: "auto", fontSize: 15, padding: "10px 16px" }}>{tx("Speichern")}</button>
+                    <button type="button" style={ghost} onClick={() => setEdit(null)}>{tx("Abbrechen")}</button>
+                  </div>
+                </form>
+              ) : (
+                <dl style={{ display: "grid", gridTemplateColumns: "max-content 1fr", gap: "6px 14px", margin: 0, fontSize: 14 }}>
+                  {[[tx("Vorname"), me.firstName], [tx("Nachname"), me.lastName], [tx("Mobil / WhatsApp"), me.phone], [tx("Personalnummer"), me.personnelNo], [isPhoneEmail(me.email) ? tx("Handynummer") : tx("E-Mail"), loginName(me.email)]].filter(([, v]) => v).map(([k, v]) => (
+                    <React.Fragment key={k}><dt style={{ color: MUTED }}>{k}</dt><dd style={{ margin: 0, fontWeight: 600, wordBreak: "break-word" }}>{v}</dd></React.Fragment>
+                  ))}
+                  {!me.firstName && !me.lastName && <><dt style={{ color: MUTED }}>{tx("Name")}</dt><dd style={{ margin: 0, color: MUTED }}>{tx("noch nicht eingetragen")}</dd></>}
+                </dl>
+              )}
+              {meMsg && <div role={meMsg.kind === "error" ? "alert" : "status"} style={{ marginTop: 10, fontSize: 13, color: meMsg.kind === "error" ? "#8A1C1C" : "#1F6347" }}>{meMsg.text}</div>}
+            </div>
+          )}
+
           {info === null && <div style={{ color: MUTED, margin: "0 2px 12px" }}>{tx("Lädt …")}</div>}
           {info && info.firms.length === 0 && <div style={{ ...card, color: MUTED, fontSize: 14 }}>{tx("Dieses Konto gehört zu keiner Firma.")} {isAdmin ? tx("Es ist ein Plattform-Konto.") : ""}</div>}
           {info && info.firms.map((firm) => (
@@ -177,9 +231,40 @@ export default function ProfileView({ forced = false }) {
                 <div style={{ fontSize: 17, fontWeight: 700 }}>{firm.name}</div>
                 <span style={{ fontSize: 11, fontWeight: 650, background: "#E7ECF6", color: PRIMARY, borderRadius: 999, padding: "3px 10px" }}>{tx(ROLE_LABEL[firm.role] || firm.role)}</span>
               </div>
+              {(() => {
+                const x = me && me.firms ? me.firms.find((y) => y.orgId === firm.orgId) : null;
+                if (!x) return null;
+                const IND = { cleaning: "Reinigung", care: "Pflege & Betreuung", practice: "Praxis oder Labor", facility: "Hausmeister & Technik", other: "Andere" };
+                const COUNTRY = { DE: "Deutschland", AE: "Vereinigte Arabische Emirate", OTHER: "Anderes Land" };
+                const rows = [];
+                if (x.staff) {
+                  rows.push([tx("Name im Plan"), x.staff.name], [tx("Mobil / WhatsApp"), x.staff.phone], [tx("Personalnummer"), x.staff.personnel_no],
+                    [tx("Vertragsstunden pro Woche"), x.staff.weekly_hours != null ? String(x.staff.weekly_hours) : null], [tx("Privatwohnung"), x.staff.home_address]);
+                  if (x.staff.home_address) rows.push([tx("Einwilligung Fahrdienst"), x.staff.home_consent_on ? tx("unterschrieben am {0}", x.staff.home_consent_on.split("-").reverse().join(".")) : tx("fehlt noch")]);
+                  if (x.staff.place) {
+                    const PK = { accommodation: "Firmenunterkunft", office: "Büro", depot: "Lager", other: "Ort" };
+                    rows.push([tx(PK[x.staff.place.kind] || "Ort"), [x.staff.place.name, x.staff.place.address].filter(Boolean).join(" – ")]);
+                  }
+                }
+                if (x.registration) {
+                  rows.push([tx("Firma (Registrierung)"), x.registration.company], [tx("Telefon (Registrierung)"), x.registration.phone],
+                    [tx("Land"), x.registration.country ? tx(COUNTRY[x.registration.country] || x.registration.country) : null],
+                    [tx("Branche"), x.registration.industry ? tx(IND[x.registration.industry] || x.registration.industry) : null], [tx("Anzahl Mitarbeitende"), x.registration.size]);
+                }
+                const shown = rows.filter(([, v]) => v);
+                if (!shown.length) return null;
+                return (
+                  <dl data-firm-data style={{ display: "grid", gridTemplateColumns: "max-content 1fr", gap: "6px 14px", margin: "10px 0 0", fontSize: 14 }}>
+                    {shown.map(([k, v]) => <React.Fragment key={k}><dt style={{ color: MUTED }}>{k}</dt><dd style={{ margin: 0, fontWeight: 600, wordBreak: "break-word" }}>{v}</dd></React.Fragment>)}
+                    {x.staff && <dd style={{ gridColumn: "1 / -1", margin: 0, fontSize: 12, color: MUTED }}>{tx("Diese Angaben pflegt die Leitung unter „Personal“.")}</dd>}
+                  </dl>
+                );
+              })()}
+              {["owner", "supervisor", "office"].includes(firm.role) && <LetterheadCard supabase={supabase} orgId={firm.orgId} role={firm.role} />}
               <div style={{ fontSize: 12, color: MUTED, margin: "10px 0 6px" }}>{tx("Module")}</div>
               <div style={{ display: "grid", gap: 8 }}>
-                {MODULES.filter((mod) => mod.product !== "touren" || firm.products.includes("touren")).map((mod) => {
+                {/* 27.11.2026 (Wunsch): nur gebuchte Module zeigen – nicht gebuchte nicht mehr ausgegraut */}
+                {MODULES.filter((mod) => firm.products.includes(mod.product) && (mod.roles ? mod.roles.includes(firm.role) : (!mod.planningOnly || ["owner", "supervisor", "planner"].includes(firm.role)))).map((mod) => {
                   const active = firm.products.includes(mod.product);
                   const canOpen = active && (mod.roles ? mod.roles.includes(firm.role) : (!mod.planningOnly || ["owner", "supervisor", "planner"].includes(firm.role)));
                   return (

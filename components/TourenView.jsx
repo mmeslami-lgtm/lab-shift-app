@@ -15,6 +15,7 @@ import { tx as txRaw, loc, wdShort, wdLong, dmy, dm, isoDmy, getLang, dec, month
 import { useLang } from "../lib/useLang";
 import { coordsFromText, isShortMapsLink, mapsHref, normPhone } from "../lib/maps";
 import { buildTrips } from "../lib/tourenTrips";
+import { loadLetterhead, footerParts } from "../lib/letterhead";
 import { suggestStaff, teamSkillGap } from "../lib/tourenSuggest";
 
 // Branchenvorlage (D3b): bei „Pflege & Betreuung“ heißen Kunden „Klienten“ und Aufträge „Einsätze“ (EN: clients / visits).
@@ -72,6 +73,7 @@ const MOBILE_CSS = `
 
 const pad = (n) => String(n).padStart(2, "0");
 const isoOf = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+const todayIso = () => isoOf(new Date());
 const dateOf = (iso) => new Date(String(iso).slice(0, 10) + "T12:00:00");
 const addDays = (iso, n) => { const d = dateOf(iso); d.setDate(d.getDate() + n); return isoOf(d); };
 const mondayOf = (iso) => { const d = dateOf(iso); const w = (d.getDay() + 6) % 7; d.setDate(d.getDate() - w); return isoOf(d); };
@@ -195,6 +197,8 @@ function errText(e) {
   if (/customers_phone_check|phone/.test(m) && /check/.test(m)) return tx("Bitte eine gültige Telefonnummer eingeben (nur Ziffern, am Anfang + erlaubt).");
   if (/relation .* does not exist|schema cache/.test(m)) return tx("Die Datenbank ist noch nicht vorbereitet (Skript 46 fehlt).");
   if (/row-level security|permission denied/.test(m)) return tx("Dafür fehlt die Berechtigung.");
+  if (/consent_missing/.test(m)) return tx("Für die Privatwohnung bitte die unterschriebene Einwilligung bestätigen und das Datum eintragen.");
+  if (/consent_date/.test(m)) return tx("Bitte ein gültiges Datum für die Einwilligung eintragen (nicht in der Zukunft).");
   return tx(m);
 }
 
@@ -1603,6 +1607,7 @@ const PRINT_CSS = `
 #dg-print .dgp-warn { color: #b91c1c; font-weight: 600; }
 #dg-print .dgp-muted { color: #64748b; font-size: 8.5pt; }
 #dg-print .dgp-time { white-space: nowrap; font-weight: 600; }
+#dg-print .dgp-foot { margin-top: 18px; padding-top: 5px; border-top: 1px solid #cbd5e1; color: #64748b; font-size: 8pt; text-align: center; }
 @media print {
   body > *:not(#dg-print) { display: none !important; }
   #dg-print { position: static !important; overflow: visible !important; background: #fff !important; }
@@ -1611,7 +1616,8 @@ const PRINT_CSS = `
   #dg-print .dgp-break { break-before: page; }
   #dg-print tr, #dg-print .dgp-person, #dg-print .dgp-band { break-inside: avoid; break-after: avoid; }
   #dg-print * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-  @page { size: A4; margin: 12mm; }
+  #dg-print .dgp-foot { display: none; }
+  @page { size: A4; margin: 12mm 12mm 16mm; }
 }`;
 
 function printRange(kind, day, o) {
@@ -1728,9 +1734,13 @@ function PrintSheet({ org, data, sheet, onBack, onClose, onReload }) {
     return Object.entries(m).map(([id, list]) => ({ id, name: names[id] || "?", list: list.sort((a, b) => (a.work_date + a.start_time).localeCompare(b.work_date + b.start_time)) })).sort((a, b) => a.name.localeCompare(b.name));
   }, [assign, jobs, names]);
   const printedAt = `${dmy(new Date())} ${pad(new Date().getHours())}:${pad(new Date().getMinutes())}`;
+  // 65: Briefkopf mit Firmenlogo (freiwillig) + Fußzeile mit Firmendaten
+  const [lh, setLh] = useState(null);
+  useEffect(() => { let alive = true; loadLetterhead(org.supabase, org.orgId).then((x) => { if (alive) setLh(x); }); return () => { alive = false; }; }, [org.supabase, org.orgId]);
   const header = (sub) => (
-    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", borderBottom: "2.5px solid #0f172a", paddingBottom: 8, marginBottom: 10 }}>
-      <div><div style={{ fontSize: "9pt", color: "#64748b", textTransform: "uppercase", letterSpacing: ".08em" }}>{org.orgName}</div>
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", gap: 12, borderBottom: "2.5px solid #0f172a", paddingBottom: 8, marginBottom: 10 }}>
+      {lh && lh.logo ? <img src={lh.logo} alt="" style={{ maxHeight: "16mm", maxWidth: "48mm", objectFit: "contain", alignSelf: "center" }} /> : null}
+      <div style={{ flex: 1 }}><div style={{ fontSize: "9pt", color: "#64748b", textTransform: "uppercase", letterSpacing: ".08em" }}>{org.orgName}</div>
         <div style={{ fontSize: "17pt", fontWeight: 700 }}>{sub}</div><div style={{ fontSize: "11pt" }}>{title}</div></div>
       <div className="dgp-muted" style={{ textAlign: "right" }}>{tx("Gedruckt {0}", printedAt)}<br />Dienstigo</div>
     </div>
@@ -1832,12 +1842,13 @@ function PrintSheet({ org, data, sheet, onBack, onClose, onReload }) {
   return createPortal(
     <div id="dg-print" lang={getLang()} role="dialog" aria-modal="true" aria-label={tx("Druckvorschau")}>
       <style>{PRINT_CSS}</style>
+      {footerParts(lh, org.orgName).length > 1 && <style>{`@media print { @page { @bottom-center { content: ${JSON.stringify(footerParts(lh, org.orgName).join("  ·  "))}; font: 8pt Arial, sans-serif; color: #64748b; border-top: 0.5pt solid #cbd5e1; vertical-align: top; padding-top: 2mm; } } }`}</style>}
       <div id="dgp-bar" className="dgp-noprint flex flex-wrap items-center justify-center gap-2 border-b border-slate-300 bg-white/95 px-3 py-2 shadow-sm">
         <button type="button" className={btnLight} onClick={onBack}><ChevronLeft size={16} />{tx("Zurück")}</button>
         <button type="button" className={btnPrimary} onClick={() => window.print()}><Printer size={16} />{tx("Drucken / als PDF speichern")}</button>
         <button type="button" className={btnLight} onClick={onClose}>{tx("Schließen")}</button>
       </div>
-      <div className="dgp-sheet">{body}</div>
+      <div className="dgp-sheet">{body}{footerParts(lh, org.orgName).length > 1 && <div className="dgp-foot">{footerParts(lh, org.orgName).join("  ·  ")}</div>}</div>
     </div>, document.body);
 }
 
@@ -1982,7 +1993,7 @@ function CustomerDialog({ org, data, customer, onClose, onSaved, onNewJob }) {
 
       {editing && (
         <section className="mt-5">
-          <div className="mb-2 flex items-center justify-between"><h3 className="text-sm font-semibold text-slate-700">{tx("Letzte Aufträge")}</h3><button type="button" className={btnLight} onClick={() => onNewJob(customer)}><Plus size={15} />{tx("Auftrag für diesen Kunden")}</button></div>
+          <div className="mb-2 flex items-center justify-between"><h3 className="text-sm font-semibold text-slate-700">{tx("Letzte Aufträge")}</h3><button type="button" data-new-job-cust className={`${btn} bg-emerald-600 text-white hover:bg-emerald-700`} onClick={() => onNewJob(customer)}><Plus size={15} />{tx("Auftrag für diesen Kunden")}</button></div>
           {history === null ? <p className="text-sm text-slate-500">{tx("Lädt …")}</p> : history.length === 0 ? <p className="text-sm text-slate-500">{tx("Noch keine Aufträge.")}</p> : (
             <ul className="divide-y divide-slate-100 rounded-lg border border-slate-200 text-sm">
               {history.map((h) => { const sn = svcNames(h, data.services); return (
@@ -2071,13 +2082,15 @@ function CustomersView({ data, onNew, onOpen }) {
         <>
         <ul className="space-y-2 sm:hidden">
           {list.map((c) => {
-            const first = data.addresses.find((a) => a.customer_id === c.id && a.active);
+            const ads = data.addresses.filter((a) => a.customer_id === c.id && a.active);
+            const first = ads[0];
             return (
               <li key={c.id} className={`rounded-xl border border-slate-200 bg-white px-3 py-2.5 shadow-sm ${c.active ? "" : "opacity-60"}`}>
                 <button type="button" className="block w-full text-left" onClick={() => onOpen(c)}>
                   <div className="font-medium text-slate-800">{custName(c)} <span className="text-xs font-normal text-slate-400">#{c.customer_no}</span>{!c.active ? <span className="ml-1 text-xs font-normal text-slate-400">{tx("(inaktiv)")}</span> : null}</div>
                   {c.phone && <div className="text-xs text-slate-600">{c.phone}</div>}
-                  {first && <div className="truncate text-xs text-slate-500">{first.label ? `${first.label}: ` : ""}{first.address}</div>}
+                  {ads.slice(0, 3).map((a) => <div key={a.id} className="truncate text-xs text-slate-500">{a.label ? `${a.label}: ` : ""}{a.address}</div>)}
+                  {ads.length > 3 && <div className="text-xs text-slate-400">{tx("+{0} weitere", ads.length - 3)}</div>}
                 </button>
                 <ContactButtons phone={c.phone} map={first} />
               </li>
@@ -2090,13 +2103,21 @@ function CustomersView({ data, onNew, onOpen }) {
             <thead className="bg-slate-50 text-left text-xs text-slate-500"><tr><th className="px-3 py-2">{tx("Nr.")}</th><th className="px-3 py-2">{tx("Name")}</th><th className="px-3 py-2">{tx("Mobil / WhatsApp")}</th><th className="px-3 py-2">{tx("Adressen")}</th></tr></thead>
             <tbody className="divide-y divide-slate-100">
               {list.map((c) => {
-                const n = data.addresses.filter((a) => a.customer_id === c.id && a.active).length;
+                // 27.11.2026 (Wunsch): statt der Anzahl die Adressen selbst (höchstens 3, dann „+n weitere“)
+                const ads = data.addresses.filter((a) => a.customer_id === c.id && a.active);
                 return (
                   <tr key={c.id} className={`cursor-pointer hover:bg-teal-50/40 ${c.active ? "" : "opacity-60"}`} onClick={() => onOpen(c)}>
                     <td className="px-3 py-2 text-slate-500">{c.customer_no}</td>
                     <td className="px-3 py-2 font-medium text-slate-800">{custName(c)}{!c.active ? <span className="ml-1 text-xs font-normal text-slate-400">{tx("(inaktiv)")}</span> : null}</td>
                     <td className="px-3 py-2 text-slate-700">{c.phone ? <a href={`https://wa.me/${digits(c.phone)}`} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className="inline-flex items-center gap-1 hover:underline"><Phone size={13} aria-hidden="true" />{c.phone}</a> : "–"}</td>
-                    <td className="px-3 py-2 text-slate-600">{n}</td>
+                    <td className="px-3 py-2 text-slate-600" data-cust-addrs>
+                      {ads.length === 0 ? "–" : (
+                        <ul className="space-y-0.5">
+                          {ads.slice(0, 3).map((a) => <li key={a.id} className="max-w-[28rem] truncate" title={`${a.label ? a.label + ": " : ""}${a.address}`}>{a.label ? <b className="font-semibold text-slate-700">{a.label}: </b> : null}{a.address}</li>)}
+                          {ads.length > 3 && <li className="text-xs text-slate-400">{tx("+{0} weitere", ads.length - 3)}</li>}
+                        </ul>
+                      )}
+                    </td>
                   </tr>
                 );
               })}
@@ -2110,12 +2131,63 @@ function CustomersView({ data, onNew, onOpen }) {
   );
 }
 
+// ---------- Einwilligung Privatwohnung (64) – Vordruck zum Unterschreiben, kommt in die Personalakte ----------
+const escH = (v) => String(v == null ? "" : v).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+async function printConsent(org, name, address) {
+  const en = getLang() === "en";
+  const w = typeof window !== "undefined" ? window.open("", "_blank") : null; // sofort öffnen (sonst blockiert der Browser)
+  if (!w) { window.alert(tx("Das Druckfenster wurde blockiert. Bitte Pop-ups für diese Seite erlauben.")); return; }
+  const lh = await loadLetterhead(org.supabase, org.orgId);
+  const logo = lh && /^data:image\/(png|jpeg|webp);base64,/.test(lh.logo) ? lh.logo : "";
+  const foot = footerParts(lh, org.orgName).map(escH).join(" &nbsp;·&nbsp; ");
+  const firm = escH(org.orgName || ""), nm = escH(name || ""), adr = escH(address || "");
+  const line = (v) => (v ? `<b>${v}</b>` : `<span class="blank"></span>`);
+  const T = en ? {
+    title: "Consent to storing my home address for the transport service",
+    intro: `I agree that <b>${firm}</b> stores my home address in its work planning program (Dienstigo), so that the company transport service can pick me up for work and bring me back.`,
+    name: "Name", adr: "Home address",
+    pts: ["Purpose: only for picking me up and bringing me back (transport service).",
+      "Who sees it: the management and the office for planning, the driver only for my own trips.",
+      "My address is not passed on to customers or other third parties.",
+      "The address is deleted as soon as I no longer use the transport service or leave the company.",
+      "This consent is voluntary. I can withdraw it at any time without giving reasons. From then on I travel to work myself and the company provides no transport for me. Withdrawal does not affect my employment otherwise."],
+    place: "Place, date", sigE: "Signature employee", sigC: "Signature company", note: "Original: personnel file. Copy: employee.",
+  } : {
+    title: "Einwilligung zur Speicherung meiner Wohnadresse für den Fahrdienst",
+    intro: `Ich willige ein, dass <b>${firm}</b> meine Wohnadresse im Einsatzplanungs-Programm (Dienstigo) speichert, damit der Fahrdienst der Firma mich zur Arbeit abholen und wieder zurückbringen kann.`,
+    name: "Name", adr: "Wohnadresse",
+    pts: ["Zweck: nur für das Abholen und Zurückbringen (Fahrdienst).",
+      "Wer sie sieht: Leitung und Büro für die Planung, die Fahrer:in nur bei meinen eigenen Fahrten.",
+      "Meine Adresse wird nicht an Kunden oder andere Dritte weitergegeben.",
+      "Die Adresse wird gelöscht, sobald ich den Fahrdienst nicht mehr nutze oder aus der Firma ausscheide.",
+      "Die Einwilligung ist freiwillig. Ich kann sie jederzeit ohne Angabe von Gründen widerrufen. Ab dann komme ich selbst zur Arbeit, die Firma stellt für mich keinen Fahrdienst. Sonst hat der Widerruf keine Nachteile für mein Arbeitsverhältnis."],
+    place: "Ort, Datum", sigE: "Unterschrift Mitarbeiter:in", sigC: "Unterschrift Firma", note: "Original: Personalakte. Kopie: Mitarbeiter:in.",
+  };
+  const html = `<!DOCTYPE html><html lang="${en ? "en" : "de"}"><head><meta charset="utf-8"><title>${escH(T.title)}</title><style>
+    @page{size:A4;margin:22mm 20mm}body{font:11pt/1.5 Arial,Helvetica,sans-serif;color:#0f172a;margin:0}
+    .head{display:flex;align-items:center;gap:14px;border-bottom:2px solid #0f172a;padding-bottom:8px;margin-bottom:18px}
+    .head img{max-height:18mm;max-width:55mm;object-fit:contain}.head .r{flex:1;text-align:right}
+    .firm{font-size:11pt;font-weight:700;color:#0f172a}.sub{font-size:8.5pt;color:#64748b}h1{font-size:15pt;margin:6px 0 16px}
+    .foot{margin-top:30px;border-top:1px solid #cbd5e1;padding-top:4px;font-size:8pt;color:#64748b;text-align:center}
+    table{border-collapse:collapse;margin:14px 0 6px}td{padding:5px 12px 5px 0;vertical-align:top}.k{color:#475569;width:130px}
+    .blank{display:inline-block;width:300px;border-bottom:1px solid #94a3b8;height:1.2em}ul{padding-left:18px}li{margin:5px 0}
+    .sig{display:flex;gap:28px;margin-top:46px}.sig div{flex:1;border-top:1px solid #334155;padding-top:4px;font-size:9pt;color:#475569}
+    .note{margin-top:28px;font-size:8.5pt;color:#64748b}@media print{.foot{position:fixed;left:0;right:0;bottom:0;margin:0;background:#fff}body{padding-bottom:12mm}}</style></head><body>
+    <div class="head">${logo ? `<img src="${logo}" alt="">` : ""}<div class="r"><div class="firm">${firm}</div>${lh && lh.address ? `<div class="sub">${escH(lh.address)}</div>` : ""}</div></div><h1>${escH(T.title)}</h1><p>${T.intro}</p>
+    <table><tr><td class="k">${T.name}</td><td>${line(nm)}</td></tr><tr><td class="k">${T.adr}</td><td>${line(adr)}</td></tr></table>
+    <ul>${T.pts.map((x) => `<li>${escH(x)}</li>`).join("")}</ul>
+    <div class="sig"><div>${T.place}</div><div>${T.sigE}</div></div><div class="sig"><div>${T.place}</div><div>${T.sigC}</div></div>
+    <div class="note">${T.note}</div>${foot ? `<div class="foot">${foot}</div>` : ""}<script>window.onload=function(){setTimeout(function(){window.print()},200)}</script></body></html>`;
+  w.document.open(); w.document.write(html); w.document.close();
+}
+
 // ---------- Mitarbeitende (Inhaber / Leitung) – gleiche Tabelle „staff“ wie Dienstplaner und Zeiterfassung ----------
 const staffForm = (x, starts, skillMap, drivers = {}, areaMap = {}) => {
   const t = starts[x.id]; const dv = drivers[x.id];
   return { ...x, phone: x.phone || "", personnel_no: x.personnel_no || "",
     start: !t ? "" : t.start_kind === "home" ? "home" : t.start_kind === "place" && t.place_id ? `place:${t.place_id}` : "",
     home: t && t.start_kind === "home" ? { address: t.home_address || "", maps_url: t.home_maps_url || "", lat: t.home_lat, lng: t.home_lng, coordState: t.home_lat !== null && t.home_lat !== undefined ? "ok" : "none" } : emptyAddr(),
+    consent: !!(t && t.start_kind === "home" && t.home_consent_on), consent_on: (t && t.start_kind === "home" && t.home_consent_on) || "", consentSaved: !!(t && t.start_kind === "home" && t.home_consent_on),
     skills: skillMap[x.id] || [],
     driver: dv ? { on: true, all: dv.scope_all, places: dv.places || [], home: !!dv.home, areas: (areaMap[x.id] || []).map(areaForm) } : { on: false, all: true, places: [], home: false, areas: [] } };
 };
@@ -2159,6 +2231,9 @@ function StaffView({ org, data, onChanged, onAbsence }) {
     if (h !== null && (!Number.isFinite(h) || h < 0 || h > 84)) return setMsg({ kind: "err", text: tx("Bitte die Wochenstunden zwischen 0 und 84 eintragen.") });
     const same = (rows || []).find((x) => x.id !== form.id && x.name.trim().toLowerCase() === form.name.trim().toLowerCase());
     if (same) return setMsg({ kind: "err", text: tx("„{0}“ gibt es schon. Bitte Namen unterscheidbar machen (z. B. mit Nachnamen).", same.name) });
+    // 64: Privatwohnung nur mit unterschriebener Einwilligung – ohne sie kein Fahrdienst
+    if (form.start === "home" && (!form.consent || !form.consent_on)) return setMsg({ kind: "err", text: tx("Für die Privatwohnung bitte die unterschriebene Einwilligung bestätigen und das Datum eintragen. Ohne Einwilligung kommt die Person selbst – Startpunkt „– keiner –“ wählen.") });
+    if (form.start === "home" && form.consent_on > todayIso()) return setMsg({ kind: "err", text: tx("Bitte ein gültiges Datum für die Einwilligung eintragen (nicht in der Zukunft).") });
     if (form.driver && form.driver.on && !form.driver.all && (form.driver.areas || []).some((a) => blank(a.address) && (a.lat === null || a.lat === undefined))) return setMsg({ kind: "err", text: tx("Bitte für jedes Gebiet eine Adresse oder einen Kartenlink eintragen – oder das Gebiet entfernen.") });
     if (form.driver && form.driver.on && !form.driver.all && !(form.driver.places || []).length && !form.driver.home && !(form.driver.areas || []).length) return setMsg({ kind: "err", text: tx("Bitte für die Fahrer:in mindestens einen Bereich wählen – oder „Alle Fahrten“.") });
     setBusy(true);
@@ -2170,7 +2245,7 @@ function StaffView({ org, data, onChanged, onAbsence }) {
       const home = form.start === "home";
       const placeId = form.start && form.start.startsWith("place:") ? form.start.slice(6) : null;
       const st = await sb.from("staff_touren").upsert(await withCoords(org, { staff_id: sid, org_id: org.orgId, start_kind: home ? "home" : placeId ? "place" : "none", place_id: placeId,
-        home_address: home ? clean(form.home.address) : null, home_maps_url: home ? clean(form.home.maps_url) : null, home_lat: home ? form.home.lat ?? null : null, home_lng: home ? form.home.lng ?? null : null }, "home_address", "home_lat", "home_lng"), { onConflict: "staff_id" });
+        home_address: home ? clean(form.home.address) : null, home_maps_url: home ? clean(form.home.maps_url) : null, home_lat: home ? form.home.lat ?? null : null, home_lng: home ? form.home.lng ?? null : null, home_consent_on: home ? form.consent_on || null : null }, "home_address", "home_lat", "home_lng"), { onConflict: "staff_id" });
       const before = skillMap[sid] || [], after = form.skills || [];
       const del = before.filter((x) => !after.includes(x)), ins = after.filter((x) => !before.includes(x));
       const d = del.length ? await sb.from("staff_skills").delete().eq("staff_id", sid).in("skill_id", del) : { error: null };
@@ -2232,8 +2307,15 @@ function StaffView({ org, data, onChanged, onAbsence }) {
             <label className="block"><span className={lbl}>{tx("Startpunkt (erster Einsatz des Tages)")}</span>
               <select className={inp} value={form.start || ""} onChange={(e) => set("start", e.target.value)}>
                 <option value="">{tx("– keiner –")}</option>
-                {data.places.filter((pl) => pl.active || form.start === `place:${pl.id}`).map((pl) => <option key={pl.id} value={`place:${pl.id}`}>{pl.name}</option>)}
-                <option value="home">{tx("Eigene Wohnadresse")}</option>
+                {(() => { // 27.11.: klar getrennt – Firmenunterkunft / andere Orte der Firma / Privatwohnung
+                  const pls = data.places.filter((pl) => pl.active || form.start === `place:${pl.id}`);
+                  const acc = pls.filter((pl) => pl.kind === "accommodation"), rest = pls.filter((pl) => pl.kind !== "accommodation");
+                  return (<>
+                    {acc.length > 0 && <optgroup label={tx("Firmenunterkunft")}>{acc.map((pl) => <option key={pl.id} value={`place:${pl.id}`}>{pl.name}</option>)}</optgroup>}
+                    {rest.length > 0 && <optgroup label={tx("Andere Orte der Firma")}>{rest.map((pl) => <option key={pl.id} value={`place:${pl.id}`}>{pl.name}</option>)}</optgroup>}
+                    <optgroup label={tx("Privatwohnung")}><option value="home">{tx("Privatwohnung (eigene Adresse)")}</option></optgroup>
+                  </>);
+                })()}
               </select>
               {data.places.length === 0 && <span className="mt-1 block text-[11px] text-slate-500">{tx("Orte wie Unterkunft oder Büro unter „Einstellungen“ anlegen.")}</span>}
             </label>
@@ -2294,6 +2376,16 @@ function StaffView({ org, data, onChanged, onAbsence }) {
             <div className="mt-3 rounded-lg border border-slate-200 bg-white p-3">
               <p className="mb-2 text-[11px] text-slate-500">{tx("Nur Inhaber und Leitung sehen die Wohnadresse – das Büro nur auf dem Transport-Blatt, Fahrer:innen nur bei ihren Fahrten.")}</p>
               <AddressFields value={form.home || emptyAddr()} onChange={(v) => set("home", v)} org={org} optional noLabel />
+              <div data-consent className={`mt-3 rounded-lg border p-3 ${form.consent && form.consent_on ? "border-emerald-200 bg-emerald-50" : "border-amber-300 bg-amber-50"}`}>
+                <div className="text-sm font-semibold text-slate-800">{tx("Einwilligung für den Fahrdienst")}</div>
+                <p className="mt-0.5 text-[11px] text-slate-600">{tx("Die Wohnadresse darf nur mit unterschriebener Einwilligung gespeichert werden. Ausdrucken, unterschreiben lassen und in die Personalakte legen. Ohne Einwilligung kommt die Person selbst – kein Fahrdienst.")}</p>
+                <div className="mt-2 flex flex-wrap items-end gap-3">
+                  <button type="button" className={btnLight} onClick={() => printConsent(org, form.name, form.home && form.home.address)}><Printer size={15} />{tx("Einwilligung drucken")}</button>
+                  <label className="flex items-center gap-2 text-sm text-slate-800"><input type="checkbox" checked={!!form.consent} onChange={(e) => setForm((p) => ({ ...p, consent: e.target.checked, consent_on: e.target.checked ? p.consent_on || todayIso() : p.consent_on }))} />{tx("Einwilligung liegt unterschrieben vor")}</label>
+                  {form.consent && <label className="block"><span className={lbl}>{tx("Unterschrieben am")}</span><input type="date" className={inpBase} max={todayIso()} value={form.consent_on || ""} onChange={(e) => set("consent_on", e.target.value)} /></label>}
+                </div>
+                {form.consentSaved && <button type="button" className="mt-2 text-xs text-rose-700 underline" onClick={() => { if (!ask(tx("Einwilligung widerrufen?\n\nDie Wohnadresse wird beim Speichern gelöscht und die Person bekommt keinen Fahrdienst mehr."))) return; setForm((p) => ({ ...p, start: "", home: emptyAddr(), consent: false, consent_on: "", consentSaved: false })); setMsg({ kind: "ok", text: tx("Bitte „Speichern“ drücken – dann ist die Wohnadresse gelöscht.") }); }}>{tx("Einwilligung widerrufen")}</button>}
+              </div>
             </div>
           )}
           <div className="mt-3 flex gap-2"><button type="button" className={btnPrimary} onClick={save} disabled={busy}>{busy ? tx("Speichert …") : tx("Speichern")}</button><button type="button" className={btnLight} onClick={() => setForm(null)}>{tx("Abbrechen")}</button></div>
@@ -2306,7 +2398,7 @@ function StaffView({ org, data, onChanged, onAbsence }) {
           {list.map((x) => (
             <li key={x.id} className={`rounded-xl border border-slate-200 bg-white px-3 py-2.5 shadow-sm ${x.active ? "" : "opacity-60"}`}>
               <div className="flex items-start justify-between gap-2">
-                <div><div className="font-medium text-slate-800">{x.name}{!x.active ? <span className="ml-1 text-xs font-normal text-slate-400">{tx("(inaktiv)")}</span> : null}</div>
+                <div><div className="font-medium text-slate-800">{x.name}{!x.active ? <span className="ml-1 text-xs font-normal text-slate-400">{tx("(inaktiv)")}</span> : null}{starts[x.id] && starts[x.id].start_kind === "home" && !starts[x.id].home_consent_on ? <span className="ml-1.5 rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-800">⚠ {tx("Einwilligung fehlt")}</span> : null}</div>
                   <div className="text-xs text-slate-500">{x.personnel_no ? `${tx("Personalnummer")} ${x.personnel_no} · ` : ""}{x.weekly_hours ?? "–"} {tx("Std./Woche")}</div></div>
                 <div className="flex flex-col items-end">
                   <button type="button" className="min-h-[36px] rounded-lg px-2 text-sm text-teal-700 underline" onClick={() => { setMsg(null); setForm(staffForm(x, starts, skillMap, drivers, areaMap)); window.scrollTo(0, 0); }}>{tx("Bearbeiten")}</button>
@@ -2323,7 +2415,7 @@ function StaffView({ org, data, onChanged, onAbsence }) {
             <tbody className="divide-y divide-slate-100">
               {list.map((x) => (
                 <tr key={x.id} className={x.active ? "" : "opacity-60"}>
-                  <td className="px-3 py-2 font-medium text-slate-800">{x.name}{!x.active ? <span className="ml-1 text-xs font-normal text-slate-400">{tx("(inaktiv)")}</span> : null}</td>
+                  <td className="px-3 py-2 font-medium text-slate-800">{x.name}{!x.active ? <span className="ml-1 text-xs font-normal text-slate-400">{tx("(inaktiv)")}</span> : null}{starts[x.id] && starts[x.id].start_kind === "home" && !starts[x.id].home_consent_on ? <span className="ml-1.5 rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-800">⚠ {tx("Einwilligung fehlt")}</span> : null}</td>
                   <td className="px-3 py-2 text-slate-700">{x.phone ? <a href={`https://wa.me/${digits(x.phone)}`} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 hover:underline"><Phone size={13} aria-hidden="true" />{x.phone}</a> : "–"}</td>
                   <td className="px-3 py-2 text-slate-600">{x.personnel_no || "–"}</td>
                   <td className="px-3 py-2 text-slate-600">{x.weekly_hours ?? "–"}</td>
@@ -2364,7 +2456,7 @@ function RulesSection({ org, data, done }) {
   );
 }
 
-const PLACE_KINDS = [["accommodation", "Unterkunft"], ["office", "Büro"], ["depot", "Lager"], ["other", "Sonstiges"]];
+const PLACE_KINDS = [["accommodation", "Firmenunterkunft"], ["office", "Büro"], ["depot", "Lager"], ["other", "Sonstiges"]];
 function PlacesSection({ org, data, done }) {
   const [form, setForm] = useState(null);
   const save = async () => {

@@ -62,9 +62,10 @@ export default function PasswordGate({ children }) {
   return (
     <>
       {session && (
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, padding: "6px 12px", background: "#fff", borderBottom: `1px solid ${LINE}`, fontFamily: "system-ui, -apple-system, 'Segoe UI', sans-serif", fontSize: 12, color: MUTED }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, padding: "6px 12px", background: "#fff", borderBottom: `1px solid ${LINE}`, fontFamily: "system-ui, -apple-system, 'Segoe UI', sans-serif", fontSize: 13, color: MUTED }}>
           <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{loginName(session.user.email)}</span>
-          {pathname !== "/profil" && <a href="/profil" style={{ color: PRIMARY, fontWeight: 650, textDecoration: "none", whiteSpace: "nowrap" }}>{tx("Profil & Passwort")}</a>}
+          {/* 27.11.2026 (Wunsch): deutlicher sichtbar – als Knopf mit Schlüssel */}
+          {pathname !== "/profil" && <a href="/profil" data-profile-link style={{ display: "inline-flex", alignItems: "center", gap: 6, color: "#fff", background: PRIMARY, borderRadius: 999, padding: "5px 12px", fontSize: 13, fontWeight: 700, textDecoration: "none", whiteSpace: "nowrap", boxShadow: "0 4px 10px -6px rgba(36,59,107,.7)" }}><span aria-hidden="true">🔑</span>{tx("Profil & Passwort")}</a>}
         </div>
       )}
       {children}
