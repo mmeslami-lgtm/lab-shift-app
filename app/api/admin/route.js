@@ -329,7 +329,7 @@ export async function POST(request) {
               `Vorläufiges Passwort: ${password}`,
               "",
               "Nach der ersten Anmeldung legen Sie ein eigenes Passwort fest und bestätigen die Nutzungsbedingungen der Testphase.",
-              "Bitte geben Sie in der Testphase nur erfundene (fiktive) Daten ein. Mit „Beispiel-Mitarbeiter anlegen“ füllen Sie Ihre Testfirma mit erfundenen Personen.",
+              "Bitte geben Sie in der Testphase nur erfundene (fiktive) Daten ein.",
               "",
               "Fragen? Antworten Sie einfach auf diese E-Mail.",
               "",

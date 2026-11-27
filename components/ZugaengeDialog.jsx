@@ -12,7 +12,10 @@ export default function ZugaengeDialog({ onClose }) {
   const [people, setPeople] = useState(null);
   const [managers, setManagers] = useState([]);
   const [myRole, setMyRole] = useState("");
-  const [mgrForm, setMgrForm] = useState(null); // { role, email, staffId }
+  const [mgrForm, setMgrForm] = useState(null); // { role, email, staffId, first, last, phone, pno }
+  const [editP, setEditP] = useState(null); // 27.11.2026: Name/Mobil/Personalnummer eines Leitungs-/Büro-Kontos ändern
+  // Schichtplaner nur anbieten, wenn die Firma einen Dienstplan hat (sonst nutzlos, z. B. nur Touren)
+  const hasPlanner = Array.isArray(org.products) && (org.products.includes("lab_planner") || org.products.includes("generic_planner"));
   const [form, setForm] = useState(null); // { staffId, email, phone, kind: "email" | "phone" }
   // Anmeldung mit Handynummer (23.11.2026): nur Firmen mit Touren – sonst bleibt alles wie vorher (nur E-Mail)
   const touren = Array.isArray(org.products) && org.products.includes("touren");
@@ -41,7 +44,14 @@ export default function ZugaengeDialog({ onClose }) {
     catch (e) { setMsg({ text: e.message, bad: true }); }
     setBusy("");
   }
-  const createMgr = () => run("cm", { action: "create", role: mgrForm.role, email: mgrForm.email, staff_id: mgrForm.staffId || undefined }, "", (b) => { setMgrForm(null); setSecret({ name: b.name, email: b.email, password: b.password }); setCopied(false); });
+  const createMgr = () => {
+    if (!mgrForm.staffId && (!mgrForm.first.trim() || !mgrForm.last.trim())) { setMsg({ text: tx("Bitte Vor- und Nachnamen eintragen."), bad: true }); return; }
+    run("cm", { action: "create", role: mgrForm.role, email: mgrForm.email, staff_id: mgrForm.staffId || undefined, first_name: mgrForm.first, last_name: mgrForm.last, phone_number: mgrForm.phone, personnel_no: mgrForm.pno }, "", (b) => { setMgrForm(null); setSecret({ name: b.name, email: b.email, password: b.password }); setCopied(false); });
+  };
+  const saveProfile = () => {
+    if (!editP.first.trim() || !editP.last.trim()) { setMsg({ text: tx("Bitte Vor- und Nachnamen eintragen."), bad: true }); return; }
+    run("p" + editP.userId, { action: "update_profile", user_id: editP.userId, first_name: editP.first, last_name: editP.last, phone_number: editP.phone, personnel_no: editP.pno }, tx("Gespeichert ✓"), () => setEditP(null));
+  };
   const create = () => {
     let who = { email: form.email };
     if (touren && form.kind === "phone") {
@@ -80,16 +90,31 @@ export default function ZugaengeDialog({ onClose }) {
 
         {people !== null && (
           <>
-            <h3 className="mt-4 text-xs font-semibold uppercase tracking-wide text-slate-500">{tx("Leitung & Schichtplaner")}</h3>
+            <h3 className="mt-4 text-xs font-semibold uppercase tracking-wide text-slate-500">{hasPlanner ? tx("Leitung & Schichtplaner") : tx("Leitung & Büro")}</h3>
             <ul className="mt-1 divide-y divide-slate-100">
               {managers.map((m) => (
-                <li key={m.userId} className="flex flex-wrap items-center justify-between gap-2 py-1.5">
-                  <span><span className="mr-2 rounded-md bg-slate-100 px-2 py-0.5 text-xs text-slate-700">{{ owner: tx("Inhaber"), supervisor: tx("Leitung"), planner: tx("Schichtplaner"), office: tx("Büro") }[m.role]}</span>{loginName(m.email)} <span className="text-xs text-slate-400">{m.lastSignIn ? tx("zuletzt {0}", new Date(m.lastSignIn).toLocaleDateString(loc())) : tx("noch nie angemeldet")}</span></span>
+                <li key={m.userId} className="py-1.5">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span data-mgr-row><span className="mr-2 rounded-md bg-slate-100 px-2 py-0.5 text-xs text-slate-700">{{ owner: tx("Inhaber"), supervisor: tx("Leitung"), planner: tx("Schichtplaner"), office: tx("Büro") }[m.role]}</span>
+                    {m.name ? <><b className="font-semibold">{m.name}</b> <span className="text-xs text-slate-500">{loginName(m.email)}</span></> : loginName(m.email)}
+                    {(m.phone || m.personnelNo) && <span className="ml-1 text-xs text-slate-500">· {[m.phone, m.personnelNo && tx("Pers.-Nr. {0}", m.personnelNo)].filter(Boolean).join(" · ")}</span>}
+                    {" "}<span className="text-xs text-slate-400">{m.lastSignIn ? tx("zuletzt {0}", new Date(m.lastSignIn).toLocaleDateString(loc())) : tx("noch nie angemeldet")}</span></span>
+                  <span className="whitespace-nowrap">
+                  {m.canEdit && !m.staffLinked && (!editP || editP.userId !== m.userId) && <button onClick={() => { setEditP({ userId: m.userId, first: m.firstName || (m.name || "").split(" ")[0] || "", last: m.lastName || (m.name || "").split(" ").slice(1).join(" ") || "", phone: m.phone || "", pno: m.personnelNo || "" }); setMsg({ text: "", bad: false }); }} disabled={!!busy} className="mr-1 rounded-md border border-slate-200 px-2.5 py-1 text-xs text-slate-700 hover:bg-slate-50 active:translate-y-px">{tx("Bearbeiten")}</button>}
                   {m.canManage && (
                     <span className="whitespace-nowrap">
                       <button onClick={() => reset({ userId: m.userId, name: m.email })} disabled={!!busy} className="mr-1 rounded-md border border-slate-200 px-2.5 py-1 text-xs text-slate-700 hover:bg-slate-50 active:translate-y-px">{tx("Neues Passwort")}</button>
-                      <button onClick={() => remove({ userId: m.userId, name: m.email })} disabled={!!busy} className="rounded-md border border-rose-200 px-2.5 py-1 text-xs text-rose-700 hover:bg-rose-50 active:translate-y-px">{tx("Entfernen")}</button>
+                      <button onClick={() => remove({ userId: m.userId, name: m.name || m.email })} disabled={!!busy} className="rounded-md border border-rose-200 px-2.5 py-1 text-xs text-rose-700 hover:bg-rose-50 active:translate-y-px">{tx("Entfernen")}</button>
                     </span>
+                  )}
+                  </span>
+                  </div>
+                  {editP && editP.userId === m.userId && (
+                    <div data-mgr-edit className="mt-2 flex flex-wrap items-end gap-2 rounded-lg bg-slate-50 p-2.5">
+                      <PersonFields v={editP} set={setEditP} />
+                      <button onClick={saveProfile} disabled={busy === "p" + m.userId} className="rounded-md bg-teal-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-teal-700 active:translate-y-px">{busy === "p" + m.userId ? tx("Moment …") : tx("Speichern")}</button>
+                      <button onClick={() => setEditP(null)} className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-600">{tx("Abbrechen")}</button>
+                    </div>
                   )}
                 </li>
               ))}
@@ -97,7 +122,7 @@ export default function ZugaengeDialog({ onClose }) {
             {mgrForm ? (
               <div className="mt-2 flex flex-wrap items-end gap-2 rounded-lg bg-slate-50 p-2.5">
                 <label className="text-xs text-slate-600">{tx("Rolle")}<select value={mgrForm.role} onChange={(e) => setMgrForm({ ...mgrForm, role: e.target.value })} className="mt-1 block rounded-md border border-slate-300 px-2 py-1.5 text-sm">
-                    <option value="planner">{tx("Schichtplaner")}</option>
+                    {hasPlanner && <option value="planner">{tx("Schichtplaner")}</option>}
                     {myRole === "owner" && <option value="supervisor">{tx("Leitung")}</option>}
                     {(org.products || []).includes("touren") && <option value="office">{tx("Büro (Kunden & Aufträge)")}</option>}
                   </select>
@@ -109,12 +134,13 @@ export default function ZugaengeDialog({ onClose }) {
                     {people.filter((p) => !p.userId && p.active).map((p) => <option key={p.staffId} value={p.staffId}>{p.name}</option>)}
                   </select>
                 </label>
+                {!mgrForm.staffId && <PersonFields v={mgrForm} set={setMgrForm} />}
                 <button onClick={createMgr} disabled={busy === "cm"} className="rounded-md bg-teal-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-teal-700 active:translate-y-px">{busy === "cm" ? tx("Moment …") : tx("Anlegen")}</button>
                 <button onClick={() => setMgrForm(null)} className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-600">{tx("Abbrechen")}</button>
                 {myRole !== "owner" && <div className="w-full text-[11px] text-slate-500">{tx("Eine weitere Leitung kann nur der Inhaber anlegen.")}</div>}
               </div>
             ) : (
-              <button onClick={() => { setMgrForm({ role: "planner", email: "", staffId: "" }); setMsg({ text: "", bad: false }); }} className="mt-1 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs text-slate-700 hover:bg-slate-50 active:translate-y-px">{tx("+ Zugang für ")}{myRole === "owner" ? tx("Leitung / Schichtplaner") : tx("Schichtplaner")}</button>
+              <button onClick={() => { setMgrForm({ role: hasPlanner || !touren ? "planner" : "office", email: "", staffId: "", first: "", last: "", phone: "", pno: "" }); setMsg({ text: "", bad: false }); }} className="mt-1 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs text-slate-700 hover:bg-slate-50 active:translate-y-px">{tx("+ Zugang für ")}{myRole === "owner" ? (hasPlanner ? tx("Leitung / Schichtplaner") : tx("Leitung / Büro")) : (hasPlanner ? tx("Schichtplaner") : tx("Büro"))}</button>
             )}
             <h3 className="mt-4 text-xs font-semibold uppercase tracking-wide text-slate-500">{tx("Mitarbeitende (App)")}</h3>
           </>
@@ -165,5 +191,20 @@ export default function ZugaengeDialog({ onClose }) {
         )}
       </div>
     </div>
+  );
+}
+
+// 27.11.2026: Vorname, Nachname, Mobil, Personalnummer für Leitung / Büro / Schichtplaner (ohne Platz im Plan)
+function PersonFields({ v, set }) {
+  const f = (k, label, w, extra = {}) => (
+    <label className="text-xs text-slate-600">{label}<input value={v[k]} onChange={(e) => set({ ...v, [k]: e.target.value })} maxLength={k === "phone" || k === "pno" ? 40 : 80} className={`mt-1 block ${w} rounded-md border border-slate-300 px-2 py-1.5 text-sm`} {...extra} /></label>
+  );
+  return (
+    <>
+      {f("first", tx("Vorname") + " *", "w-36", { autoComplete: "off" })}
+      {f("last", tx("Nachname") + " *", "w-36", { autoComplete: "off" })}
+      {f("phone", tx("Mobil (optional)"), "w-36", { type: "tel" })}
+      {f("pno", tx("Personalnummer (optional)"), "w-32")}
+    </>
   );
 }

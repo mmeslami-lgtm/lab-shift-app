@@ -1847,7 +1847,8 @@ function CustomerDialog({ org, data, customer, onClose, onSaved, onNewJob }) {
   const custFields = data.fields.filter((f) => f.entity === "customer" && f.active);
   const [c, setC] = useState(() => customer ? { ...customer, company: customer.company || "", phone: customer.phone || "", email: customer.email || "", notes_staff: customer.notes_staff || "", notes_internal: customer.notes_internal || "", extra: customer.extra || {} }
     : { kind: "person", name: "", company: "", phone: "", email: "", notes_staff: "", notes_internal: "", source: "phone", active: true, extra: {} });
-  const [firstAddr, setFirstAddr] = useState(emptyAddr());
+  // 27.11.2026: beim neuen Kunden gleich mehrere Adressen (Wunsch) – jede mit eigenem Schlüssel für AddressFields
+  const [newAddrs, setNewAddrs] = useState(() => [{ k: 1, ...emptyAddr() }]);
   const [addrEdit, setAddrEdit] = useState(null); // { id|null, ...fields }
   const [history, setHistory] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -1878,8 +1879,11 @@ function CustomerDialog({ org, data, customer, onClose, onSaved, onNewJob }) {
       } else {
         const ins = await org.supabase.from("customers").insert({ org_id: org.orgId, ...row }).select().single();
         if (ins.error) throw ins.error;
-        if (!blank(firstAddr.address)) {
-          const ia = await org.supabase.from("customer_addresses").insert({ org_id: org.orgId, customer_id: ins.data.id, ...(await withCoords(org, addrRow(firstAddr))) });
+        const filled = newAddrs.filter((a) => !blank(a.address));
+        if (filled.length) {
+          const rows = [];
+          for (const a of filled) rows.push({ org_id: org.orgId, customer_id: ins.data.id, ...(await withCoords(org, addrRow(a))) });
+          const ia = await org.supabase.from("customer_addresses").insert(rows);
           if (ia.error) throw ia.error;
         }
         onSaved(tx("Kunde Nr. {0} angelegt ✓", ins.data.customer_no), ins.data, false);
@@ -1939,7 +1943,17 @@ function CustomerDialog({ org, data, customer, onClose, onSaved, onNewJob }) {
       <section className="mt-5">
         <h3 className="mb-2 text-sm font-semibold text-slate-700">{tx("Adressen")}</h3>
         {!editing ? (
-          <div className="rounded-lg border border-slate-200 p-3"><p className="mb-2 text-xs text-slate-500">{tx("Erste Adresse (optional) – weitere nach dem Speichern.")}</p><AddressFields value={firstAddr} onChange={setFirstAddr} org={org} /></div>
+          <div className="space-y-2">
+            <p className="text-xs text-slate-500">{tx("Adressen (optional) – z. B. Wohnung, Büro, zweite Filiale.")}</p>
+            {newAddrs.map((a, i) => (
+              <div key={a.k} data-new-addr className="rounded-lg border border-slate-200 p-3">
+                <div className="mb-1 flex items-center justify-between text-xs font-semibold text-slate-600"><span>{tx("Adresse {0}", i + 1)}</span>
+                  {newAddrs.length > 1 && <button type="button" className="text-xs font-medium text-rose-700 underline" onClick={() => setNewAddrs(newAddrs.filter((x) => x.k !== a.k))}>{tx("Entfernen")}</button>}</div>
+                <AddressFields value={a} onChange={(v) => setNewAddrs((list) => list.map((x) => (x.k === a.k ? { ...v, k: a.k } : x)))} org={org} />
+              </div>
+            ))}
+            {newAddrs.length < 20 && <button type="button" data-add-addr className={btnLight} onClick={() => setNewAddrs((list) => [...list, { k: Math.max(...list.map((x) => x.k)) + 1, ...emptyAddr() }])}><Plus size={15} />{tx("weitere Adresse")}</button>}
+          </div>
         ) : (
           <div className="space-y-1.5">
             {addrs.length === 0 && <p className="text-sm text-slate-500">{tx("Noch keine Adresse gespeichert.")}</p>}
