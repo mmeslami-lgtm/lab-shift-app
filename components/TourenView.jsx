@@ -32,7 +32,7 @@ function tx(...a) {
 }
 const DEFAULT_SETTINGS = { industry: "general", near_km: 3, fairness_pp: 10, travel_min: 30 };
 const INDUSTRY = { cleaning: "Reinigung", care: "Pflege & Betreuung", facility: "Hausmeister & Technik", general: "Allgemein" };
-import { CalendarDays, ClipboardList, Users, Settings, LogOut, MapPin, Plus, X, ChevronLeft, ChevronRight, Phone, KeyRound, UserCog, MoreHorizontal, FileText, Printer } from "lucide-react";
+import { CalendarDays, ClipboardList, Users, Settings, LogOut, MapPin, Plus, X, ChevronLeft, ChevronRight, Phone, KeyRound, UserCog, MoreHorizontal, FileText, Printer, BookOpen } from "lucide-react";
 
 const SOURCES = [["phone", "Telefon"], ["whatsapp", "WhatsApp"], ["website", "Website"], ["email", "E-Mail"], ["in_person", "Persönlich"], ["referral", "Empfehlung"], ["other", "Sonstiges"]];
 const STATUS = {
@@ -2767,6 +2767,7 @@ export default function TourenView() {
       )}
       {flash && <div className="dg-group" role="status"><div className="dg-msg dg-msg-ok">{flash}</div></div>}
       <div className="dg-bottom">
+        <a href="/touren/guide" className="dg-item"><BookOpen size={18} strokeWidth={1.9} aria-hidden="true" /><span className="dg-item-label">{tx("Anleitung")}</span></a>
         <button type="button" className="dg-item" onClick={() => sb.auth.signOut()}><LogOut size={18} strokeWidth={1.9} aria-hidden="true" /><span className="dg-item-label">{tx("Abmelden")}</span></button>
       </div>
     </nav>
@@ -2809,6 +2810,7 @@ export default function TourenView() {
             {isLeader && <button type="button" onClick={() => { setReqOpen(true); setMoreOpen(false); }}><FileText size={18} aria-hidden="true" />{tx("Anträge")}{reqCount ? <span className="ml-auto rounded-full bg-rose-600 px-2 text-xs font-bold text-white">{reqCount}</span> : null}</button>}
             {isLeader && <button type="button" onClick={() => { setZugOpen(true); setMoreOpen(false); }}><KeyRound size={18} aria-hidden="true" />{tx("Zugänge")}</button>}
             {hasPlanner && <a href={plannerHref}><CalendarDays size={18} aria-hidden="true" />{tx("Dienstplan")}</a>}
+            <a href="/touren/guide"><BookOpen size={18} aria-hidden="true" />{tx("Anleitung")}</a>
             <button type="button" onClick={() => sb.auth.signOut()}><LogOut size={18} aria-hidden="true" />{tx("Abmelden")}</button>
           </div>
         </div>
